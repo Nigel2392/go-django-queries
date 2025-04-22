@@ -27,7 +27,7 @@ go get github.com/Nigel2392/go-django-queries@latest
 
 We provide a short example of how to use the package.
 
-It is assumed that the database tables are already set-up and that the go-django app is already instantiated.
+It is assumed that the database tables are already set-up and that the [go-django app is already instantiated](https://github.com/Nigel2392/go-django/blob/main/docs/configuring.md).
 
 ### Defining your models
 

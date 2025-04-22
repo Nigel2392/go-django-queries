@@ -215,7 +215,7 @@ package main
 
 import (
     "github.com/Nigel2392/go-django-queries/src"
-    "path/to/your/database/driver"
+    myDriver "path/to/your/database/driver"
 )
 
 func init() {

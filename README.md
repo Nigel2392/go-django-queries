@@ -14,7 +14,7 @@ provide some helper functions to work with the database.
   - [Deleting records](#deleting-records)
   - [Querying records](#querying-records)
 
-Latest version: `v1.0.1`
+Latest version: `v1.0.2`
 
 ## Installation
 
@@ -198,4 +198,28 @@ func (m *Todo) FieldDefs() attrs.Definitions {
     OrderBy("-ID", "-User.Name", "-User.Profile.Email").
     Limit(5).
     All()
+```
+
+### Database Drivers & Query translations
+
+This only works automatically if your driver is one of the following:
+
+- github.com/go-sql-driver/mysql.MySQLDriver
+- github.com/mattn/go-sqlite3.SQLiteDriver
+- github.com/jackc/pgx/v5/stdlib.Driver
+
+Otherwise the database driver needs to be explicitly registered with `RegisterDriver`.
+
+```go
+package main
+
+import (
+    "github.com/Nigel2392/go-django-queries/src"
+    "path/to/your/database/driver"
+)
+
+func init() {
+    // Register the database driver with the package
+    queries.RegisterDriver(&myDriver.SQLiteDriver{}, "sqlite3")
+}
 ```

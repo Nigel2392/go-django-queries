@@ -503,22 +503,17 @@ func (qs *QuerySet[T]) First() (T, error) {
 }
 
 func (qs *QuerySet[T]) Count() (int, error) {
-	q, err := getQueryInfo(qs.model)
-	if err != nil {
-		return 0, err
-	}
-
 	query := new(strings.Builder)
 	query.WriteString("SELECT COUNT(*) FROM ")
 	qs.writeTableName(query)
 	qs.writeJoins(query)
 	args := qs.writeWhereClause(query)
 
-	sql := q.dbx.Rebind(query.String())
+	sql := qs.queryInfo.dbx.Rebind(query.String())
 	logger.Debugf("Count QuerySet (%T): %s", qs.model, sql)
 
 	var count int
-	err = q.dbx.Get(&count, sql, args...)
+	var err = qs.queryInfo.dbx.Get(&count, sql, args...)
 	return count, err
 }
 

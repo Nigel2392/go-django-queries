@@ -30,7 +30,7 @@ We provide a short example of how to use the package.
 
 It is assumed that the database tables are already set-up and that the [go-django app is already instantiated](https://github.com/Nigel2392/go-django/blob/main/docs/configuring.md).
 
-Most of this package is confirmed to be compatible with MySQL, SQLite3 and PostgreSQL - using [SQLX](github.com/jmoiron/sqlx) to translate the queries in between databases.
+Most of this package is confirmed to be compatible with MySQL, SQLite3 and PostgreSQL - using [SQLX](https://github.com/jmoiron/sqlx) to translate the queries in between databases.
 
 ### Basic setup for different databases
 

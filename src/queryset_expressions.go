@@ -102,6 +102,28 @@ func normalizeArgs(op string, value []any) []any {
 	return value
 }
 
+func sqlCondition(field string, lookup string, value []any) (string, []any, error) {
+	value = normalizeArgs(lookup, value)
+	switch lookup {
+	case "exact":
+		return fmt.Sprintf("%s = ?", field), value, nil
+	case "icontains":
+		return fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", field), value, nil
+	case "contains":
+		return fmt.Sprintf("%s LIKE ?", field), value, nil
+	case "gt":
+		return fmt.Sprintf("%s > ?", field), value, nil
+	case "gte":
+		return fmt.Sprintf("%s >= ?", field), value, nil
+	case "lt":
+		return fmt.Sprintf("%s < ?", field), value, nil
+	case "lte":
+		return fmt.Sprintf("%s <= ?", field), value, nil
+	default:
+		return "", value, fmt.Errorf("unsupported lookup: %s", lookup)
+	}
+}
+
 func walkFields(m attrs.Definer, column string) (definer attrs.Definer, parent attrs.Definer, f attrs.Field, chain []string, isRelated bool, err error) {
 	var parts = strings.Split(column, ".")
 	var current = m
@@ -145,13 +167,13 @@ type ExprNode struct {
 }
 
 func Expr(field string, operation string, value ...any) *ExprNode {
-	sqlCond, err := sqlCondition(field, operation)
+	sqlCond, value, err := sqlCondition(field, operation, value)
 	if err != nil {
 		panic(err)
 	}
 	return &ExprNode{
 		sql:    sqlCond,
-		args:   normalizeArgs(operation, value),
+		args:   value,
 		column: field,
 		lookup: operation,
 	}

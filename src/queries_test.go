@@ -15,15 +15,21 @@ import (
 )
 
 const (
+	createTableImages = `CREATE TABLE IF NOT EXISTS images (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	path TEXT
+)`
+
 	createTableProfiles = `CREATE TABLE IF NOT EXISTS profiles (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	image_id INTEGER REFERENCES images(id),
 	name TEXT,
 	email TEXT
 )`
 
 	createTableUsers = `CREATE TABLE IF NOT EXISTS users (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	profile_id INTEGER,
+	profile_id INTEGER REFERENCES profiles(id),
 	name TEXT
 )`
 	createTableTodos = `CREATE TABLE IF NOT EXISTS todos (
@@ -36,10 +42,26 @@ const (
 	selectTodo = `SELECT id, title, description, done, user_id FROM todos WHERE id = ?`
 )
 
+type Image struct {
+	ID   int
+	Path string
+}
+
+func (m *Image) FieldDefs() attrs.Definitions {
+	return attrs.Define(m,
+		attrs.NewField(m, "ID", &attrs.FieldConfig{
+			Primary:  true,
+			ReadOnly: true,
+		}),
+		attrs.NewField(m, "Path", &attrs.FieldConfig{}),
+	).WithTableName("images")
+}
+
 type Profile struct {
 	ID    int
 	Name  string
 	Email string
+	Image *Image
 }
 
 func (m *Profile) FieldDefs() attrs.Definitions {
@@ -50,6 +72,10 @@ func (m *Profile) FieldDefs() attrs.Definitions {
 		}),
 		attrs.NewField(m, "Name", &attrs.FieldConfig{}),
 		attrs.NewField(m, "Email", &attrs.FieldConfig{}),
+		attrs.NewField(m, "Image", &attrs.FieldConfig{
+			RelForeignKey: &Image{},
+			Column:        "image_id",
+		}),
 	).WithTableName("profiles")
 }
 
@@ -113,6 +139,11 @@ func init() {
 	}
 	var settings = map[string]interface{}{
 		django.APPVAR_DATABASE: db,
+	}
+
+	// create tables
+	if _, err = db.Exec(createTableImages); err != nil {
+		panic(fmt.Sprint("failed to create table images ", err))
 	}
 
 	if _, err = db.Exec(createTableProfiles); err != nil {
@@ -491,9 +522,18 @@ func TestQueryRelated(t *testing.T) {
 }
 
 func TestQueryNestedRelated(t *testing.T) {
+	var image = &Image{
+		Path: "test/path/to/image.jpg",
+	}
+
+	if err := queries.CreateObject(image); err != nil || image.ID == 0 {
+		t.Fatalf("Failed to insert image: %v", err)
+	}
+
 	var profile = &Profile{
 		Name:  "test profile",
 		Email: "test@example.com",
+		Image: image,
 	}
 
 	if err := queries.CreateObject(profile); err != nil || profile.ID == 0 {
@@ -521,7 +561,7 @@ func TestQueryNestedRelated(t *testing.T) {
 	}
 
 	todos, err := queries.Objects(&Todo{}).
-		Fields("ID", "Title", "Description", "Done", "User", "User.Profile").
+		Fields("ID", "Title", "Description", "Done", "User", "User.Profile", "User.Profile.Image").
 		Filter(
 			queries.Q("Title__icontains", "new test"),
 			queries.Q("Done", false),
@@ -555,8 +595,8 @@ func TestQueryNestedRelated(t *testing.T) {
 	}
 
 	var dbTodo = todos[0]
-	t.Logf("Created todo: %+v, %+v, %+v", todo, todo.User, todo.User.Profile)
-	t.Logf("Filtered todo: %+v, %+v, %+v", dbTodo, dbTodo.User, dbTodo.User.Profile)
+	t.Logf("Created todo: %+v, %+v, %+v, %+v", todo, todo.User, todo.User.Profile, todo.User.Profile.Image)
+	t.Logf("Filtered todo: %+v, %+v, %+v, %+v", dbTodo, dbTodo.User, dbTodo.User.Profile, dbTodo.User.Profile.Image)
 
 	if dbTodo.ID != todo.ID || todo.ID == 0 {
 		t.Fatalf("Expected todo ID %d, got %d", todo.ID, dbTodo.ID)
@@ -596,5 +636,13 @@ func TestQueryNestedRelated(t *testing.T) {
 
 	if dbTodo.User.Profile.Name != todo.User.Profile.Name {
 		t.Fatalf("Expected todo user profile name %q, got %q", todo.User.Profile.Name, dbTodo.User.Profile.Name)
+	}
+
+	if dbTodo.User.Profile.Image == nil {
+		t.Fatalf("Expected todo user profile image to be not nil")
+	}
+
+	if dbTodo.User.Profile.Image.ID != todo.User.Profile.Image.ID {
+		t.Fatalf("Expected todo user profile image ID %d, got %d", todo.User.Profile.Image.ID, dbTodo.User.Profile.Image.ID)
 	}
 }

@@ -314,12 +314,8 @@ func (qs *QuerySet[T]) writeWhereClause(sb *strings.Builder) []any {
 	var args = make([]any, 0)
 	if len(qs.where) > 0 {
 		sb.WriteString(" WHERE ")
-		var where = make([]Expression, len(qs.where))
-		for i, info := range qs.where {
-			where[i] = info.Clone().With(qs.model, qs.quote)
-		}
 		args = append(
-			args, buildWhereClause(sb, where)...,
+			args, buildWhereClause(sb, qs.model, qs.quote, qs.where)...,
 		)
 	}
 	return args
@@ -342,12 +338,8 @@ func (qs *QuerySet[T]) writeHaving(sb *strings.Builder) []any {
 	var args = make([]any, 0)
 	if len(qs.having) > 0 {
 		sb.WriteString(" HAVING ")
-		var having = make([]Expression, len(qs.having))
-		for i, info := range qs.having {
-			having[i] = info.Clone().With(qs.model, qs.quote)
-		}
 		args = append(
-			args, buildWhereClause(sb, having)...,
+			args, buildWhereClause(sb, qs.model, qs.quote, qs.having)...,
 		)
 	}
 	return args
@@ -534,9 +526,10 @@ func (qs *QuerySet[T]) Count() (int, error) {
 // Helpers
 // -----------------------------------------------------------------------------
 
-func buildWhereClause(b *strings.Builder, exprs []Expression) []any {
+func buildWhereClause(b *strings.Builder, model attrs.Definer, quote string, exprs []Expression) []any {
 	var args = make([]any, 0)
 	for i, e := range exprs {
+		e := e.Clone().With(model, quote)
 		e.SQL(b)
 		if i < len(exprs)-1 {
 			b.WriteString(" AND ")
@@ -545,25 +538,4 @@ func buildWhereClause(b *strings.Builder, exprs []Expression) []any {
 	}
 
 	return args
-}
-
-func sqlCondition(field string, lookup string) (string, error) {
-	switch lookup {
-	case "exact":
-		return fmt.Sprintf("%s = ?", field), nil
-	case "icontains":
-		return fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", field), nil
-	case "contains":
-		return fmt.Sprintf("%s LIKE ?", field), nil
-	case "gt":
-		return fmt.Sprintf("%s > ?", field), nil
-	case "gte":
-		return fmt.Sprintf("%s >= ?", field), nil
-	case "lt":
-		return fmt.Sprintf("%s < ?", field), nil
-	case "lte":
-		return fmt.Sprintf("%s <= ?", field), nil
-	default:
-		return "", fmt.Errorf("unsupported lookup: %s", lookup)
-	}
 }

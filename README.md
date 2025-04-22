@@ -53,7 +53,7 @@ func init() {
 
 ### Defining your models
 
-The models are defined using the [`attrs`](github.com/Nigel2392/go-django/blob/main/docs/attrs.md) package, which is part of the `go-django` package.
+The models are defined using the [`attrs`](https://github.com/Nigel2392/go-django/blob/main/docs/attrs.md) package, which is part of the `go-django` package.
 
 ```go
 type Profile struct {

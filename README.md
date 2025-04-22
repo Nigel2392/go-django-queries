@@ -1,6 +1,6 @@
 # go-django-queries
 
-while Go-Django tries to do as little as possible with the database, some things might be made easier if we
+while [Go-Django](https://github.com/Nigel2392/go-django) tries to do as little as possible with the database, some things might be made easier if we
 provide some helper functions to make it easier to work with the database.
 
 **Table of Contents**

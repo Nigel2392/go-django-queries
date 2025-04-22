@@ -204,9 +204,9 @@ func (m *Todo) FieldDefs() attrs.Definitions {
 
 This only works automatically if your driver is one of the following:
 
-- github.com/go-sql-driver/mysql.MySQLDriver
-- github.com/mattn/go-sqlite3.SQLiteDriver
-- github.com/jackc/pgx/v5/stdlib.Driver
+- `github.com/go-sql-driver/mysql.MySQLDriver`
+- `github.com/mattn/go-sqlite3.SQLiteDriver`
+- `github.com/jackc/pgx/v5/stdlib.Driver`
 
 Otherwise the database driver needs to be explicitly registered with `RegisterDriver`.
 

@@ -36,7 +36,7 @@ Most of this package is confirmed to be compatible with MySQL, SQLite3 and Postg
 
 Semantics for PostgreSQL, MySQL or SQLite3 might differ slightly, such as which quotes to use for the table names and column names.
 
-This can be overridden (on a package level) by setting `queries.Quote` to the desired quote character, by default it is set to ```.
+This can be overridden (on a package level) by setting `queries.Quote` to the desired quote character, by default it is set to "`".
 
 ```go
 package main

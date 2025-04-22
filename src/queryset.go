@@ -80,7 +80,7 @@ func Objects[T attrs.Definer](model T) *QuerySet[T] {
 
 	return &QuerySet[T]{
 		queryInfo: q,
-		quote:     quote,
+		quote:     Quote,
 		model:     model,
 		where:     make([]Expression, 0),
 		having:    make([]Expression, 0),
@@ -173,13 +173,13 @@ func (qs *QuerySet[T]) Fields(fields ...string) *QuerySet[T] {
 			var (
 				condA = fmt.Sprintf(
 					"%s%s%s.%s%s%s",
-					quote, info.srcTable, quote,
-					quote, info.srcField.ColumnName(), quote,
+					qs.quote, info.srcTable, qs.quote,
+					qs.quote, info.srcField.ColumnName(), qs.quote,
 				)
 				condB = fmt.Sprintf(
 					"%s%s%s.%s%s%s",
-					quote, relTable, quote,
-					quote, relPrimary.ColumnName(), quote,
+					qs.quote, relTable, qs.quote,
+					qs.quote, relPrimary.ColumnName(), qs.quote,
 				)
 			)
 

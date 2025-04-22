@@ -14,7 +14,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-const quote = `"`
+var Quote = "`"
 
 func GetObject[T attrs.Definer](identifier any) (T, error) {
 	var obj = newDefiner[T]()
@@ -236,7 +236,7 @@ func ListObjects[T attrs.Definer](offset, limit uint64, ordering ...string) ([]T
 	}
 
 	var orderer = models.Orderer{
-		Quote:     quote,
+		Quote:     Quote,
 		Default:   "-" + primaryName,
 		TableName: queryInfo.tableName,
 		Fields:    ordering,
@@ -257,14 +257,14 @@ func ListObjects[T attrs.Definer](offset, limit uint64, ordering ...string) ([]T
 			query.WriteString(", ")
 		}
 
-		query.Grow(len(name) + len(queryInfo.tableName) + 1 + (len(quote) * 4))
-		query.WriteString(quote)
+		query.Grow(len(name) + len(queryInfo.tableName) + 1 + (len(Quote) * 4))
+		query.WriteString(Quote)
 		query.WriteString(queryInfo.tableName)
-		query.WriteString(quote)
+		query.WriteString(Quote)
 		query.WriteString(".")
-		query.WriteString(quote)
+		query.WriteString(Quote)
 		query.WriteString(name)
-		query.WriteString(quote)
+		query.WriteString(Quote)
 	}
 
 	query.WriteString(" FROM ")

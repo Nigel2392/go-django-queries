@@ -7,13 +7,14 @@ provide some helper functions to make it easier to work with the database.
 
 - [Installation](#installation)
 - [Usage](#usage)
+  - [Basic setup for different databases](#basic-setup-for-different-databases)
   - [Defining your models](#defining-your-models)
   - [Inserting new records](#inserting-new-records)
   - [Updating records](#updating-records)
   - [Deleting records](#deleting-records)
   - [Querying records](#querying-records)
 
-Latest version: `v1.0.0`
+Latest version: `v1.0.1`
 
 ## Installation
 
@@ -28,6 +29,27 @@ go get github.com/Nigel2392/go-django-queries@latest
 We provide a short example of how to use the package.
 
 It is assumed that the database tables are already set-up and that the [go-django app is already instantiated](https://github.com/Nigel2392/go-django/blob/main/docs/configuring.md).
+
+Most of this package is confirmed to be compatible with MySQL, SQLite3 and PostgreSQL - using [SQLX](github.com/jmoiron/sqlx) to translate the queries in between databases.
+
+### Basic setup for different databases
+
+Semantics for PostgreSQL, MySQL or SQLite3 might differ slightly, such as which quotes to use for the table names and column names.
+
+This can be overridden (on a package level) by setting `queries.Quote` to the desired quote character, by default it is set to ```.
+
+```go
+package main
+
+import (
+    "github.com/Nigel2392/go-django-queries/src"
+)
+
+func init() {
+    // Set the quote character to be used for table and column names
+    queries.Quote = `"`
+}
+```
 
 ### Defining your models
 
@@ -174,5 +196,4 @@ func (m *Todo) FieldDefs() attrs.Definitions {
     OrderBy("-ID", "-User.Name", "-User.Profile.Email").
     Limit(5).
     All()
-
 ```

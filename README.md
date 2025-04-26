@@ -185,8 +185,16 @@ func (m *Todo) FieldDefs() attrs.Definitions {
 ### Querying records
 
 ```go
-  todos, err := queries.Objects(&Todo{}).
-    Fields("ID", "Title", "Description", "Done", "User", "User.Profile").
+  query := queries.Objects(&Todo{}).
+    // Select the user and profile fields, append a star to
+    // automatically select all related fields, User.Profile would always result in a join
+    Select("ID", "Title", "Description", "Done", "User.*", "User.Profile.*").
+
+    // Select the user and profile fields, leaving out star operator
+    // This would not result in a join, and only fetch the user's ID
+    Select("ID", "Title", "Description", "Done", "User").
+
+    // Generate a WHERE clause with the given conditions
     Filter(
       queries.Q("Title__icontains", "new test"),
       queries.Q("Done", true),
@@ -195,9 +203,48 @@ func (m *Todo) FieldDefs() attrs.Definitions {
       queries.Q("User.Profile.Email__icontains", profile.Email),
       queries.Q("User.Profile.ID", profile.ID),
     ).
+    // Generate an ORDER BY clause with the given conditions
     OrderBy("-ID", "-User.Name", "-User.Profile.Email").
     Limit(5).
     All()
+
+
+    // todos is of type Query[[]*Todo, *Todo]
+    todos, err := query.Exec() // / []*Todo, error
+    if err != nil {
+      t.Fatalf("Failed to query todos: %v", err)
+    }
+
+    fmt.Printf("Queried todos: %v\n", todos)
+    fmt.Printf("Executed SQL: %s\n", query.SQL())
+```
+
+#### The `Query` interface
+
+The `Query` represents a query that can be executed against the database.
+
+It is used to give the developers a way to introspect the query and its arguments.
+
+No database lookup will be performed until the `Exec()` method is called.
+
+The `Exec()` method will return the result of the query and an error if one occurred.
+
+```go
+// - T1 is the type of the result
+// - T2 is the type of the model
+type Query[T1 any, T2 any] interface {
+  // The SQL query string to be executed
+  SQL() string
+
+  // Arguments to be passed to the query
+  Args() []any
+
+  // The model which the query is for
+  Model() T2
+
+  // Execute the query and return the result 
+  Exec() (T1, error)
+}
 ```
 
 ### Database Drivers & Query translations

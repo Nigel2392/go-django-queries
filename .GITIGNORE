@@ -1,1 +1,4 @@
 ./.vscode
+src/tables_types_test.go
+src/tables_types.go
+src/tables.go

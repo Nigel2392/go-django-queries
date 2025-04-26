@@ -3,7 +3,7 @@ module github.com/Nigel2392/go-django-queries
 go 1.24.2
 
 require (
-	github.com/Nigel2392/go-django v1.6.10-0.20250422105743-bb0d1a24f347
+	github.com/Nigel2392/go-django v1.6.10-0.20250424205829-11c87c6bd7e2
 	github.com/go-sql-driver/mysql v1.9.2
 	github.com/jackc/pgx/v5 v5.7.4
 	github.com/jmoiron/sqlx v1.4.0

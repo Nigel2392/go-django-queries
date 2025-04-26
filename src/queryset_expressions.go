@@ -107,18 +107,50 @@ func sqlCondition(field string, lookup string, value []any) (string, []any, erro
 	switch lookup {
 	case "exact":
 		return fmt.Sprintf("%s = ?", field), value, nil
-	case "icontains":
+
+	case "icontains", "istartswith", "iendswith":
 		return fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", field), value, nil
-	case "contains":
+
+	case "contains", "startswith", "endswith":
 		return fmt.Sprintf("%s LIKE ?", field), value, nil
+
 	case "gt":
 		return fmt.Sprintf("%s > ?", field), value, nil
+
 	case "gte":
 		return fmt.Sprintf("%s >= ?", field), value, nil
+
 	case "lt":
 		return fmt.Sprintf("%s < ?", field), value, nil
+
 	case "lte":
 		return fmt.Sprintf("%s <= ?", field), value, nil
+
+	case "in":
+		if len(value) == 0 {
+			return "", value, fmt.Errorf("no values provided for IN lookup")
+		}
+		var placeholders = make([]string, len(value))
+		for i := range value {
+			placeholders[i] = "?"
+		}
+		return fmt.Sprintf("%s IN (%s)", field, strings.Join(placeholders, ",")), value, nil
+
+	case "isnull":
+		if len(value) != 1 {
+			return "", value, fmt.Errorf("ISNULL lookup requires exactly one value")
+		}
+		if value[0] == nil || value[0] == false {
+			return fmt.Sprintf("%s IS NOT NULL", field), nil, nil
+		}
+		return fmt.Sprintf("%s IS NULL", field), nil, nil
+
+	case "range":
+		if len(value) != 2 {
+			return "", value, fmt.Errorf("RANGE lookup requires exactly two values")
+		}
+		return fmt.Sprintf("%s BETWEEN ? AND ?", field), value, nil
+
 	default:
 		return "", value, fmt.Errorf("unsupported lookup: %s", lookup)
 	}
@@ -136,14 +168,14 @@ func walkFields(m attrs.Definer, column string) (definer attrs.Definer, parent a
 			return nil, nil, nil, nil, false, fmt.Errorf("field %q not found in %T", part, current)
 		}
 
-		chainParts = append(chainParts, part)
 		field = f
 
 		var rel = f.Rel()
-		if i == len(parts)-1 && rel == nil {
+		if i == len(parts)-1 {
 			break
 		}
 
+		chainParts = append(chainParts, part)
 		parent = current
 		current = rel
 		if current == nil {
@@ -328,18 +360,19 @@ func (g *ExprGroup) Clone() Expression {
 }
 
 func (g *ExprGroup) With(m attrs.Definer, quote string) Expression {
-	for _, e := range g.children {
-		e.With(m, quote)
+	var gClone = g.Clone().(*ExprGroup)
+	for i, e := range gClone.children {
+		gClone.children[i] = e.With(m, quote)
 	}
-	return g
+	return gClone
 }
 
-// FuncExpr is a function expression for SQL queries.
+// RawExpr is a function expression for SQL queries.
 // It is used to represent a function call in SQL queries.
 //
 // It can be used like so:
 //
-//		FuncExpr{
+//		RawExpr{
 //			// Represent the SQL function call, with each %s being replaced by the corresponding field in fields.
 //			sql:    `SUBSTR(TRIM(%s, " "), 0, 2) = ?``,
 //	     	// The fields to be used in the SQL function call. Each field will be replaced by the corresponding value in args.
@@ -347,7 +380,7 @@ func (g *ExprGroup) With(m attrs.Definer, quote string) Expression {
 //			// The arguments to be used in the SQL function call. Each argument will be replaced by the corresponding value in args.
 //			args:   []any{"ab"},
 //		}
-type FuncExpr struct {
+type RawExpr struct {
 	Statement string
 	Fields    []string
 	Params    []any
@@ -355,7 +388,7 @@ type FuncExpr struct {
 	used      bool
 }
 
-func (e *FuncExpr) SQL(sb *strings.Builder) {
+func (e *RawExpr) SQL(sb *strings.Builder) {
 	if len(e.Fields) == 0 {
 		sb.WriteString(e.Statement)
 		return
@@ -370,29 +403,29 @@ func (e *FuncExpr) SQL(sb *strings.Builder) {
 	sb.WriteString(str)
 }
 
-func (e *FuncExpr) Args() []any {
+func (e *RawExpr) Args() []any {
 	return e.Params
 }
 
-func (e *FuncExpr) Not(not bool) Expression {
+func (e *RawExpr) Not(not bool) Expression {
 	e.not = not
 	return e
 }
 
-func (e *FuncExpr) IsNot() bool {
+func (e *RawExpr) IsNot() bool {
 	return e.not
 }
 
-func (e *FuncExpr) And(exprs ...Expression) Expression {
+func (e *RawExpr) And(exprs ...Expression) Expression {
 	return &ExprGroup{children: append([]Expression{e}, exprs...), op: OpAnd}
 }
 
-func (e *FuncExpr) Or(exprs ...Expression) Expression {
+func (e *RawExpr) Or(exprs ...Expression) Expression {
 	return &ExprGroup{children: append([]Expression{e}, exprs...), op: OpOr}
 }
 
-func (e *FuncExpr) Clone() Expression {
-	return &FuncExpr{
+func (e *RawExpr) Clone() Expression {
+	return &RawExpr{
 		Statement: e.Statement,
 		Fields:    e.Fields,
 		Params:    e.Params,
@@ -401,24 +434,25 @@ func (e *FuncExpr) Clone() Expression {
 	}
 }
 
-func (e *FuncExpr) With(m attrs.Definer, quote string) Expression {
+func (e *RawExpr) With(m attrs.Definer, quote string) Expression {
 	if m == nil || e.used {
 		return e
 	}
 
-	e.used = true
+	var nE = e.Clone().(*RawExpr)
+	nE.used = true
 
-	for i, field := range e.Fields {
+	for i, field := range nE.Fields {
 		var current, _, f, _, _, err = walkFields(m, field)
 		if err != nil {
 			panic(err)
 		}
 		var defs = current.FieldDefs()
-		e.Fields[i] = fmt.Sprintf(
+		nE.Fields[i] = fmt.Sprintf(
 			"%s%s%s.%s%s%s",
 			quote, defs.TableName(), quote,
 			quote, f.ColumnName(), quote,
 		)
 	}
-	return e
+	return nE
 }

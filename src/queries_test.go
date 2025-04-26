@@ -359,6 +359,7 @@ func TestQuerySet_Filter(t *testing.T) {
 		Select("ID", "Title", "Description", "Done").
 		Filter("Title__icontains", "test").
 		Filter("Done", false).
+		Filter("User__isnull", true).
 		OrderBy("-ID").
 		Limit(5).
 		All().Exec()
@@ -484,7 +485,7 @@ func TestQueryRelated(t *testing.T) {
 	}
 
 	todos, err := queries.Objects(&Todo{}).
-		Select("ID", "Title", "Description", "Done", "User.*", "User.Profile.*").
+		Select("ID", "Title", "Description", "Done", "User.Name", "User.Profile.*").
 		Filter(
 			queries.Q("Title__icontains", "new test"),
 			queries.Q("Done", false),
@@ -526,8 +527,8 @@ func TestQueryRelated(t *testing.T) {
 		t.Fatalf("Expected todo user to be not nil")
 	}
 
-	if dbTodo.User.ID != todo.User.ID {
-		t.Fatalf("Expected todo user ID %d, got %d", todo.User.ID, dbTodo.User.ID)
+	if dbTodo.User.ID != 0 {
+		t.Fatalf("Expected todo user ID to be 0, got %d", dbTodo.User.ID)
 	}
 
 	if dbTodo.User.Name != todo.User.Name {

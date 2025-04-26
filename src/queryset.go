@@ -319,6 +319,20 @@ func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
 	return nqs
 }
 
+func (qs *QuerySet[T]) Reverse() *QuerySet[T] {
+	var ordBy = make([]OrderBy, 0, len(qs.orderBy))
+	for _, ord := range qs.orderBy {
+		ordBy = append(ordBy, OrderBy{
+			Table: ord.Table,
+			Field: ord.Field,
+			Desc:  !ord.Desc,
+		})
+	}
+	var nqs = qs.Clone()
+	nqs.orderBy = ordBy
+	return nqs
+}
+
 func (qs *QuerySet[T]) Union(f func(*QuerySet[attrs.Definer])) *QuerySet[T] {
 	var nqs = qs.Clone()
 	nqs.union = append(nqs.union, f)
@@ -414,20 +428,6 @@ func (qs *QuerySet[T]) All() Query[[]T, T] {
 			return results, nil
 		},
 	}
-}
-
-func (qs *QuerySet[T]) Reverse() *QuerySet[T] {
-	var ordBy = make([]OrderBy, 0, len(qs.orderBy))
-	for _, ord := range qs.orderBy {
-		ordBy = append(ordBy, OrderBy{
-			Table: ord.Table,
-			Field: ord.Field,
-			Desc:  !ord.Desc,
-		})
-	}
-	var nqs = qs.Clone()
-	nqs.orderBy = ordBy
-	return nqs
 }
 
 func (qs *QuerySet[T]) First() Query[T, T] {
@@ -842,7 +842,7 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []any {
 func buildWhereClause(b *strings.Builder, model attrs.Definer, quote string, exprs []Expression) []any {
 	var args = make([]any, 0)
 	for i, e := range exprs {
-		e := e.Clone().With(model, quote)
+		e := e.With(model, quote)
 		e.SQL(b)
 		if i < len(exprs)-1 {
 			b.WriteString(" AND ")

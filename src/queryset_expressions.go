@@ -102,31 +102,44 @@ func normalizeArgs(op string, value []any) []any {
 	return value
 }
 
-func sqlCondition(field string, lookup string, value []any) (string, []any, error) {
-	value = normalizeArgs(lookup, value)
-	switch lookup {
-	case "exact":
+var lookups = map[string]func(col string, value []any) (sql string, args []any, err error){
+	"exact": func(field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s = ?", field), value, nil
-
-	case "icontains", "istartswith", "iendswith":
-		return fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", field), value, nil
-
-	case "contains", "startswith", "endswith":
-		return fmt.Sprintf("%s LIKE ?", field), value, nil
-
-	case "gt":
+	},
+	"iexact": func(field string, value []any) (string, []any, error) {
+		return fmt.Sprintf("LOWER(%s) = LOWER(?)", field), normalizeArgs("iexact", value), nil
+	},
+	"icontains": func(field string, value []any) (string, []any, error) {
+		return fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", field), normalizeArgs("icontains", value), nil
+	},
+	"istartswith": func(field string, value []any) (string, []any, error) {
+		return fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", field), normalizeArgs("istartswith", value), nil
+	},
+	"iendswith": func(field string, value []any) (string, []any, error) {
+		return fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", field), normalizeArgs("iendswith", value), nil
+	},
+	"contains": func(field string, value []any) (string, []any, error) {
+		return fmt.Sprintf("%s LIKE ?", field), normalizeArgs("contains", value), nil
+	},
+	"startswith": func(field string, value []any) (string, []any, error) {
+		return fmt.Sprintf("%s LIKE ?", field), normalizeArgs("startswith", value), nil
+	},
+	"endswith": func(field string, value []any) (string, []any, error) {
+		return fmt.Sprintf("%s LIKE ?", field), normalizeArgs("endswith", value), nil
+	},
+	"gt": func(field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s > ?", field), value, nil
-
-	case "gte":
+	},
+	"gte": func(field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s >= ?", field), value, nil
-
-	case "lt":
+	},
+	"lt": func(field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s < ?", field), value, nil
-
-	case "lte":
+	},
+	"lte": func(field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s <= ?", field), value, nil
-
-	case "in":
+	},
+	"in": func(field string, value []any) (string, []any, error) {
 		if len(value) == 0 {
 			return "", value, fmt.Errorf("no values provided for IN lookup")
 		}
@@ -135,25 +148,34 @@ func sqlCondition(field string, lookup string, value []any) (string, []any, erro
 			placeholders[i] = "?"
 		}
 		return fmt.Sprintf("%s IN (%s)", field, strings.Join(placeholders, ",")), value, nil
-
-	case "isnull":
+	},
+	"isnull": func(field string, value []any) (string, []any, error) {
 		if len(value) != 1 {
-			return "", value, fmt.Errorf("ISNULL lookup requires exactly one value")
+			return "", value, fmt.Errorf("ISNULL lookup requires exactly one value, got %d %+v", len(value), value)
 		}
 		if value[0] == nil || value[0] == false {
-			return fmt.Sprintf("%s IS NOT NULL", field), nil, nil
+			return fmt.Sprintf("%s IS NOT NULL", field), []any{}, nil
 		}
-		return fmt.Sprintf("%s IS NULL", field), nil, nil
-
-	case "range":
+		return fmt.Sprintf("%s IS NULL", field), []any{}, nil
+	},
+	"range": func(field string, value []any) (string, []any, error) {
 		if len(value) != 2 {
 			return "", value, fmt.Errorf("RANGE lookup requires exactly two values")
 		}
 		return fmt.Sprintf("%s BETWEEN ? AND ?", field), value, nil
+	},
+}
 
-	default:
-		return "", value, fmt.Errorf("unsupported lookup: %s", lookup)
+func sqlCondition(field string, lookup string, value []any) (string, []any, error) {
+	var fn, ok = lookups[lookup]
+	if !ok {
+		return "", nil, fmt.Errorf("unsupported lookup %q", lookup)
 	}
+	var sql, args, err = fn(field, value)
+	if err != nil {
+		return "", nil, err
+	}
+	return sql, args, nil
 }
 
 func walkFields(m attrs.Definer, column string) (definer attrs.Definer, parent attrs.Definer, f attrs.Field, chain []string, isRelated bool, err error) {
@@ -193,20 +215,15 @@ type ExprNode struct {
 	args   []any
 	not    bool
 	model  attrs.Definer
-	column string
+	field  string
 	lookup string
 	used   bool
 }
 
 func Expr(field string, operation string, value ...any) *ExprNode {
-	sqlCond, value, err := sqlCondition(field, operation, value)
-	if err != nil {
-		panic(err)
-	}
 	return &ExprNode{
-		sql:    sqlCond,
 		args:   value,
-		column: field,
+		field:  field,
 		lookup: operation,
 	}
 }
@@ -222,7 +239,7 @@ func (e *ExprNode) With(m attrs.Definer, quote string) Expression {
 
 	nE.model = m
 
-	var current, _, field, _, _, err = walkFields(m, nE.column)
+	var current, _, field, _, _, err = walkFields(m, nE.field)
 	if err != nil {
 		panic(err)
 	}
@@ -234,23 +251,9 @@ func (e *ExprNode) With(m attrs.Definer, quote string) Expression {
 		quote, field.ColumnName(), quote,
 	)
 
-	switch nE.lookup {
-	case "exact":
-		nE.sql = fmt.Sprintf("%s = ?", col)
-	case "icontains", "istartswith", "iendswith":
-		nE.sql = fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", col)
-	case "contains", "startswith", "endswith":
-		nE.sql = fmt.Sprintf("%s LIKE ?", col)
-	case "gt":
-		nE.sql = fmt.Sprintf("%s > ?", col)
-	case "gte":
-		nE.sql = fmt.Sprintf("%s >= ?", col)
-	case "lt":
-		nE.sql = fmt.Sprintf("%s < ?", col)
-	case "lte":
-		nE.sql = fmt.Sprintf("%s <= ?", col)
-	default:
-		panic(fmt.Errorf("unsupported lookup: %s", e.lookup))
+	nE.sql, nE.args, err = sqlCondition(col, nE.lookup, nE.args)
+	if err != nil {
+		panic(err)
 	}
 
 	return nE
@@ -292,7 +295,7 @@ func (e *ExprNode) Clone() Expression {
 		sql:    e.sql,
 		args:   e.args,
 		not:    e.not,
-		column: e.column,
+		field:  e.field,
 		lookup: e.lookup,
 		model:  e.model,
 		used:   e.used,

@@ -193,6 +193,11 @@ func (m *Todo) FieldDefs() attrs.Definitions {
     // Select the user and profile fields, leaving out star operator
     // This would not result in a join, and only fetch the user's ID
     Select("ID", "Title", "Description", "Done", "User").
+    
+    // Select the user and profile fields, leaving out star operator
+    // for the profile, but not for the user
+    // This would result in a join, but only for the user - not the profile.
+    Select("ID", "Title", "Description", "Done", "User.*", "User.Profile").
 
     // Generate a WHERE clause with the given conditions
     Filter(

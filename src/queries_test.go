@@ -455,8 +455,18 @@ func TestQuerySet_Count(t *testing.T) {
 
 func TestQueryRelated(t *testing.T) {
 
+	var profile = &Profile{
+		Name:  "test profile",
+		Email: "test@example.com",
+	}
+
+	if err := queries.CreateObject(profile); err != nil || profile.ID == 0 {
+		t.Fatalf("Failed to insert profile: %v", err)
+	}
+
 	var user = &User{
-		Name: "test user",
+		Name:    "test user",
+		Profile: profile,
 	}
 	if err := queries.CreateObject(user); err != nil || user.ID == 0 {
 		t.Fatalf("Failed to insert user: %v", err)
@@ -474,7 +484,7 @@ func TestQueryRelated(t *testing.T) {
 	}
 
 	todos, err := queries.Objects(&Todo{}).
-		Select("ID", "Title", "Description", "Done", "User.*").
+		Select("ID", "Title", "Description", "Done", "User.*", "User.Profile.*").
 		Filter(
 			queries.Q("Title__icontains", "new test"),
 			queries.Q("Done", false),
@@ -518,6 +528,26 @@ func TestQueryRelated(t *testing.T) {
 
 	if dbTodo.User.ID != todo.User.ID {
 		t.Fatalf("Expected todo user ID %d, got %d", todo.User.ID, dbTodo.User.ID)
+	}
+
+	if dbTodo.User.Name != todo.User.Name {
+		t.Fatalf("Expected todo user name %q, got %q", todo.User.Name, dbTodo.User.Name)
+	}
+
+	if dbTodo.User.Profile == nil {
+		t.Fatalf("Expected todo user profile to be not nil")
+	}
+
+	if dbTodo.User.Profile.ID != todo.User.Profile.ID {
+		t.Fatalf("Expected todo user profile ID %d, got %d", todo.User.Profile.ID, dbTodo.User.Profile.ID)
+	}
+
+	if dbTodo.User.Profile.Name != todo.User.Profile.Name {
+		t.Fatalf("Expected todo user profile name %q, got %q", todo.User.Profile.Name, dbTodo.User.Profile.Name)
+	}
+
+	if dbTodo.User.Profile.Email != todo.User.Profile.Email {
+		t.Fatalf("Expected todo user profile email %q, got %q", todo.User.Profile.Email, dbTodo.User.Profile.Email)
 	}
 }
 

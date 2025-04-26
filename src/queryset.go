@@ -2,13 +2,11 @@ package queries
 
 import (
 	"fmt"
-	"iter"
 	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/pkg/errors"
 )
 
@@ -18,12 +16,26 @@ import (
 
 type Union func(*QuerySet[attrs.Definer])
 
+type JoinDef struct {
+	Table      string
+	TypeJoin   string
+	ConditionA string
+	Logic      string
+	ConditionB string
+}
+
 type FieldInfo struct {
 	SourceField attrs.Field
 	Model       attrs.Definer
 	Table       string
 	Chain       []string
 	Fields      []attrs.Field
+}
+
+type OrderBy struct {
+	Table string
+	Field string
+	Desc  bool
 }
 
 func (f *FieldInfo) writeFields(sb *strings.Builder, quote string) {
@@ -42,50 +54,6 @@ func (f *FieldInfo) writeFields(sb *strings.Builder, quote string) {
 	}
 }
 
-type Query[T1 any, T2 any] interface {
-	SQL() string
-	Args() []any
-	Model() T2
-	Exec() (T1, error)
-}
-
-type (
-	IterQuery[T any]       Query[iter.Seq[T], T]
-	CountQuery[T any]      Query[int64, T]
-	ExistsQuery[T any]     Query[bool, T]
-	ValuesListQuery[T any] Query[[][]any, T]
-)
-
-type queryObject[T1 any, T2 any] struct {
-	exec  func(sql string, args ...any) (T1, error)
-	model T2
-	args  []any
-	sql   string
-}
-
-func (q *queryObject[T1, T2]) SQL() string {
-	return q.sql
-}
-
-func (q *queryObject[T1, T2]) Args() []any {
-	return q.args
-}
-
-func (q *queryObject[T1, T2]) Model() T2 {
-	return q.model
-}
-
-func (q *queryObject[T1, T2]) Exec() (T1, error) {
-	logger.Debugf("Query (%T): %s", q.model, q.sql)
-	return q.exec(q.sql, q.args...)
-}
-
-type OrderBy struct {
-	Table string
-	Field string
-	Desc  bool
-}
-
 type QuerySet[T attrs.Definer] struct {
 	quote     string
 	queryInfo *queryInfo[T]
@@ -101,14 +69,6 @@ type QuerySet[T attrs.Definer] struct {
 	union     []Union
 	forUpdate bool
 	distinct  bool
-}
-
-type JoinDef struct {
-	Table      string
-	TypeJoin   string
-	ConditionA string
-	Logic      string
-	ConditionB string
 }
 
 func Objects[T attrs.Definer](model T) *QuerySet[T] {
@@ -230,9 +190,13 @@ func (qs *QuerySet[T]) Select(fields ...string) *QuerySet[T] {
 			panic(err)
 		}
 
+		// The field might be a relation
 		var rel = field.Rel()
-		if len(chain) == 0 && rel != nil && allFields {
-			chain = []string{field.Name()}
+
+		// If all fields of the relation are requested, we need to add the relation
+		// to the join list. We also need to add the parent field to the chain.
+		if rel != nil && allFields {
+			chain = append(chain, field.Name())
 			parent = current
 			current = rel
 			isRelated = true
@@ -290,12 +254,6 @@ func (qs *QuerySet[T]) Select(fields ...string) *QuerySet[T] {
 
 			continue
 		}
-
-		//if len(chain) == 1 && tableName != qs.queryInfo.tableName {
-		//	var parentDefs = parent.FieldDefs()
-		//	tableName = parentDefs.TableName()
-		//	current = parent
-		//}
 
 		fieldInfos = append(fieldInfos, FieldInfo{
 			Model:  current,
@@ -389,166 +347,6 @@ func (qs *QuerySet[T]) Distinct() *QuerySet[T] {
 	var nqs = qs.Clone()
 	nqs.distinct = true
 	return nqs
-}
-
-func (qs *QuerySet[T]) writeTableName(sb *strings.Builder) {
-	sb.WriteString(qs.quote)
-	sb.WriteString(qs.queryInfo.tableName)
-	sb.WriteString(qs.quote)
-}
-
-func (qs *QuerySet[T]) writeJoins(sb *strings.Builder) {
-	for _, join := range qs.joins {
-		sb.WriteString(" ")
-		sb.WriteString(join.TypeJoin)
-		sb.WriteString(" ")
-		sb.WriteString(qs.quote)
-		sb.WriteString(join.Table)
-		sb.WriteString(qs.quote)
-		sb.WriteString(" ON ")
-		sb.WriteString(join.ConditionA)
-		sb.WriteString(" ")
-		sb.WriteString(join.Logic)
-		sb.WriteString(" ")
-		sb.WriteString(join.ConditionB)
-	}
-}
-
-func (qs *QuerySet[T]) writeWhereClause(sb *strings.Builder) []any {
-	var args = make([]any, 0)
-	if len(qs.where) > 0 {
-		sb.WriteString(" WHERE ")
-		args = append(
-			args, buildWhereClause(sb, qs.model, qs.quote, qs.where)...,
-		)
-	}
-	return args
-}
-
-func (qs *QuerySet[T]) writeGroupBy(sb *strings.Builder) {
-	if len(qs.groupBy) > 0 {
-		sb.WriteString(" GROUP BY ")
-		for i, info := range qs.groupBy {
-			if i > 0 {
-				sb.WriteString(", ")
-			}
-
-			info.writeFields(sb, qs.quote)
-		}
-	}
-}
-
-func (qs *QuerySet[T]) writeHaving(sb *strings.Builder) []any {
-	var args = make([]any, 0)
-	if len(qs.having) > 0 {
-		sb.WriteString(" HAVING ")
-		args = append(
-			args, buildWhereClause(sb, qs.model, qs.quote, qs.having)...,
-		)
-	}
-	return args
-}
-
-func (qs *QuerySet[T]) writeOrderBy(sb *strings.Builder) {
-	if len(qs.orderBy) > 0 {
-		sb.WriteString(" ORDER BY ")
-
-		for i, field := range qs.orderBy {
-			if i > 0 {
-				sb.WriteString(", ")
-			}
-			sb.WriteString(qs.quote)
-			sb.WriteString(field.Table)
-			sb.WriteString(qs.quote)
-			sb.WriteString(".")
-			sb.WriteString(qs.quote)
-			sb.WriteString(field.Field)
-			sb.WriteString(qs.quote)
-
-			if field.Desc {
-				sb.WriteString(" DESC")
-			} else {
-				sb.WriteString(" ASC")
-			}
-		}
-	}
-}
-
-func (qs *QuerySet[T]) writeLimitOffset(sb *strings.Builder) []any {
-	var args = make([]any, 0)
-	if qs.limit > 0 {
-		sb.WriteString(" LIMIT ?")
-		args = append(args, qs.limit)
-	}
-
-	if qs.offset > 0 {
-		sb.WriteString(" OFFSET ?")
-		args = append(args, qs.offset)
-	}
-	return args
-}
-
-func getScannableFields(fields []FieldInfo, root attrs.Definer) []any {
-	var listSize = 0
-	for _, info := range fields {
-		listSize += len(info.Fields)
-	}
-
-	var scannables = make([]any, 0, listSize)
-	var instances = map[string]attrs.Definer{"": root}
-	for _, info := range fields {
-		if info.SourceField == nil {
-			defs := root.FieldDefs()
-			for _, f := range info.Fields {
-				field, ok := defs.Field(f.Name())
-				if !ok {
-					panic(fmt.Errorf("field %q not found in %T", f.Name(), root))
-				}
-				scannables = append(scannables, field)
-			}
-			continue
-		}
-
-		// Walk chain
-		var parentKey string
-		for i, name := range info.Chain {
-			key := strings.Join(info.Chain[:i+1], ".")
-			parent := instances[parentKey]
-			defs := parent.FieldDefs()
-
-			field, ok := defs.Field(name)
-			if !ok {
-				panic(fmt.Errorf("field %q not found in %T", name, parent))
-			}
-
-			if _, exists := instances[key]; !exists {
-				var obj attrs.Definer
-				if i == len(info.Chain)-1 {
-					obj = newObjectFromIface(info.Model)
-				} else {
-					obj = newObjectFromIface(field.Rel())
-				}
-				if err := field.SetValue(obj, true); err != nil {
-					panic(fmt.Errorf("failed to set relation %q: %w", field.Name(), err))
-				}
-				instances[key] = obj
-			}
-
-			parentKey = key
-		}
-
-		var final = instances[parentKey]
-		var finalDefs = final.FieldDefs()
-		for _, f := range info.Fields {
-			field, ok := finalDefs.Field(f.Name())
-			if !ok {
-				panic(fmt.Errorf("field %q not found in %T", f.Name(), final))
-			}
-			scannables = append(scannables, field)
-		}
-	}
-
-	return scannables
 }
 
 func (qs *QuerySet[T]) All() Query[[]T, T] {
@@ -828,6 +626,10 @@ func (qs *QuerySet[T]) Update(value T) CountQuery[T] {
 			panic(fmt.Errorf("failed to get value for field %q: %w", field.Name(), err))
 		}
 
+		if value == nil && !field.AllowNull() {
+			panic(fmt.Errorf("field %q cannot be nil", field.Name()))
+		}
+
 		args = append(args, value)
 		written = true
 	}
@@ -867,6 +669,170 @@ func (qs *QuerySet[T]) Delete() CountQuery[T] {
 			return result.RowsAffected()
 		},
 	}
+}
+
+// -----------------------------------------------------------------------------
+// Query Building
+// -----------------------------------------------------------------------------
+
+func (qs *QuerySet[T]) writeTableName(sb *strings.Builder) {
+	sb.WriteString(qs.quote)
+	sb.WriteString(qs.queryInfo.tableName)
+	sb.WriteString(qs.quote)
+}
+
+func (qs *QuerySet[T]) writeJoins(sb *strings.Builder) {
+	for _, join := range qs.joins {
+		sb.WriteString(" ")
+		sb.WriteString(join.TypeJoin)
+		sb.WriteString(" ")
+		sb.WriteString(qs.quote)
+		sb.WriteString(join.Table)
+		sb.WriteString(qs.quote)
+		sb.WriteString(" ON ")
+		sb.WriteString(join.ConditionA)
+		sb.WriteString(" ")
+		sb.WriteString(join.Logic)
+		sb.WriteString(" ")
+		sb.WriteString(join.ConditionB)
+	}
+}
+
+func (qs *QuerySet[T]) writeWhereClause(sb *strings.Builder) []any {
+	var args = make([]any, 0)
+	if len(qs.where) > 0 {
+		sb.WriteString(" WHERE ")
+		args = append(
+			args, buildWhereClause(sb, qs.model, qs.quote, qs.where)...,
+		)
+	}
+	return args
+}
+
+func (qs *QuerySet[T]) writeGroupBy(sb *strings.Builder) {
+	if len(qs.groupBy) > 0 {
+		sb.WriteString(" GROUP BY ")
+		for i, info := range qs.groupBy {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+
+			info.writeFields(sb, qs.quote)
+		}
+	}
+}
+
+func (qs *QuerySet[T]) writeHaving(sb *strings.Builder) []any {
+	var args = make([]any, 0)
+	if len(qs.having) > 0 {
+		sb.WriteString(" HAVING ")
+		args = append(
+			args, buildWhereClause(sb, qs.model, qs.quote, qs.having)...,
+		)
+	}
+	return args
+}
+
+func (qs *QuerySet[T]) writeOrderBy(sb *strings.Builder) {
+	if len(qs.orderBy) > 0 {
+		sb.WriteString(" ORDER BY ")
+
+		for i, field := range qs.orderBy {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(qs.quote)
+			sb.WriteString(field.Table)
+			sb.WriteString(qs.quote)
+			sb.WriteString(".")
+			sb.WriteString(qs.quote)
+			sb.WriteString(field.Field)
+			sb.WriteString(qs.quote)
+
+			if field.Desc {
+				sb.WriteString(" DESC")
+			} else {
+				sb.WriteString(" ASC")
+			}
+		}
+	}
+}
+
+func (qs *QuerySet[T]) writeLimitOffset(sb *strings.Builder) []any {
+	var args = make([]any, 0)
+	if qs.limit > 0 {
+		sb.WriteString(" LIMIT ?")
+		args = append(args, qs.limit)
+	}
+
+	if qs.offset > 0 {
+		sb.WriteString(" OFFSET ?")
+		args = append(args, qs.offset)
+	}
+	return args
+}
+
+func getScannableFields(fields []FieldInfo, root attrs.Definer) []any {
+	var listSize = 0
+	for _, info := range fields {
+		listSize += len(info.Fields)
+	}
+
+	var scannables = make([]any, 0, listSize)
+	var instances = map[string]attrs.Definer{"": root}
+	for _, info := range fields {
+		if info.SourceField == nil {
+			defs := root.FieldDefs()
+			for _, f := range info.Fields {
+				field, ok := defs.Field(f.Name())
+				if !ok {
+					panic(fmt.Errorf("field %q not found in %T", f.Name(), root))
+				}
+				scannables = append(scannables, field)
+			}
+			continue
+		}
+
+		// Walk chain
+		var parentKey string
+		for i, name := range info.Chain {
+			key := strings.Join(info.Chain[:i+1], ".")
+			parent := instances[parentKey]
+			defs := parent.FieldDefs()
+
+			field, ok := defs.Field(name)
+			if !ok {
+				panic(fmt.Errorf("field %q not found in %T", name, parent))
+			}
+
+			if _, exists := instances[key]; !exists {
+				var obj attrs.Definer
+				if i == len(info.Chain)-1 {
+					obj = newObjectFromIface(info.Model)
+				} else {
+					obj = newObjectFromIface(field.Rel())
+				}
+				if err := field.SetValue(obj, true); err != nil {
+					panic(fmt.Errorf("failed to set relation %q: %w", field.Name(), err))
+				}
+				instances[key] = obj
+			}
+
+			parentKey = key
+		}
+
+		var final = instances[parentKey]
+		var finalDefs = final.FieldDefs()
+		for _, f := range info.Fields {
+			field, ok := finalDefs.Field(f.Name())
+			if !ok {
+				panic(fmt.Errorf("field %q not found in %T", f.Name(), final))
+			}
+			scannables = append(scannables, field)
+		}
+	}
+
+	return scannables
 }
 
 // -----------------------------------------------------------------------------

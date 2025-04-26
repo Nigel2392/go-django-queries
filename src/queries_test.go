@@ -699,7 +699,7 @@ func TestQueryValuesList(t *testing.T) {
 		var b strings.Builder
 		b.WriteString("[")
 		for i, v := range value {
-			b.WriteString(fmt.Sprintf("%v", v))
+			b.WriteString(fmt.Sprintf("(%T) %v", v, v))
 			if i < len(value)-1 {
 				b.WriteString(", ")
 			}

@@ -14,7 +14,7 @@ provide some helper functions to work with the database.
   - [Deleting records](#deleting-records)
   - [Querying records](#querying-records)
 
-Latest version: `v1.0.2`
+Latest version: `v1.0.5`
 
 ## Installation
 

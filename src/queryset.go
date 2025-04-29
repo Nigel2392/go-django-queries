@@ -1,9 +1,11 @@
 package queries
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -14,7 +16,9 @@ import (
 // QuerySet
 // -----------------------------------------------------------------------------
 
-type Union func(*QuerySet[attrs.Definer])
+const MAX_GET_RESULTS = 21
+
+type Union func(*QuerySet) *QuerySet
 
 type JoinDef struct {
 	Table      string
@@ -38,7 +42,7 @@ type OrderBy struct {
 	Desc  bool
 }
 
-func (f *FieldInfo) writeFields(sb *strings.Builder, quote string) {
+func (f *FieldInfo) WriteFields(sb *strings.Builder, quote string) {
 	for i, field := range f.Fields {
 		if i > 0 {
 			sb.WriteString(", ")
@@ -54,10 +58,9 @@ func (f *FieldInfo) writeFields(sb *strings.Builder, quote string) {
 	}
 }
 
-type QuerySet[T attrs.Definer] struct {
-	quote     string
-	queryInfo *queryInfo[T]
-	model     T
+type QuerySet struct {
+	queryInfo *queryInfo
+	model     attrs.Definer
 	fields    []FieldInfo
 	where     []Expression
 	having    []Expression
@@ -69,18 +72,27 @@ type QuerySet[T attrs.Definer] struct {
 	union     []Union
 	forUpdate bool
 	distinct  bool
+	compiler  QueryCompiler
 }
 
-func Objects[T attrs.Definer](model T) *QuerySet[T] {
-	var q, err = getQueryInfo(model)
-	if err != nil {
-		panic(err)
+func Objects(model attrs.Definer) *QuerySet {
+
+	if model == nil {
+		panic("QuerySet: model is nil")
 	}
 
-	return &QuerySet[T]{
-		queryInfo: q,
-		quote:     Quote,
+	var queryInfo, err = getBaseQueryInfo(model)
+	if err != nil {
+		panic(fmt.Errorf("QuerySet: %w", err))
+	}
+
+	if queryInfo == nil {
+		panic("QuerySet: queryInfo is nil")
+	}
+
+	var qs = &QuerySet{
 		model:     model,
+		queryInfo: queryInfo,
 		where:     make([]Expression, 0),
 		having:    make([]Expression, 0),
 		joins:     make([]JoinDef, 0),
@@ -89,11 +101,24 @@ func Objects[T attrs.Definer](model T) *QuerySet[T] {
 		limit:     1000,
 		offset:    0,
 	}
+	qs.compiler = Compiler(model)
+	return qs
 }
 
-func (qs *QuerySet[T]) Clone() *QuerySet[T] {
-	return &QuerySet[T]{
-		quote:     qs.quote,
+func (qs *QuerySet) DB() DB {
+	return qs.compiler.DB()
+}
+
+func (qs *QuerySet) Model() attrs.Definer {
+	return qs.model
+}
+
+func (qs *QuerySet) Compiler() QueryCompiler {
+	return qs.compiler
+}
+
+func (qs *QuerySet) Clone() *QuerySet {
+	return &QuerySet{
 		model:     qs.model,
 		queryInfo: qs.queryInfo,
 		fields:    slices.Clone(qs.fields),
@@ -107,10 +132,11 @@ func (qs *QuerySet[T]) Clone() *QuerySet[T] {
 		offset:    qs.offset,
 		forUpdate: qs.forUpdate,
 		distinct:  qs.distinct,
+		compiler:  qs.compiler,
 	}
 }
 
-func (qs *QuerySet[T]) unpackFields(fields ...string) (infos []FieldInfo, hasRelated bool) {
+func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelated bool) {
 	infos = make([]FieldInfo, 0, len(qs.fields))
 	var info = FieldInfo{
 		Table:  qs.queryInfo.tableName,
@@ -159,7 +185,36 @@ func (qs *QuerySet[T]) unpackFields(fields ...string) (infos []FieldInfo, hasRel
 	return infos, hasRelated
 }
 
-func (qs *QuerySet[T]) Select(fields ...string) *QuerySet[T] {
+func (qs *QuerySet) attrFields(obj attrs.Definer) []attrs.Field {
+	var defs = obj.FieldDefs()
+	var fields []attrs.Field
+	if len(qs.fields) > 0 {
+		fields = make([]attrs.Field, 0, len(qs.fields))
+		for _, info := range qs.fields {
+			for _, field := range info.Fields {
+				var f, ok = defs.Field(field.Name())
+				if !ok {
+					panic(fmt.Errorf("field %q not found in %T", field.Name(), obj))
+				}
+				fields = append(fields, f)
+			}
+		}
+	} else {
+		var all = defs.Fields()
+		fields = make([]attrs.Field, 0, len(all))
+		for _, field := range all {
+			var val = field.GetValue()
+			var rVal = reflect.ValueOf(val)
+			if rVal.IsValid() && rVal.IsZero() {
+				continue
+			}
+			fields = append(fields, field)
+		}
+	}
+	return fields
+}
+
+func (qs *QuerySet) Select(fields ...string) *QuerySet {
 	qs = qs.Clone()
 
 	var (
@@ -212,15 +267,16 @@ func (qs *QuerySet[T]) Select(fields ...string) *QuerySet[T] {
 				panic(fmt.Errorf("field %q not found in %T", chain[len(chain)-1], parent))
 			}
 
+			var front, back = qs.compiler.Quote()
 			var condA = fmt.Sprintf(
 				"%s%s%s.%s%s%s",
-				qs.quote, parentDefs.TableName(), qs.quote,
-				qs.quote, parentField.ColumnName(), qs.quote,
+				front, parentDefs.TableName(), back,
+				front, parentField.ColumnName(), back,
 			)
 			var condB = fmt.Sprintf(
 				"%s%s%s.%s%s%s",
-				qs.quote, tableName, qs.quote,
-				qs.quote, relField.ColumnName(), qs.quote,
+				front, tableName, back,
+				front, relField.ColumnName(), back,
 			)
 
 			var includedFields []attrs.Field
@@ -270,25 +326,25 @@ func (qs *QuerySet[T]) Select(fields ...string) *QuerySet[T] {
 	return qs
 }
 
-func (qs *QuerySet[T]) Filter(key interface{}, vals ...interface{}) *QuerySet[T] {
+func (qs *QuerySet) Filter(key interface{}, vals ...interface{}) *QuerySet {
 	var nqs = qs.Clone()
 	nqs.where = append(qs.where, express(key, vals...)...)
 	return nqs
 }
 
-func (qs *QuerySet[T]) Having(key interface{}, vals ...interface{}) *QuerySet[T] {
+func (qs *QuerySet) Having(key interface{}, vals ...interface{}) *QuerySet {
 	var nqs = qs.Clone()
 	nqs.having = append(qs.having, express(key, vals...)...)
 	return nqs
 }
 
-func (qs *QuerySet[T]) GroupBy(fields ...string) *QuerySet[T] {
+func (qs *QuerySet) GroupBy(fields ...string) *QuerySet {
 	var nqs = qs.Clone()
 	nqs.groupBy, _ = qs.unpackFields(fields...)
 	return nqs
 }
 
-func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
+func (qs *QuerySet) OrderBy(fields ...string) *QuerySet {
 	var nqs = qs.Clone()
 	nqs.orderBy = make([]OrderBy, 0, len(fields))
 
@@ -319,7 +375,7 @@ func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
 	return nqs
 }
 
-func (qs *QuerySet[T]) Reverse() *QuerySet[T] {
+func (qs *QuerySet) Reverse() *QuerySet {
 	var ordBy = make([]OrderBy, 0, len(qs.orderBy))
 	for _, ord := range qs.orderBy {
 		ordBy = append(ordBy, OrderBy{
@@ -333,274 +389,319 @@ func (qs *QuerySet[T]) Reverse() *QuerySet[T] {
 	return nqs
 }
 
-func (qs *QuerySet[T]) Union(f func(*QuerySet[attrs.Definer])) *QuerySet[T] {
+func (qs *QuerySet) Union(f func(*QuerySet) *QuerySet) *QuerySet {
 	var nqs = qs.Clone()
 	nqs.union = append(nqs.union, f)
 	return nqs
 }
 
-func (qs *QuerySet[T]) Limit(n int) *QuerySet[T] {
+func (qs *QuerySet) Limit(n int) *QuerySet {
 	var nqs = qs.Clone()
 	nqs.limit = n
 	return nqs
 }
 
-func (qs *QuerySet[T]) Offset(n int) *QuerySet[T] {
+func (qs *QuerySet) Offset(n int) *QuerySet {
 	var nqs = qs.Clone()
 	nqs.offset = n
 	return nqs
 }
 
-func (qs *QuerySet[T]) ForUpdate() *QuerySet[T] {
+func (qs *QuerySet) ForUpdate() *QuerySet {
 	var nqs = qs.Clone()
 	nqs.forUpdate = true
 	return nqs
 }
 
-func (qs *QuerySet[T]) Distinct() *QuerySet[T] {
+func (qs *QuerySet) Distinct() *QuerySet {
 	var nqs = qs.Clone()
 	nqs.distinct = true
 	return nqs
 }
 
-func (qs *QuerySet[T]) All() Query[[]T, T] {
-	var (
-		query = new(strings.Builder)
-		args  []any
-	)
-
+func (qs *QuerySet) All() Query[[]attrs.Definer] {
 	if len(qs.fields) == 0 {
 		qs = qs.Select("*")
 	}
 
-	query.WriteString("SELECT ")
+	var resultQuery = qs.compiler.BuildSelectQuery(
+		context.Background(),
+		qs,
+		qs.fields,
+		qs.where,
+		qs.having,
+		qs.joins,
+		qs.groupBy,
+		qs.orderBy,
+		qs.limit,
+		qs.offset,
+		qs.union,
+		qs.forUpdate,
+		qs.distinct,
+	)
 
-	if qs.distinct {
-		query.WriteString("DISTINCT ")
-	}
-
-	for i, info := range qs.fields {
-		if i > 0 {
-			query.WriteString(", ")
-		}
-		info.writeFields(query, qs.quote)
-	}
-
-	query.WriteString(" FROM ")
-	qs.writeTableName(query)
-	qs.writeJoins(query)
-	args = append(args, qs.writeWhereClause(query)...)
-	qs.writeGroupBy(query)
-	args = append(args, qs.writeHaving(query)...)
-	qs.writeOrderBy(query)
-	args = append(args, qs.writeLimitOffset(query)...)
-
-	if qs.forUpdate {
-		query.WriteString(" FOR UPDATE")
-	}
-
-	return &queryObject[[]T, T]{
-		sql:   qs.queryInfo.dbx.Rebind(query.String()),
-		model: qs.model,
-		args:  args,
-		exec: func(sql string, args ...any) ([]T, error) {
-
-			rows, err := qs.queryInfo.db.Query(sql, args...)
+	return &wrappedQuery[[][]interface{}, []attrs.Definer]{
+		query: resultQuery,
+		exec: func(q Query[[][]interface{}]) ([]attrs.Definer, error) {
+			var results, err = q.Exec()
 			if err != nil {
-				return nil, errors.Wrap(err, "failed to execute query")
+				return nil, err
 			}
-			defer rows.Close()
 
-			var results []T
-			for rows.Next() {
-				var row = newObjectFromIface(qs.model).(T)
-				var fields = getScannableFields(qs.fields, row)
-				if err := rows.Scan(fields...); err != nil {
-					return nil, errors.Wrap(err, "failed to scan row")
+			var list = make([]attrs.Definer, len(results))
+			for i, row := range results {
+				var obj = newObjectFromIface(qs.model)
+				var fields = getScannableFields(qs.fields, obj)
+
+				for j, field := range fields {
+					var f = field.(attrs.Field)
+					var val = row[j]
+
+					if err = f.Scan(val); err != nil {
+						return nil, errors.Wrapf(
+							err,
+							"failed to scan field %q in %T",
+							f.Name(), obj,
+						)
+					}
 				}
 
-				results = append(results, row)
-			}
-			if err := rows.Err(); err != nil {
-				return nil, errors.Wrap(err, "failed to iterate rows")
+				list[i] = obj
 			}
 
-			return results, nil
+			return list, nil
 		},
 	}
 }
 
-func (qs *QuerySet[T]) First() Query[T, T] {
+func (qs *QuerySet) ValuesList(fields ...string) ValuesListQuery {
+
+	qs = qs.Select(fields...)
+
+	var resultQuery = qs.compiler.BuildSelectQuery(
+		context.Background(),
+		qs,
+		qs.fields,
+		qs.where,
+		qs.having,
+		qs.joins,
+		qs.groupBy,
+		qs.orderBy,
+		qs.limit,
+		qs.offset,
+		qs.union,
+		qs.forUpdate,
+		qs.distinct,
+	)
+
+	return &wrappedQuery[[][]interface{}, [][]any]{
+		query: resultQuery,
+		exec: func(q Query[[][]interface{}]) ([][]any, error) {
+			var results, err = q.Exec()
+			if err != nil {
+				return nil, err
+			}
+
+			var list = make([][]any, len(results))
+			for i, row := range results {
+				var obj = newObjectFromIface(qs.model)
+				var fields = getScannableFields(qs.fields, obj)
+				var values = make([]any, len(fields))
+				for j, field := range fields {
+					var f = field.(attrs.Field)
+					var val = row[j]
+
+					if err = f.Scan(val); err != nil {
+						return nil, errors.Wrapf(
+							err,
+							"failed to scan field %q in %T",
+							f.Name(), row,
+						)
+					}
+
+					var v = f.GetValue()
+					values[j] = v
+				}
+
+				list[i] = values
+			}
+
+			return list, nil
+		},
+	}
+}
+
+func (qs *QuerySet) Get() Query[attrs.Definer] {
+	qs = qs.Limit(MAX_GET_RESULTS)
+	q := qs.All()
+
+	return &wrappedQuery[[]attrs.Definer, attrs.Definer]{
+		query: q,
+		exec: func(q Query[[]attrs.Definer]) (attrs.Definer, error) {
+			var results, err = q.Exec()
+			if err != nil {
+				return nil, err
+			}
+			var resCnt = len(results)
+			if resCnt == 0 {
+				return nil, ErrNoRows
+			}
+			if resCnt > 1 {
+				var errResCnt string
+				if MAX_GET_RESULTS == 0 || resCnt < MAX_GET_RESULTS {
+					errResCnt = strconv.Itoa(resCnt)
+				} else {
+					errResCnt = strconv.Itoa(MAX_GET_RESULTS-1) + "+"
+				}
+
+				return nil, errors.Wrapf(
+					ErrMultipleRows,
+					"multiple rows returned for %T: %s rows",
+					qs.model, errResCnt,
+				)
+			}
+			return results[0], nil
+		},
+	}
+}
+
+func (qs *QuerySet) GetOrCreate(value attrs.Definer) (attrs.Definer, error) {
+
+	if len(qs.where) == 0 {
+		return nil, ErrNoWhereClause
+	}
+
+	// Create a new transaction
+	var ctx = context.Background()
+	var transaction, err = qs.compiler.StartTransaction(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	defer transaction.Rollback()
+
+	// Check if the object already exists
+	var resultQuery = qs.Get()
+	obj, err := resultQuery.Exec()
+	if err != nil {
+		if errors.Is(err, ErrNoRows) {
+			goto create
+		} else {
+			return nil, err
+		}
+	}
+
+	// Object already exists, return it and commit the transaction
+	if obj != nil {
+		return obj, transaction.Commit()
+	}
+
+	// Object does not exist, create it
+create:
+	var createQuery = qs.Create(value)
+	obj, err = createQuery.Exec()
+	if err != nil {
+		return nil, err
+	}
+
+	// Object was created successfully, commit the transaction
+	return obj, transaction.Commit()
+}
+
+func (qs *QuerySet) First() Query[attrs.Definer] {
 	qs = qs.Limit(1)
 	q := qs.All()
-	return &queryObject[T, T]{
-		sql:   q.SQL(),
-		model: qs.model,
-		args:  q.Args(),
-		exec: func(sql string, args ...any) (T, error) {
-			var list, err = q.Exec()
-			if err != nil || len(list) == 0 {
-				return *new(T), err
+
+	return &wrappedQuery[[]attrs.Definer, attrs.Definer]{
+		query: q,
+		exec: func(q Query[[]attrs.Definer]) (attrs.Definer, error) {
+			var results, err = q.Exec()
+			if err != nil {
+				return nil, err
 			}
-			return list[0], nil
+			if len(results) == 0 {
+				return nil, ErrNoRows
+			}
+			return results[0], nil
 		},
 	}
 }
 
-func (qs *QuerySet[T]) Last() Query[T, T] {
+func (qs *QuerySet) Last() Query[attrs.Definer] {
 	var nqs = qs.Reverse()
 	nqs.limit = 1
 	nqs.offset = 0
 	q := nqs.All()
-	return &queryObject[T, T]{
-		sql:   q.SQL(),
-		model: qs.model,
-		args:  q.Args(),
-		exec: func(sql string, args ...any) (T, error) {
-			var list, err = q.Exec()
-			if err != nil || len(list) == 0 {
-				return *new(T), err
-			}
-			return list[0], nil
-		},
-	}
-}
 
-func (qs *QuerySet[T]) Exists() ExistsQuery[T] {
-	query := new(strings.Builder)
-	query.WriteString("SELECT EXISTS(SELECT 1 FROM ")
-	qs.writeTableName(query)
-	qs.writeJoins(query)
-	args := qs.writeWhereClause(query)
-	query.WriteString(" LIMIT 1)")
-
-	return &queryObject[bool, T]{
-		sql:   qs.queryInfo.dbx.Rebind(query.String()),
-		model: qs.model,
-		args:  args,
-		exec: func(sql string, args ...any) (bool, error) {
-			var exists bool
-			var err = qs.queryInfo.dbx.Get(&exists, sql, args...)
-			return exists, err
-		},
-	}
-}
-
-func (qs *QuerySet[T]) Count() CountQuery[T] {
-	query := new(strings.Builder)
-	query.WriteString("SELECT ")
-	query.WriteString("COUNT(*) FROM ")
-	qs.writeTableName(query)
-	qs.writeJoins(query)
-	args := qs.writeWhereClause(query)
-
-	return &queryObject[int64, T]{
-		sql:   qs.queryInfo.dbx.Rebind(query.String()),
-		model: qs.model,
-		args:  args,
-		exec: func(sql string, args ...any) (int64, error) {
-			var count int64
-			var err = qs.queryInfo.dbx.Get(&count, sql, args...)
-			return count, err
-		},
-	}
-}
-
-func (qs *QuerySet[T]) ValuesList(fields ...string) ValuesListQuery[T] {
-
-	qs = qs.Select(fields...)
-
-	var query = new(strings.Builder)
-
-	query.WriteString("SELECT ")
-
-	if qs.distinct {
-		query.WriteString("DISTINCT ")
-	}
-
-	for i, info := range qs.fields {
-		if i > 0 {
-			query.WriteString(", ")
-		}
-
-		info.writeFields(query, qs.quote)
-	}
-
-	query.WriteString(" FROM ")
-	qs.writeTableName(query)
-	qs.writeJoins(query)
-	args := qs.writeWhereClause(query)
-
-	return &queryObject[[][]any, T]{
-		sql:   qs.queryInfo.dbx.Rebind(query.String()),
-		model: qs.model,
-		args:  args,
-		exec: func(sql string, args ...any) ([][]any, error) {
-			var rows, err = qs.queryInfo.db.Query(sql, args...)
+	return &wrappedQuery[[]attrs.Definer, attrs.Definer]{
+		query: q,
+		exec: func(q Query[[]attrs.Definer]) (attrs.Definer, error) {
+			var results, err = q.Exec()
 			if err != nil {
-				return nil, errors.Wrap(err, "failed to execute query")
+				return nil, err
 			}
-			defer rows.Close()
-
-			var values = make([][]any, 0)
-			for rows.Next() {
-				var row = newObjectFromIface(qs.model).(T)
-				var fields = getScannableFields(qs.fields, row)
-				if err := rows.Scan(fields...); err != nil {
-					return nil, errors.Wrap(err, "failed to scan row")
-				}
-
-				var value = make([]any, 0, len(fields))
-				for _, field := range fields {
-					var f = field.(attrs.Field)
-					value = append(value, f.GetValue())
-				}
-
-				values = append(values, value)
+			if len(results) == 0 {
+				return nil, ErrNoRows
 			}
-
-			return values, err
+			return results[0], nil
 		},
 	}
 }
 
-func (qs *QuerySet[T]) Update(value T) CountQuery[T] {
+func (qs *QuerySet) Exists() ExistsQuery {
 	qs = qs.Clone()
 
-	var query = new(strings.Builder)
-	query.WriteString("UPDATE ")
-	qs.writeTableName(query)
-	query.WriteString(" SET ")
+	var resultQuery = qs.compiler.BuildCountQuery(
+		context.Background(),
+		qs,
+		qs.where,
+		qs.joins,
+		qs.groupBy,
+		1,
+		0,
+	)
 
-	var args = make([]any, 0)
+	return &wrappedQuery[int64, bool]{
+		query: resultQuery,
+		exec: func(q Query[int64]) (bool, error) {
+			var exists, err = q.Exec()
+			if err != nil {
+				return false, err
+			}
+			return exists > 0, nil
+		},
+	}
+}
+
+func (qs *QuerySet) Count() CountQuery {
+
+	qs = qs.Clone()
+
+	return qs.compiler.BuildCountQuery(
+		context.Background(),
+		qs,
+		qs.where,
+		qs.joins,
+		qs.groupBy,
+		qs.limit,
+		qs.offset,
+	)
+}
+
+func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
+
+	qs = qs.Clone()
+
 	var defs = value.FieldDefs()
-	var fields []attrs.Field
-
-	if len(qs.fields) > 0 {
-		fields = make([]attrs.Field, 0, len(qs.fields))
-		for _, info := range qs.fields {
-			for _, field := range info.Fields {
-				var f, ok = defs.Field(field.Name())
-				if !ok {
-					panic(fmt.Errorf("field %q not found in %T", field.Name(), value))
-				}
-				fields = append(fields, f)
-			}
-		}
-	} else {
-		var all = defs.Fields()
-		fields = make([]attrs.Field, 0, len(all))
-		for _, field := range all {
-			var val = field.GetValue()
-			var rVal = reflect.ValueOf(val)
-			if rVal.IsValid() && rVal.IsZero() {
-				continue
-			}
-			fields = append(fields, field)
-		}
+	var fields = defs.Fields()
+	var values = make([]any, 0, len(fields))
+	var info = FieldInfo{
+		Model:  value,
+		Table:  defs.TableName(),
+		Fields: make([]attrs.Field, 0),
+		Chain:  make([]string, 0),
 	}
 
-	var written = false
 	for _, field := range fields {
 		var atts = field.Attrs()
 		var v, ok = atts[attrs.AttrAutoIncrementKey]
@@ -612,14 +713,151 @@ func (qs *QuerySet[T]) Update(value T) CountQuery[T] {
 			continue
 		}
 
-		if written {
-			query.WriteString(", ")
+		var value, err = field.Value()
+		if err != nil {
+			panic(fmt.Errorf("failed to get value for field %q: %w", field.Name(), err))
 		}
 
-		query.WriteString(qs.quote)
-		query.WriteString(field.ColumnName())
-		query.WriteString(qs.quote)
-		query.WriteString(" = ?")
+		if value == nil && !field.AllowNull() {
+			panic(errors.Wrapf(
+				ErrFieldNull,
+				"field %q cannot be null",
+				field.Name(),
+			))
+		}
+
+		info.Fields = append(info.Fields, field)
+		values = append(values, value)
+	}
+
+	var support = qs.compiler.SupportsReturning()
+	var resultQuery = qs.compiler.BuildCreateQuery(
+		context.Background(),
+		qs,
+		info,
+		defs.Primary(),
+		values,
+	)
+
+	return &wrappedQuery[[]interface{}, attrs.Definer]{
+		query: resultQuery,
+		exec: func(q Query[[]interface{}]) (attrs.Definer, error) {
+			var results, err = q.Exec()
+			if err != nil {
+				return nil, err
+			}
+
+			var newObj = newObjectFromIface(qs.model)
+			var newDefs = newObj.FieldDefs()
+
+			for _, field := range info.Fields {
+				var (
+					n     = field.Name()
+					f, ok = newDefs.Field(n)
+				)
+				if !ok {
+					panic(fmt.Errorf("field %q not found in %T", n, newObj))
+				}
+
+				var val = field.GetValue()
+				if err := f.SetValue(val, true); err != nil {
+					return nil, errors.Wrapf(
+						err,
+						"failed to set field %q in %T",
+						f.Name(), newObj,
+					)
+				}
+			}
+
+			switch {
+			case len(results) == 0 && support == SupportsReturningNone:
+				// Do nothing
+
+			case len(results) > 0 && support == SupportsReturningLastInsertId:
+				var (
+					id   = results[0].(int64)
+					prim = newDefs.Primary()
+				)
+				if err := prim.SetValue(id, true); err != nil {
+					return nil, errors.Wrapf(
+						err,
+						"failed to set primary key %q in %T",
+						prim.Name(), newObj,
+					)
+				}
+
+			case len(results) > 0 && support == SupportsReturningColumns:
+				var (
+					scannables = getScannableFields([]FieldInfo{info}, newObj)
+					resLen     = len(results)
+					prim       = newDefs.Primary()
+				)
+				if prim != nil {
+					resLen--
+				}
+
+				if len(scannables) != resLen {
+					return nil, errors.Wrapf(
+						ErrLastInsertId,
+						"expected %d results returned after insert, got %d",
+						len(scannables), len(results),
+					)
+				}
+
+				var idx = 0
+				if prim != nil {
+					var id = results[0].(int64)
+					if err := prim.Scan(id); err != nil {
+						return nil, errors.Wrapf(
+							err, "failed to scan primary key %q in %T",
+							prim.Name(), newObj,
+						)
+					}
+					idx++
+				}
+
+				for i, field := range scannables {
+					var f = field.(attrs.Field)
+					var val = results[i+idx]
+
+					if err := f.Scan(val); err != nil {
+						return nil, errors.Wrapf(
+							err,
+							"failed to scan field %q in %T",
+							f.Name(), newObj,
+						)
+					}
+				}
+			}
+
+			return newObj, nil
+		},
+	}
+}
+
+func (qs *QuerySet) Update(value attrs.Definer) CountQuery {
+	qs = qs.Clone()
+
+	var defs = value.FieldDefs()
+	var fields []attrs.Field = qs.attrFields(value)
+	var values = make([]any, 0, len(fields))
+	var info = FieldInfo{
+		Model:  value,
+		Table:  defs.TableName(),
+		Fields: make([]attrs.Field, 0),
+		Chain:  make([]string, 0),
+	}
+
+	for _, field := range fields {
+		var atts = field.Attrs()
+		var v, ok = atts[attrs.AttrAutoIncrementKey]
+		if ok && v.(bool) {
+			continue
+		}
+
+		if field.IsPrimary() || !field.AllowEdit() {
+			continue
+		}
 
 		var value, err = field.Value()
 		if err != nil {
@@ -627,149 +865,42 @@ func (qs *QuerySet[T]) Update(value T) CountQuery[T] {
 		}
 
 		if value == nil && !field.AllowNull() {
-			panic(fmt.Errorf("field %q cannot be nil", field.Name()))
+			panic(errors.Wrapf(
+				ErrFieldNull,
+				"field %q cannot be null",
+				field.Name(),
+			))
 		}
 
-		args = append(args, value)
-		written = true
+		info.Fields = append(info.Fields, field)
+		values = append(values, value)
 	}
 
-	args = append(args, qs.writeWhereClause(query)...)
+	var resultQuery = qs.compiler.BuildUpdateQuery(
+		context.Background(),
+		qs,
+		info,
+		qs.where,
+		qs.joins,
+		qs.groupBy,
+		values,
+	)
 
-	return &queryObject[int64, T]{
-		sql:   qs.queryInfo.dbx.Rebind(query.String()),
-		model: qs.model,
-		args:  args,
-		exec: func(sql string, args ...any) (int64, error) {
-			result, err := qs.queryInfo.db.Exec(sql, args...)
-			if err != nil {
-				return 0, err
-			}
-			return result.RowsAffected()
-		},
-	}
+	return resultQuery
 }
 
-func (qs *QuerySet[T]) Delete() CountQuery[T] {
-	query := new(strings.Builder)
-	query.WriteString("DELETE FROM ")
-	qs.writeTableName(query)
-	qs.writeJoins(query)
-	args := qs.writeWhereClause(query)
+func (qs *QuerySet) Delete() CountQuery {
+	qs = qs.Clone()
 
-	return &queryObject[int64, T]{
-		sql:   qs.queryInfo.dbx.Rebind(query.String()),
-		model: qs.model,
-		args:  args,
-		exec: func(sql string, args ...any) (int64, error) {
-			result, err := qs.queryInfo.db.Exec(sql, args...)
-			if err != nil {
-				return 0, err
-			}
-			return result.RowsAffected()
-		},
-	}
-}
+	var resultQuery = qs.compiler.BuildDeleteQuery(
+		context.Background(),
+		qs,
+		qs.where,
+		qs.joins,
+		qs.groupBy,
+	)
 
-// -----------------------------------------------------------------------------
-// Query Building
-// -----------------------------------------------------------------------------
-
-func (qs *QuerySet[T]) writeTableName(sb *strings.Builder) {
-	sb.WriteString(qs.quote)
-	sb.WriteString(qs.queryInfo.tableName)
-	sb.WriteString(qs.quote)
-}
-
-func (qs *QuerySet[T]) writeJoins(sb *strings.Builder) {
-	for _, join := range qs.joins {
-		sb.WriteString(" ")
-		sb.WriteString(join.TypeJoin)
-		sb.WriteString(" ")
-		sb.WriteString(qs.quote)
-		sb.WriteString(join.Table)
-		sb.WriteString(qs.quote)
-		sb.WriteString(" ON ")
-		sb.WriteString(join.ConditionA)
-		sb.WriteString(" ")
-		sb.WriteString(join.Logic)
-		sb.WriteString(" ")
-		sb.WriteString(join.ConditionB)
-	}
-}
-
-func (qs *QuerySet[T]) writeWhereClause(sb *strings.Builder) []any {
-	var args = make([]any, 0)
-	if len(qs.where) > 0 {
-		sb.WriteString(" WHERE ")
-		args = append(
-			args, buildWhereClause(sb, qs.model, qs.quote, qs.where)...,
-		)
-	}
-	return args
-}
-
-func (qs *QuerySet[T]) writeGroupBy(sb *strings.Builder) {
-	if len(qs.groupBy) > 0 {
-		sb.WriteString(" GROUP BY ")
-		for i, info := range qs.groupBy {
-			if i > 0 {
-				sb.WriteString(", ")
-			}
-
-			info.writeFields(sb, qs.quote)
-		}
-	}
-}
-
-func (qs *QuerySet[T]) writeHaving(sb *strings.Builder) []any {
-	var args = make([]any, 0)
-	if len(qs.having) > 0 {
-		sb.WriteString(" HAVING ")
-		args = append(
-			args, buildWhereClause(sb, qs.model, qs.quote, qs.having)...,
-		)
-	}
-	return args
-}
-
-func (qs *QuerySet[T]) writeOrderBy(sb *strings.Builder) {
-	if len(qs.orderBy) > 0 {
-		sb.WriteString(" ORDER BY ")
-
-		for i, field := range qs.orderBy {
-			if i > 0 {
-				sb.WriteString(", ")
-			}
-			sb.WriteString(qs.quote)
-			sb.WriteString(field.Table)
-			sb.WriteString(qs.quote)
-			sb.WriteString(".")
-			sb.WriteString(qs.quote)
-			sb.WriteString(field.Field)
-			sb.WriteString(qs.quote)
-
-			if field.Desc {
-				sb.WriteString(" DESC")
-			} else {
-				sb.WriteString(" ASC")
-			}
-		}
-	}
-}
-
-func (qs *QuerySet[T]) writeLimitOffset(sb *strings.Builder) []any {
-	var args = make([]any, 0)
-	if qs.limit > 0 {
-		sb.WriteString(" LIMIT ?")
-		args = append(args, qs.limit)
-	}
-
-	if qs.offset > 0 {
-		sb.WriteString(" OFFSET ?")
-		args = append(args, qs.offset)
-	}
-	return args
+	return resultQuery
 }
 
 func getScannableFields(fields []FieldInfo, root attrs.Definer) []any {
@@ -833,22 +964,4 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []any {
 	}
 
 	return scannables
-}
-
-// -----------------------------------------------------------------------------
-// Helpers
-// -----------------------------------------------------------------------------
-
-func buildWhereClause(b *strings.Builder, model attrs.Definer, quote string, exprs []Expression) []any {
-	var args = make([]any, 0)
-	for i, e := range exprs {
-		e := e.With(model, quote)
-		e.SQL(b)
-		if i < len(exprs)-1 {
-			b.WriteString(" AND ")
-		}
-		args = append(args, e.Args()...)
-	}
-
-	return args
 }

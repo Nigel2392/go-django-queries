@@ -7,10 +7,15 @@ import (
 
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/go-sql-driver/mysql"
-	pg_stdlib "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
-	"github.com/mattn/go-sqlite3"
+)
+
+type SupportsReturning string
+
+const (
+	SupportsReturningNone         SupportsReturning = ""
+	SupportsReturningLastInsertId SupportsReturning = "last_insert_id"
+	SupportsReturningColumns      SupportsReturning = "columns"
 )
 
 // RegisterDriver registers a driver with the given database name.
@@ -23,27 +28,52 @@ import (
 // - github.com/jackc/pgx/v5/stdlib.Driver
 //
 // Then it explicitly needs to be registered here.
-func RegisterDriver(driver driver.Driver, database string) {
-	drivers[reflect.TypeOf(driver)] = database
+func RegisterDriver(driver driver.Driver, database string, supportsReturning ...SupportsReturning) {
+	var s SupportsReturning
+	if len(supportsReturning) > 0 {
+		s = supportsReturning[0]
+	}
+	drivers[reflect.TypeOf(driver)] = driverData{
+		name:              database,
+		supportsReturning: s,
+	}
 }
 
-var drivers = make(map[reflect.Type]string)
-
-func init() {
-	RegisterDriver(&mysql.MySQLDriver{}, "mysql")
-	RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3")
-	RegisterDriver(&pg_stdlib.Driver{}, "postgres")
+type driverData struct {
+	name              string
+	supportsReturning SupportsReturning
 }
+
+var drivers = make(map[reflect.Type]driverData)
 
 func sqlxDriverName(db *sql.DB) string {
 	var driver = reflect.TypeOf(db.Driver())
 	if driver == nil {
 		return ""
 	}
-	if name, ok := drivers[driver]; ok {
-		return name
+	if data, ok := drivers[driver]; ok {
+		return data.name
 	}
 	return ""
+}
+
+func supportsReturning(db *sql.DB) SupportsReturning {
+	var driver = reflect.TypeOf(db.Driver())
+	if driver == nil {
+		return SupportsReturningNone
+	}
+	if data, ok := drivers[driver]; ok {
+		return data.supportsReturning
+	}
+	return SupportsReturningNone
+}
+
+func DefinerListToList[T attrs.Definer](list []attrs.Definer) []T {
+	var result = make([]T, len(list))
+	for i, obj := range list {
+		result[i] = obj.(T)
+	}
+	return result
 }
 
 func newDefiner[T attrs.Definer]() T {
@@ -58,7 +88,7 @@ func newObjectFromIface(obj attrs.Definer) attrs.Definer {
 	return reflect.New(objTyp.Elem()).Interface().(attrs.Definer)
 }
 
-type queryInfo[T attrs.Definer] struct {
+type queryInfo struct {
 	db          *sql.DB
 	dbx         *sqlx.DB
 	sqlxDriver  string
@@ -68,7 +98,23 @@ type queryInfo[T attrs.Definer] struct {
 	fields      []attrs.Field
 }
 
-func getQueryInfo[T attrs.Definer](obj T) (*queryInfo[T], error) {
+func getBaseQueryInfo(obj attrs.Definer) (*queryInfo, error) {
+	var fieldDefs = obj.FieldDefs()
+	var primary = fieldDefs.Primary()
+	var tableName = fieldDefs.TableName()
+	if tableName == "" {
+		return nil, ErrNoTableName
+	}
+
+	return &queryInfo{
+		definitions: fieldDefs,
+		tableName:   tableName,
+		primary:     primary,
+		fields:      fieldDefs.Fields(),
+	}, nil
+}
+
+func getQueryInfo(obj attrs.Definer) (*queryInfo, error) {
 	var db = django.ConfigGet[*sql.DB](
 		django.Global.Settings,
 		django.APPVAR_DATABASE,
@@ -82,21 +128,15 @@ func getQueryInfo[T attrs.Definer](obj T) (*queryInfo[T], error) {
 		return nil, ErrUnknownDriver
 	}
 
-	var fieldDefs = obj.FieldDefs()
-	var primary = fieldDefs.Primary()
-	var tableName = fieldDefs.TableName()
-	if tableName == "" {
-		return nil, ErrNoTableName
+	var dbx = sqlx.NewDb(db, sqlxDriver)
+
+	var queryInfo, err = getBaseQueryInfo(obj)
+	if err != nil {
+		return nil, err
 	}
 
-	var dbx = sqlx.NewDb(db, sqlxDriver)
-	return &queryInfo[T]{
-		db:          db,
-		dbx:         dbx,
-		sqlxDriver:  sqlxDriver,
-		definitions: fieldDefs,
-		tableName:   tableName,
-		primary:     primary,
-		fields:      fieldDefs.Fields(),
-	}, nil
+	queryInfo.db = db
+	queryInfo.dbx = dbx
+	queryInfo.sqlxDriver = sqlxDriver
+	return queryInfo, nil
 }

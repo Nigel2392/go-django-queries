@@ -2,6 +2,7 @@ package queries_test
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/Nigel2392/go-django/src/forms/widgets"
+	"github.com/mattn/go-sqlite3"
 )
 
 const (
@@ -160,6 +162,7 @@ func init() {
 
 	logger.Setup(&logger.Logger{
 		Level:       logger.DBG,
+		WrapPrefix:  logger.ColoredLogWrapper,
 		OutputDebug: os.Stdout,
 		OutputInfo:  os.Stdout,
 		OutputWarn:  os.Stdout,
@@ -217,8 +220,10 @@ func TestTodoUpdate(t *testing.T) {
 		Done:        true,
 	}
 
-	if err := queries.UpdateObject(todo); err != nil {
+	if updated, err := queries.UpdateObject(todo); err != nil {
 		t.Fatalf("Failed to update todo: %v", err)
+	} else if updated == 0 {
+		t.Fatalf("Expected 1 todo to be updated, got %d", updated)
 	}
 
 	var row = db.QueryRow(selectTodo, todo.ID)
@@ -264,7 +269,7 @@ func TestTodoList(t *testing.T) {
 		django.APPVAR_DATABASE,
 	)
 
-	var todos, err = queries.ListObjects[*Todo](0, 1000, "-id")
+	var todos, err = queries.ListObjects[*Todo](0, 1000, "-ID")
 	if err != nil {
 		t.Fatalf("Failed to list todos: %v", err)
 	}
@@ -328,8 +333,10 @@ func TestTodoDelete(t *testing.T) {
 	)
 	var err error
 	var todo = &Todo{ID: 1}
-	if err := queries.DeleteObject(todo); err != nil {
+	if deleted, err := queries.DeleteObject(todo); err != nil {
 		t.Fatalf("Failed to delete todo: %v", err)
+	} else if deleted == 0 {
+		t.Fatalf("Expected 1 todo to be deleted, got %d", deleted)
 	}
 
 	var row = db.QueryRow(selectTodo, todo.ID)
@@ -355,24 +362,34 @@ func TestTodoCount(t *testing.T) {
 }
 
 func TestQuerySet_Filter(t *testing.T) {
-	todos, err := queries.Objects(&Todo{}).
+	var query = queries.Objects(&Todo{}).
 		Select("ID", "Title", "Description", "Done").
 		Filter("Title__icontains", "test").
 		Filter("Done", false).
 		Filter("User__isnull", true).
 		OrderBy("-ID").
-		Limit(5).
-		All().Exec()
+		Limit(5)
+
+	if query == nil {
+		t.Fatalf("Expected query to be not nil")
+	}
+
+	if query.Model() == nil {
+		t.Fatalf("Expected query model to be not nil")
+	}
+
+	todos, err := query.All().Exec()
 
 	if err != nil {
 		t.Fatalf("Failed to filter todos: %v", err)
 	}
 
 	if len(todos) != 1 {
-		t.Fatalf("Expected 2 todos, got %d", len(todos))
+		t.Fatalf("Expected 1 todos, got %d", len(todos))
 	}
 
 	for _, todo := range todos {
+		todo := todo.(*Todo)
 		if !strings.Contains(strings.ToLower(todo.Title), "test") {
 			t.Fatalf("Expected todo title to contain 'test', got: %s", todo.Title)
 		}
@@ -399,11 +416,12 @@ func TestQuerySet_First(t *testing.T) {
 		t.Fatalf("Expected a todo, got nil")
 	}
 
-	if !todo.Done {
-		t.Fatalf("Expected todo to be done, got not done: %+v", todo)
+	var tdo = todo.(*Todo)
+	if !tdo.Done {
+		t.Fatalf("Expected todo to be done, got not done: %+v", tdo)
 	}
 
-	t.Logf("First todo: %+v", todo)
+	t.Logf("First todo: %+v", tdo)
 }
 func TestQuerySet_Where(t *testing.T) {
 	todos, err := queries.Objects(&Todo{}).
@@ -423,6 +441,7 @@ func TestQuerySet_Where(t *testing.T) {
 	}
 
 	for _, todo := range todos {
+		todo := todo.(*Todo)
 		if !strings.Contains(strings.ToLower(todo.Title), "test") {
 			t.Fatalf("Expected todo title to contain 'test', got: %s", todo.Title)
 		}
@@ -503,7 +522,7 @@ func TestQueryRelated(t *testing.T) {
 		t.Fatalf("Expected 1 todo, got %d", len(todos))
 	}
 
-	var dbTodo = todos[0]
+	var dbTodo = todos[0].(*Todo)
 	t.Logf("Created todo: %+v, %+v", todo, todo.User)
 	t.Logf("Filtered todo: %+v, %+v", dbTodo, dbTodo.User)
 
@@ -586,7 +605,7 @@ func TestQueryRelatedIDOnly(t *testing.T) {
 		t.Fatalf("Expected 1 todo, got %d", len(todos))
 	}
 
-	var dbTodo = todos[0]
+	var dbTodo = todos[0].(*Todo)
 	t.Logf("Created todo: %+v, %+v", todo, todo.User)
 	t.Logf("Filtered todo: %+v, %+v", dbTodo, dbTodo.User)
 
@@ -642,7 +661,7 @@ func TestQueryValuesList(t *testing.T) {
 
 	var values, err = queries.Objects(&Todo{}).
 		Filter("Title__istartswith", "testqueryvalueslist").
-		OrderBy("-ID", "-User.Name").
+		OrderBy("ID", "-User.Name").
 		// ValuesList("ID", "Title", "Description", "Done", "User.ID", "User.Name")
 		ValuesList("ID", "Title", "Description", "Done", "User", "User.ID", "User.Name", "User.*").Exec()
 	// ValuesList("ID", "Title", "Description", "Done", "User")
@@ -653,6 +672,19 @@ func TestQueryValuesList(t *testing.T) {
 
 	if len(values) != 3 {
 		t.Fatalf("Expected 3 values, got %d", len(values))
+	}
+
+	for _, value := range values {
+		var b strings.Builder
+		b.WriteString("[")
+		for i, v := range value {
+			b.WriteString(fmt.Sprintf("(%T) %v", v, v))
+			if i < len(value)-1 {
+				b.WriteString(", ")
+			}
+		}
+		b.WriteString("]")
+		t.Logf("Got todo values: %s", b.String())
 	}
 
 	for i, value := range values {
@@ -696,17 +728,6 @@ func TestQueryValuesList(t *testing.T) {
 		//	t.Fatalf("Expected todo user name %q, got %q", todos[i].User.Name, value[5])
 		//}
 
-		t.Logf("Got todo values: %+v", value)
-		var b strings.Builder
-		b.WriteString("[")
-		for i, v := range value {
-			b.WriteString(fmt.Sprintf("(%T) %v", v, v))
-			if i < len(value)-1 {
-				b.WriteString(", ")
-			}
-		}
-		b.WriteString("]")
-		t.Logf("Got todo values: %s", b.String())
 	}
 }
 
@@ -783,7 +804,7 @@ func TestQueryNestedRelated(t *testing.T) {
 		t.Fatalf("Expected 1 todo, got %d", len(todos))
 	}
 
-	var dbTodo = todos[0]
+	var dbTodo = todos[0].(*Todo)
 	t.Logf("Created todo: %+v, %+v, %+v, %+v", todo, todo.User, todo.User.Profile, todo.User.Profile.Image)
 	t.Logf("Filtered todo: %+v, %+v, %+v, %+v", dbTodo, dbTodo.User, dbTodo.User.Profile, dbTodo.User.Profile.Image)
 
@@ -944,5 +965,314 @@ func TestQueryUpdate(t *testing.T) {
 
 	t.Logf("Updated todo: %+v", dbTodo2)
 	t.Logf("Updated todo user: %+v", dbTodo2.User)
+}
 
+func TestQueryGet(t *testing.T) {
+
+	var todos = []*Todo{
+		{Title: "TestQueryGet1", Description: "Description TestQueryGet", Done: false},
+		{Title: "TestQueryGet2", Description: "Description TestQueryGet", Done: true},
+		{Title: "TestQueryGet3", Description: "Description TestQueryGet", Done: false},
+	}
+
+	for _, todo := range todos {
+		if err := queries.CreateObject(todo); err != nil {
+			t.Fatalf("Failed to insert todo: %v", err)
+		}
+	}
+
+	var todo, err = queries.Objects(&Todo{}).
+		Select("*").
+		Filter("Title", "TestQueryGet1").
+		Get().Exec()
+	if err != nil {
+		t.Fatalf("Failed to get todo: %v", err)
+	}
+
+	if todo == nil {
+		t.Fatalf("Expected a todo, got nil")
+	}
+
+	var tdo = todo.(*Todo)
+
+	if tdo.ID != todos[0].ID || todos[0].ID == 0 {
+		t.Fatalf("Expected todo ID %d, got %d", todos[0].ID, tdo.ID)
+	}
+
+	if tdo.Title != todos[0].Title {
+		t.Fatalf("Expected todo title %q, got %q", todos[0].Title, tdo.Title)
+	}
+
+	if tdo.Description != todos[0].Description {
+		t.Fatalf("Expected todo description %q, got %q", todos[0].Description, tdo.Description)
+	}
+
+	if tdo.Done != todos[0].Done {
+		t.Fatalf("Expected todo done %v, got %v", todos[0].Done, tdo.Done)
+	}
+
+	if tdo.User != nil {
+		t.Fatalf("Expected todo user to be nil, got %+v", tdo.User)
+	}
+}
+
+func TestQueryGetErrNoRows(t *testing.T) {
+	var todo, err = queries.Objects(&Todo{}).
+		Select("*").
+		Filter("Title", "NonExistentTitle").
+		Get().Exec()
+	if err == nil {
+		t.Fatalf("Expected an error, got nil")
+	}
+
+	if todo != nil {
+		t.Fatalf("Expected a nil todo, got %+v", todo)
+	}
+
+	if !errors.Is(err, queries.ErrNoRows) {
+		t.Fatalf("Expected ErrNoRows, got %v", err)
+	}
+
+	t.Logf("No todo found as expected: %v", err)
+}
+
+func TestQueryGetMultipleRows(t *testing.T) {
+	var todos = []*Todo{
+		{Title: "TestQueryGetMultipleRows1", Description: "Description TestQueryGetMultipleRows", Done: false},
+		{Title: "TestQueryGetMultipleRows2", Description: "Description TestQueryGetMultipleRows", Done: true},
+		{Title: "TestQueryGetMultipleRows3", Description: "Description TestQueryGetMultipleRows", Done: false},
+	}
+
+	for _, todo := range todos {
+		if err := queries.CreateObject(todo); err != nil {
+			t.Fatalf("Failed to insert todo: %v", err)
+		}
+	}
+
+	var todo, err = queries.Objects(&Todo{}).
+		Select("*").
+		Filter("Title__icontains", "TestQueryGetMultipleRows").
+		Get().Exec()
+	if err == nil {
+		t.Fatalf("Expected an error, got nil")
+	}
+
+	if todo != nil {
+		t.Fatalf("Expected a nil todo, got %+v", todo)
+	}
+
+	if !errors.Is(err, queries.ErrMultipleRows) {
+		t.Fatalf("Expected ErrMultipleRows, got %v", err)
+	}
+
+	t.Logf("Multiple todos found as expected: %v", err)
+}
+
+func TestQueryCreate(t *testing.T) {
+	var user = &User{
+		Name: "TestQueryCreate",
+	}
+
+	if err := queries.CreateObject(user); err != nil || user.ID == 0 {
+		t.Fatalf("Failed to insert user: %v", err)
+	}
+
+	var todo = &Todo{
+		Title:       "TestQueryCreate",
+		Description: "This is a new test todo",
+		Done:        false,
+		User:        user,
+	}
+
+	t.Run("CreateReturningLastInsertID", func(t *testing.T) {
+		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningLastInsertId)
+
+		var dbTodo, err = queries.Objects(&Todo{}).Create(todo).Exec()
+		if err != nil {
+			t.Fatalf("Failed to create todo: %v", err)
+		}
+
+		if dbTodo == nil {
+			t.Fatalf("Expected a todo, got nil")
+		}
+
+		var tdo = dbTodo.(*Todo)
+
+		if tdo.ID == 0 {
+			t.Fatalf("Expected todo ID to be not 0, got %d", tdo.ID)
+		}
+
+		if tdo.Title != todo.Title {
+			t.Fatalf("Expected todo title %q, got %q", todo.Title, tdo.Title)
+		}
+
+		if tdo.Description != todo.Description {
+			t.Fatalf("Expected todo description %q, got %q", todo.Description, tdo.Description)
+		}
+
+		if tdo.Done != todo.Done {
+			t.Fatalf("Expected todo done %v, got %v", todo.Done, tdo.Done)
+		}
+
+		if tdo.User == nil {
+			t.Fatalf("Expected todo user to be not nil")
+		}
+
+		if tdo.User.ID != user.ID {
+			t.Fatalf("Expected todo user ID %d, got %d", user.ID, tdo.User.ID)
+		}
+
+		t.Logf("Created todo: %+v, %+v", tdo, tdo.User)
+
+		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningColumns)
+	})
+
+	t.Run("CreateReturningColumns", func(t *testing.T) {
+		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningColumns)
+
+		var dbTodo, err = queries.Objects(&Todo{}).Create(todo).Exec()
+		if err != nil {
+			t.Fatalf("Failed to create todo: %v", err)
+		}
+
+		if dbTodo == nil {
+			t.Fatalf("Expected a todo, got nil")
+		}
+
+		var tdo = dbTodo.(*Todo)
+
+		if tdo.ID == 0 {
+			t.Fatalf("Expected todo ID to be not 0, got %d", tdo.ID)
+		}
+
+		if tdo.Title != todo.Title {
+			t.Fatalf("Expected todo title %q, got %q", todo.Title, tdo.Title)
+		}
+
+		if tdo.Description != todo.Description {
+			t.Fatalf("Expected todo description %q, got %q", todo.Description, tdo.Description)
+		}
+
+		if tdo.Done != todo.Done {
+			t.Fatalf("Expected todo done %v, got %v", todo.Done, tdo.Done)
+		}
+
+		if tdo.User == nil {
+			t.Fatalf("Expected todo user to be not nil")
+		}
+
+		if tdo.User.ID != user.ID {
+			t.Fatalf("Expected todo user ID %d, got %d", user.ID, tdo.User.ID)
+		}
+
+		t.Logf("Created todo: %+v, %+v", tdo, tdo.User)
+	})
+
+	t.Run("CreateReturningNone", func(t *testing.T) {
+		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningNone)
+
+		var dbTodo, err = queries.Objects(&Todo{}).Create(todo).Exec()
+		if err != nil {
+			t.Fatalf("Failed to create todo: %v", err)
+		}
+
+		if dbTodo == nil {
+			t.Fatalf("Expected a todo, got nil")
+		}
+
+		var tdo = dbTodo.(*Todo)
+		if tdo.ID != 0 {
+			t.Fatalf("Expected todo ID to be 0, got %d", tdo.ID)
+		}
+
+		if tdo.Title != todo.Title {
+			t.Fatalf("Expected todo title %q, got %q", todo.Title, tdo.Title)
+		}
+
+		if tdo.Description != todo.Description {
+			t.Fatalf("Expected todo description %q, got %q", todo.Description, tdo.Description)
+		}
+
+		if tdo.Done != todo.Done {
+			t.Fatalf("Expected todo done %v, got %v", todo.Done, tdo.Done)
+		}
+
+		if tdo.User == nil {
+			t.Fatalf("Expected todo user to be not nil")
+		}
+
+		if tdo.User.ID != user.ID {
+			t.Fatalf("Expected todo user ID %d, got %d", user.ID, tdo.User.ID)
+		}
+
+		t.Logf("Created todo: %+v, %+v", tdo, tdo.User)
+
+		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningColumns)
+	})
+}
+
+func TestQueryGetOrCreate(t *testing.T) {
+	var user = &User{
+		Name: "TestQueryGetOrCreate",
+	}
+
+	if err := queries.CreateObject(user); err != nil || user.ID == 0 {
+		t.Fatalf("Failed to insert user: %v", err)
+	}
+
+	var _user = *user
+
+	var todo = &Todo{
+		Title:       "TestQueryGetOrCreate",
+		Description: "This is a new test todo",
+		Done:        false,
+		User:        &_user,
+	}
+
+	var _todo = *todo
+	_todo.User.Name = ""
+
+	var dbTodo, err = queries.Objects(&Todo{}).
+		Select("ID", "Title", "Description", "Done", "User").
+		Filter("Title", todo.Title).
+		GetOrCreate(&_todo)
+	if err != nil {
+		t.Fatalf("Failed to get or create todo: %v", err)
+	}
+
+	if dbTodo == nil {
+		t.Fatalf("Expected a todo, got nil")
+	}
+
+	var tdo = dbTodo.(*Todo)
+
+	if tdo.ID == 0 {
+		t.Fatalf("Expected todo ID to be not 0, got %d", tdo.ID)
+	}
+
+	if tdo.Title != todo.Title {
+		t.Fatalf("Expected todo title %q, got %q", todo.Title, tdo.Title)
+	}
+
+	if tdo.Description != todo.Description {
+		t.Fatalf("Expected todo description %q, got %q", todo.Description, tdo.Description)
+	}
+
+	if tdo.Done != todo.Done {
+		t.Fatalf("Expected todo done %v, got %v", todo.Done, tdo.Done)
+	}
+
+	if tdo.User == nil {
+		t.Fatalf("Expected todo user to be not nil")
+	}
+
+	if tdo.User.ID != user.ID {
+		t.Fatalf("Expected todo user ID %d, got %d", user.ID, tdo.User.ID)
+	}
+
+	if tdo.User.Name != "" {
+		t.Fatalf("Expected todo user name to be empty, got %q", tdo.User.Name)
+	}
+
+	t.Logf("Created or retrieved todo: %+v, %+v", tdo, tdo.User)
 }

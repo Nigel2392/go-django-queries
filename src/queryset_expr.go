@@ -1,6 +1,7 @@
 package queries
 
 import (
+	"database/sql/driver"
 	"fmt"
 	"strings"
 
@@ -15,7 +16,7 @@ type Expression interface {
 	And(...Expression) Expression
 	Or(...Expression) Expression
 	Clone() Expression
-	With(model attrs.Definer, quote string) Expression
+	With(d driver.Driver, model attrs.Definer, quote string) Expression
 }
 
 type LogicalOp string
@@ -102,82 +103,6 @@ func normalizeArgs(op string, value []any) []any {
 	return value
 }
 
-var lookups = map[string]func(col string, value []any) (sql string, args []any, err error){
-	"exact": func(field string, value []any) (string, []any, error) {
-		return fmt.Sprintf("%s = ?", field), value, nil
-	},
-	"iexact": func(field string, value []any) (string, []any, error) {
-		return fmt.Sprintf("LOWER(%s) = LOWER(?)", field), normalizeArgs("iexact", value), nil
-	},
-	"icontains": func(field string, value []any) (string, []any, error) {
-		return fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", field), normalizeArgs("icontains", value), nil
-	},
-	"istartswith": func(field string, value []any) (string, []any, error) {
-		return fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", field), normalizeArgs("istartswith", value), nil
-	},
-	"iendswith": func(field string, value []any) (string, []any, error) {
-		return fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", field), normalizeArgs("iendswith", value), nil
-	},
-	"contains": func(field string, value []any) (string, []any, error) {
-		return fmt.Sprintf("%s LIKE ?", field), normalizeArgs("contains", value), nil
-	},
-	"startswith": func(field string, value []any) (string, []any, error) {
-		return fmt.Sprintf("%s LIKE ?", field), normalizeArgs("startswith", value), nil
-	},
-	"endswith": func(field string, value []any) (string, []any, error) {
-		return fmt.Sprintf("%s LIKE ?", field), normalizeArgs("endswith", value), nil
-	},
-	"gt": func(field string, value []any) (string, []any, error) {
-		return fmt.Sprintf("%s > ?", field), value, nil
-	},
-	"gte": func(field string, value []any) (string, []any, error) {
-		return fmt.Sprintf("%s >= ?", field), value, nil
-	},
-	"lt": func(field string, value []any) (string, []any, error) {
-		return fmt.Sprintf("%s < ?", field), value, nil
-	},
-	"lte": func(field string, value []any) (string, []any, error) {
-		return fmt.Sprintf("%s <= ?", field), value, nil
-	},
-	"in": func(field string, value []any) (string, []any, error) {
-		if len(value) == 0 {
-			return "", value, fmt.Errorf("no values provided for IN lookup")
-		}
-		var placeholders = make([]string, len(value))
-		for i := range value {
-			placeholders[i] = "?"
-		}
-		return fmt.Sprintf("%s IN (%s)", field, strings.Join(placeholders, ",")), value, nil
-	},
-	"isnull": func(field string, value []any) (string, []any, error) {
-		if len(value) != 1 {
-			return "", value, fmt.Errorf("ISNULL lookup requires exactly one value, got %d %+v", len(value), value)
-		}
-		if value[0] == nil || value[0] == false {
-			return fmt.Sprintf("%s IS NOT NULL", field), []any{}, nil
-		}
-		return fmt.Sprintf("%s IS NULL", field), []any{}, nil
-	},
-	"range": func(field string, value []any) (string, []any, error) {
-		if len(value) != 2 {
-			return "", value, fmt.Errorf("RANGE lookup requires exactly two values")
-		}
-		return fmt.Sprintf("%s BETWEEN ? AND ?", field), value, nil
-	},
-}
-
-func sqlCondition(field string, lookup string, value []any) (string, []any, error) {
-	var fn, ok = lookups[lookup]
-	if !ok {
-		return "", nil, fmt.Errorf("unsupported lookup %q", lookup)
-	}
-	var sql, args, err = fn(field, value)
-	if err != nil {
-		return "", nil, err
-	}
-	return sql, args, nil
-}
-
 func walkFields(m attrs.Definer, column string) (definer attrs.Definer, parent attrs.Definer, f attrs.Field, chain []string, isRelated bool, err error) {
 	var parts = strings.Split(column, ".")
 	var current = m
@@ -228,7 +153,7 @@ func Expr(field string, operation string, value ...any) *ExprNode {
 	}
 }
 
-func (e *ExprNode) With(m attrs.Definer, quote string) Expression {
+func (e *ExprNode) With(d driver.Driver, m attrs.Definer, quote string) Expression {
 	var nE = e.Clone().(*ExprNode)
 
 	if m == nil || e.used {
@@ -251,7 +176,7 @@ func (e *ExprNode) With(m attrs.Definer, quote string) Expression {
 		quote, field.ColumnName(), quote,
 	)
 
-	nE.sql, nE.args, err = sqlCondition(col, nE.lookup, nE.args)
+	nE.sql, nE.args, err = newLookup(d, col, nE.lookup, nE.args)
 	if err != nil {
 		panic(err)
 	}
@@ -362,10 +287,10 @@ func (g *ExprGroup) Clone() Expression {
 	}
 }
 
-func (g *ExprGroup) With(m attrs.Definer, quote string) Expression {
+func (g *ExprGroup) With(d driver.Driver, m attrs.Definer, quote string) Expression {
 	var gClone = g.Clone().(*ExprGroup)
 	for i, e := range gClone.children {
-		gClone.children[i] = e.With(m, quote)
+		gClone.children[i] = e.With(d, m, quote)
 	}
 	return gClone
 }
@@ -437,7 +362,7 @@ func (e *RawExpr) Clone() Expression {
 	}
 }
 
-func (e *RawExpr) With(m attrs.Definer, quote string) Expression {
+func (e *RawExpr) With(d driver.Driver, m attrs.Definer, quote string) Expression {
 	if m == nil || e.used {
 		return e
 	}

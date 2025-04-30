@@ -192,6 +192,9 @@ The query will return a slice of `attrs.Definer` objects, which can be cast to t
 
 ### Create a new record
 
+If the model adheres to `models.Saver`, the model's Save method will be called when creating a new record,  
+this can be skipped by calling the queryset's `.ExplicitSave()` method - this way it will always update through the queryset.
+
 ```go
 todo := &Todo{
     Title: "Finish task",
@@ -206,6 +209,10 @@ createdObj, err := queries.Objects(&Todo{}).Create(todo).Exec()
 ---
 
 ### Update a record
+
+If the object has a non- zero primary key value and the model adheres to `models.Saver`, the model's Save method will be called  
+thus, skipping the queryset's update method.
+If `.ExplicitSave()` is called, on the queryset, the model's save method will never be called.
 
 ```go
 todo.Title = "Update documentation"
@@ -226,8 +233,11 @@ updatedRowCount, err := queries.Objects(&Todo{}).
 
 ### Delete a record
 
+The delete method will **not** be called on the model, even if it adheres to `models.Deleter`.
+
+If you want to call the model's delete method instead (if it has one), you should use the `DeleteObject` helper function.
+
 ```go
-// This does not call the model's Delete method, even if it adheres to `models.Deleter`
 deletedRowCount, err := queries.Objects(&Todo{}).
     Filter("ID", todo.ID).
     Delete().Exec()
@@ -274,6 +284,9 @@ lastTodo, err := queries.Objects(&Todo{}).
 `GetOrCreate` is the only queryset function that will execute, and not return a Query[T] object.
 
 It will always return the (retrieved or created) object and an error.
+
+If the object is created and the model adheres to `models.Saver`, the model's Save method will be called,  
+this can be skipped by calling the queryset's `.ExplicitSave()` method - this way it will always update through the queryset.
 
 ```go
 todo := &Todo{ Title: "Unique task" }

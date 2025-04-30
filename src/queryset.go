@@ -72,20 +72,21 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, quote string) {
 //
 // Queries are built internally with the help of the QueryCompiler interface, which is responsible for generating the SQL queries for the database.
 type QuerySet struct {
-	queryInfo *queryInfo
-	model     attrs.Definer
-	fields    []FieldInfo
-	where     []Expression
-	having    []Expression
-	joins     []JoinDef
-	groupBy   []FieldInfo
-	orderBy   []OrderBy
-	limit     int
-	offset    int
-	union     []Union
-	forUpdate bool
-	distinct  bool
-	compiler  QueryCompiler
+	queryInfo    *queryInfo
+	model        attrs.Definer
+	fields       []FieldInfo
+	where        []Expression
+	having       []Expression
+	joins        []JoinDef
+	groupBy      []FieldInfo
+	orderBy      []OrderBy
+	limit        int
+	offset       int
+	union        []Union
+	forUpdate    bool
+	distinct     bool
+	explicitSave bool
+	compiler     QueryCompiler
 }
 
 // Objects creates a new QuerySet for the given model.
@@ -141,20 +142,21 @@ func (qs *QuerySet) Compiler() QueryCompiler {
 
 func (qs *QuerySet) Clone() *QuerySet {
 	return &QuerySet{
-		model:     qs.model,
-		queryInfo: qs.queryInfo,
-		fields:    slices.Clone(qs.fields),
-		union:     slices.Clone(qs.union),
-		where:     slices.Clone(qs.where),
-		having:    slices.Clone(qs.having),
-		joins:     slices.Clone(qs.joins),
-		groupBy:   slices.Clone(qs.groupBy),
-		orderBy:   slices.Clone(qs.orderBy),
-		limit:     qs.limit,
-		offset:    qs.offset,
-		forUpdate: qs.forUpdate,
-		distinct:  qs.distinct,
-		compiler:  qs.compiler,
+		model:        qs.model,
+		queryInfo:    qs.queryInfo,
+		fields:       slices.Clone(qs.fields),
+		union:        slices.Clone(qs.union),
+		where:        slices.Clone(qs.where),
+		having:       slices.Clone(qs.having),
+		joins:        slices.Clone(qs.joins),
+		groupBy:      slices.Clone(qs.groupBy),
+		orderBy:      slices.Clone(qs.orderBy),
+		limit:        qs.limit,
+		offset:       qs.offset,
+		forUpdate:    qs.forUpdate,
+		distinct:     qs.distinct,
+		explicitSave: qs.explicitSave,
+		compiler:     qs.compiler,
 	}
 }
 
@@ -525,6 +527,12 @@ func (qs *QuerySet) Distinct() *QuerySet {
 	return nqs
 }
 
+func (qs *QuerySet) ExplicitSave() *QuerySet {
+	var nqs = qs.Clone()
+	nqs.explicitSave = true
+	return nqs
+}
+
 func (qs *QuerySet) All() Query[[]attrs.Definer] {
 	if len(qs.fields) == 0 {
 		qs = qs.Select("*")
@@ -798,7 +806,7 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 
 	// Check if the object is a saver
 	// If it is, we can use the Save method to save the object
-	if saver, ok := value.(models.Saver); ok {
+	if saver, ok := value.(models.Saver); ok && !qs.explicitSave {
 		return &QueryObject[attrs.Definer]{
 			model:    value,
 			compiler: qs.compiler,
@@ -975,7 +983,7 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 func (qs *QuerySet) Update(value attrs.Definer) CountQuery {
 	qs = qs.Clone()
 
-	if len(qs.where) == 0 {
+	if len(qs.where) == 0 && !qs.explicitSave {
 		var (
 			defs            = value.FieldDefs()
 			primary         = defs.Primary()

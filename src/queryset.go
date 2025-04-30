@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/Nigel2392/go-django/src/forms/fields"
+	"github.com/Nigel2392/go-django/src/models"
 	"github.com/pkg/errors"
 )
 
@@ -58,6 +60,17 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, quote string) {
 	}
 }
 
+// QuerySet is a struct that represents a query set in the database.
+//
+// It contains methods to filter, order, and limit the results of a query.
+//
+// It is used to build and execute queries against the database.
+//
+// Every method on the queryset returns a new queryset, so that the original queryset is not modified.
+//
+// It also has a chainable api, so that you can easily build complex queries by chaining methods together.
+//
+// Queries are built internally with the help of the QueryCompiler interface, which is responsible for generating the SQL queries for the database.
 type QuerySet struct {
 	queryInfo *queryInfo
 	model     attrs.Definer
@@ -75,6 +88,15 @@ type QuerySet struct {
 	compiler  QueryCompiler
 }
 
+// Objects creates a new QuerySet for the given model.
+//
+// It panics if:
+// - the model is nil
+// - the base query info cannot be retrieved
+//
+// It returns a pointer to a new QuerySet.
+//
+// The model must implement the Definer interface.
 func Objects(model attrs.Definer) *QuerySet {
 
 	if model == nil {
@@ -134,6 +156,90 @@ func (qs *QuerySet) Clone() *QuerySet {
 		distinct:  qs.distinct,
 		compiler:  qs.compiler,
 	}
+}
+
+func (w *QuerySet) String() string {
+	var sb = strings.Builder{}
+	sb.WriteString("QuerySet{")
+	sb.WriteString("model: ")
+	sb.WriteString(fmt.Sprintf("%T", w.model))
+	sb.WriteString(", fields: [")
+	var written bool
+	for _, field := range w.fields {
+		for _, f := range field.Fields {
+			if written {
+				sb.WriteString(", ")
+			}
+
+			if len(field.Chain) > 0 {
+				sb.WriteString(strings.Join(
+					field.Chain, ".",
+				))
+				sb.WriteString(".")
+			}
+
+			sb.WriteString(f.Name())
+			written = true
+		}
+	}
+	sb.WriteString("]}")
+	return sb.String()
+}
+
+func (qs *QuerySet) GoString() string {
+	var sb = strings.Builder{}
+	sb.WriteString("QuerySet{")
+	sb.WriteString("\n\tmodel: ")
+	sb.WriteString(fmt.Sprintf("%T", qs.model))
+	sb.WriteString(",\n\tfields: [")
+	var written bool
+	for _, field := range qs.fields {
+		for _, f := range field.Fields {
+			if written {
+				sb.WriteString(", ")
+			}
+
+			sb.WriteString("\n\t\t")
+			if len(field.Chain) > 0 {
+				sb.WriteString(strings.Join(
+					field.Chain, ".",
+				))
+				sb.WriteString(".")
+			}
+
+			sb.WriteString(f.Name())
+			written = true
+		}
+	}
+	sb.WriteString("\n\t],")
+
+	if len(qs.where) > 0 {
+		sb.WriteString("\n\twhere: [")
+		for _, expr := range qs.where {
+			fmt.Fprintf(&sb, "\n\t\t%T: %#v", expr, expr)
+		}
+		sb.WriteString("\n\t],")
+	}
+
+	if len(qs.joins) > 0 {
+		sb.WriteString("\n\tjoins: [")
+		for _, join := range qs.joins {
+			sb.WriteString("\n\t\t")
+			sb.WriteString(join.TypeJoin)
+			sb.WriteString(" ")
+			sb.WriteString(join.Table)
+			sb.WriteString(" ON ")
+			sb.WriteString(join.ConditionA)
+			sb.WriteString(" ")
+			sb.WriteString(join.Logic)
+			sb.WriteString(" ")
+			sb.WriteString(join.ConditionB)
+		}
+		sb.WriteString("\n\t],")
+	}
+
+	sb.WriteString("\n}")
+	return sb.String()
 }
 
 func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelated bool) {
@@ -690,16 +796,40 @@ func (qs *QuerySet) Count() CountQuery {
 
 func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 
+	// Check if the object is a saver
+	// If it is, we can use the Save method to save the object
+	if saver, ok := value.(models.Saver); ok {
+		return &QueryObject[attrs.Definer]{
+			model:    value,
+			compiler: qs.compiler,
+			exec: func(sql string, args ...any) (attrs.Definer, error) {
+				if err := sendSignal(SignalPreModelSave, value, qs.compiler); err != nil {
+					return nil, err
+				}
+
+				var err = saver.Save(context.Background())
+				if err != nil {
+					return nil, err
+				}
+
+				if err := sendSignal(SignalPostModelSave, value, qs.compiler); err != nil {
+					return nil, err
+				}
+				return saver.(attrs.Definer), nil
+			},
+		}
+	}
+
 	qs = qs.Clone()
 
 	var defs = value.FieldDefs()
 	var fields = defs.Fields()
 	var values = make([]any, 0, len(fields))
+	var infoFields = make([]attrs.Field, 0, len(fields))
 	var info = FieldInfo{
-		Model:  value,
-		Table:  defs.TableName(),
-		Fields: make([]attrs.Field, 0),
-		Chain:  make([]string, 0),
+		Model: value,
+		Table: defs.TableName(),
+		Chain: make([]string, 0),
 	}
 
 	for _, field := range fields {
@@ -726,9 +856,12 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 			))
 		}
 
-		info.Fields = append(info.Fields, field)
+		infoFields = append(infoFields, field)
 		values = append(values, value)
 	}
+
+	// Copy all the fields from the model to the info fields
+	info.Fields = slices.Clone(infoFields)
 
 	var support = qs.compiler.SupportsReturning()
 	var resultQuery = qs.compiler.BuildCreateQuery(
@@ -742,15 +875,12 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 	return &wrappedQuery[[]interface{}, attrs.Definer]{
 		query: resultQuery,
 		exec: func(q Query[[]interface{}]) (attrs.Definer, error) {
-			var results, err = q.Exec()
-			if err != nil {
-				return nil, err
-			}
 
 			var newObj = newObjectFromIface(qs.model)
 			var newDefs = newObj.FieldDefs()
 
-			for _, field := range info.Fields {
+			// Set the old values on the new object
+			for _, field := range infoFields {
 				var (
 					n     = field.Name()
 					f, ok = newDefs.Field(n)
@@ -769,6 +899,13 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 				}
 			}
 
+			// Execute the create query
+			var results, err = q.Exec()
+			if err != nil {
+				return nil, err
+			}
+
+			// Check results & which returning method to use
 			switch {
 			case len(results) == 0 && support == SupportsReturningNone:
 				// Do nothing
@@ -837,6 +974,40 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 
 func (qs *QuerySet) Update(value attrs.Definer) CountQuery {
 	qs = qs.Clone()
+
+	if len(qs.where) == 0 {
+		var (
+			defs            = value.FieldDefs()
+			primary         = defs.Primary()
+			primaryVal, err = primary.Value()
+		)
+
+		if err != nil {
+			panic(fmt.Errorf("failed to get value for field %q: %w", primary.Name(), err))
+		}
+
+		if _, ok := value.(models.Saver); ok && !fields.IsZero(primaryVal) {
+			return &QueryObject[int64]{
+				model:    value,
+				compiler: qs.compiler,
+				exec: func(sql string, args ...any) (int64, error) {
+					if err := sendSignal(SignalPreModelSave, value, qs.compiler); err != nil {
+						return 0, err
+					}
+
+					var err = value.(models.Saver).Save(context.Background())
+					if err != nil {
+						return 0, err
+					}
+
+					if err := sendSignal(SignalPostModelSave, value, qs.compiler); err != nil {
+						return 0, err
+					}
+					return 1, nil
+				},
+			}
+		}
+	}
 
 	var defs = value.FieldDefs()
 	var fields []attrs.Field = qs.attrFields(value)

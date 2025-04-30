@@ -15,14 +15,19 @@ This package provides simple ways to build queries, inserts, updates, deletes, a
   - [Update a record](#update-a-record)
   - [Delete a record](#delete-a-record)
   - [Count records](#count-records)
-  - [Get a single record](#get-a-single-record)
-  - [Get first or last record](#get-first-or-last-record)
-  - [Get or create](#get-or-create)
+  - [Get a single record](#retrieve-a-single-record)
+  - [Get first or last record](#retrieve-first-or-last-record)
+  - [Get or create](#retrieve-an-object-or-create-it)
   - [Exists](#exists)
   - [ValuesList query](#valueslist-query)
   - [Filter with `Or`](#filter-with-or)
   - [Fetch related models](#fetch-related-models)
 - [Query Interface](#query-interface)
+- [Signals](#signals)
+  - [Helper functions](#helper-functions)
+    - [Inserting new records](#inserting-new-records)
+    - [Updating records](#updating-records)
+    - [Deleting records](#deleting-records)
 
 Latest version: `v1.0.7`
 
@@ -115,13 +120,13 @@ We will explain the following example query:
 
 ```go
   query := queries.Objects(&Todo{}).
-    // Select the user and profile fields, append a star to
-    // automatically select all related fields, User.Profile would always result in a join
-    Select("ID", "Title", "Description", "Done", "User.*", "User.Profile.*").
-
     // Select the user and profile fields, leaving out star operator
     // This would not result in a join, and only fetch the user's ID
     Select("ID", "Title", "Description", "Done", "User").
+
+    // Select the user and profile fields, append a star to
+    // automatically select all related fields, User.Profile would always result in a join
+    Select("ID", "Title", "Description", "Done", "User.*", "User.Profile.*").
     
     // Generate a WHERE clause with the given conditions
     Filter(
@@ -132,14 +137,16 @@ We will explain the following example query:
       queries.Q("User.Profile.Email__icontains", profile.Email),
       queries.Q("User.Profile.ID", profile.ID),
     ).
+
     // Generate an ORDER BY clause with the given conditions
     OrderBy("-ID", "-User.Name", "-User.Profile.Email").
     Limit(5).
     All()
 
 
-    // todos is of type Query[[]*Todo, *Todo]
-    todos, err := query.Exec() // / []*Todo, error
+    // todos is of type Query[[]attrs.Definer] which is a slice of
+    // Definer objects with the underlying type of the model
+    todos, err := query.Exec() // / []attrs.Definer, error
     if err != nil {
       t.Fatalf("Failed to query todos: %v", err)
     }
@@ -151,17 +158,33 @@ We will explain the following example query:
 The above query will generate the following SQL:
 
 ```sql
-SELECT "todos"."ID", "todos"."Title", "todos"."Description", "todos"."Done", "users"."id", "users"."name", "profiles"."id", "profiles"."name", "profiles"."email"
+SELECT 
+  "todos"."ID", 
+  "todos"."Title", 
+  "todos"."Description", 
+  "todos"."Done", 
+  "users"."id", 
+  "users"."name", 
+  "profiles"."id", 
+  "profiles"."name", 
+  "profiles"."email"
 FROM "todos"
-LEFT JOIN "users" ON "todos"."user_id" = "users"."id"
-LEFT JOIN "profiles" ON "users"."profile_id" = "profiles"."id"
-WHERE LOWER("todos"."Title", 'new test') LIKE LOWER('%new test%')
-AND "todos"."Done" = true
-AND "users"."name" LIKE LOWER('%test%')
-AND "users"."id" = 1
-AND "profiles"."email" LIKE LOWER('%example.com%')
-AND "profiles"."id" = 1
-ORDER BY "todos"."ID" DESC, "users"."name" DESC, "profiles"."email" DESC
+LEFT JOIN 
+  "users" ON "todos"."user_id" = "users"."id"
+LEFT JOIN 
+  "profiles" ON "users"."profile_id" = "profiles"."id"
+WHERE (
+  LOWER("todos"."Title", 'new test') LIKE LOWER(?)
+  AND "todos"."Done" = ?
+  AND "users"."name" LIKE LOWER(?)
+  AND "users"."id" = ?
+  AND "profiles"."email" LIKE LOWER(?)
+  AND "profiles"."id" = ?
+) 
+ORDER BY
+  "todos"."ID" DESC,
+  "users"."name" DESC,
+  "profiles"."email" DESC
 LIMIT 5
 ```
 
@@ -176,7 +199,8 @@ todo := &Todo{
     Done: false,
 }
 
-created, err := queries.Objects(&Todo{}).Create(todo).Exec()
+// This always calls the model's save method when the model adheres to `models.Saver`
+createdObj, err := queries.Objects(&Todo{}).Create(todo).Exec()
 ```
 
 ---
@@ -185,8 +209,16 @@ created, err := queries.Objects(&Todo{}).Create(todo).Exec()
 
 ```go
 todo.Title = "Update documentation"
-updatedRows, err := queries.Objects(&Todo{}).
+// This does not call the model's Save method, even if it adheres to `models.Saver`
+updatedRowCount, err := queries.Objects(&Todo{}).
     Filter("ID", todo.ID).
+    Update(todo).Exec()
+
+// This will call the model's Save method, if it is defined
+// 
+// This is because there is not Filter method called on the queryset, and the model's
+// primary key is non- zero.
+updatedRowCount, err := queries.Objects(&Todo{}).
     Update(todo).Exec()
 ```
 
@@ -195,7 +227,8 @@ updatedRows, err := queries.Objects(&Todo{}).
 ### Delete a record
 
 ```go
-deletedRows, err := queries.Objects(&Todo{}).
+// This does not call the model's Delete method, even if it adheres to `models.Deleter`
+deletedRowCount, err := queries.Objects(&Todo{}).
     Filter("ID", todo.ID).
     Delete().Exec()
 ```
@@ -212,7 +245,7 @@ count, err := queries.Objects(&Todo{}).
 
 ---
 
-### Get a single record
+### Retrieve a single record
 
 ```go
 todo, err := queries.Objects(&Todo{}).
@@ -222,7 +255,7 @@ todo, err := queries.Objects(&Todo{}).
 
 ---
 
-### Get first or last record
+### Retrieve first or last record
 
 ```go
 firstTodo, err := queries.Objects(&Todo{}).
@@ -236,7 +269,7 @@ lastTodo, err := queries.Objects(&Todo{}).
 
 ---
 
-### Get or create
+### Retrieve an object or create it
 
 `GetOrCreate` is the only queryset function that will execute, and not return a Query[T] object.
 
@@ -326,4 +359,127 @@ type Query[T any] interface {
     // Exec executes the query
     Exec() (T, error)
 }
+```
+
+---
+
+## Signals
+
+Signals are a way to hook into the lifecycle of a model and perform actions when certain events occur.
+
+These events include:
+
+- `SignalPreModelSave`:    This signal is sent before a model is saved to the database.
+- `SignalPostModelSave`:   This signal is sent after a model is saved to the database.
+- `SignalPreModelDelete`:  This signal is sent before a model is deleted from the database.
+- `SignalPostModelDelete`: This signal is sent after a model is deleted from the database.
+
+There is a caveat however, the signals are not executed by the queryset itself - but by helper functions.
+
+The following shows how you can connect to a signal (although there are multiple ways, this is the easiest).
+
+```go
+  // The receiver and error are optional, it is unlikely that you will need them
+  // but they are here for completeness.
+  recv, err = SignalPreModelSave.Listen(func(s signals.Signal[SignalSave], ss SignalSave) error {
+    // Do something before the model is saved
+  })
+```
+
+---
+
+### Helper functions
+
+Mentioned before in the [signals](#signals) section, the following helper functions are available and will send signals:
+
+- `CreateObject`: This function will create a new object in the database and send the following 2 signals:
+  - `SignalPreModelSave`
+  - `SignalPostModelSave`
+
+- `UpdateObject`: This function will update an existing object in the database and send the following 2 signals:
+  - `SignalPreModelSave`
+  - `SignalPostModelSave`
+
+- `DeleteObject`: This function will delete an object from the database and send the following 2 signals:
+  - `SignalPreModelDelete`
+  - `SignalPostModelDelete`
+
+---
+
+#### Models Methods
+
+Along with the previously mentioned signals, the [following methods can be used on the model itself](https://github.com/Nigel2392/go-django/blob/main/docs/models.md#defining-models) to control saving and deleting of the model:
+
+- `Save(context.Context) error`: This method will save the model to the database.
+- `Delete(context.Context) error`: This method will delete the model from the database.
+
+Again, these methods (if defined) will only be called when using the helper functions.
+
+---
+
+#### Inserting new records
+
+```go
+  // Create a new profile instance
+  var profile = &Profile{
+    Name:  "test profile",
+    Email: "test@example.com",
+  }
+
+  // Create the object with the queries.Objects function, send signals before and after
+  if err := queries.CreateObject(profile); err != nil || profile.ID == 0 {
+     t.Fatalf("Failed to insert profile: %v", err)
+  }
+
+  // Create a new user instance
+  var user = &User{
+     Name:    "test user",
+     Profile: profile,
+  }
+
+  // Create the object with the queries.Objects function, send signals before and after
+  if err := queries.CreateObject(user); err != nil || user.ID == 0 {
+     t.Fatalf("Failed to insert user: %v", err)
+  }
+
+  // Create a new todo instance
+  var todo = &Todo{
+    Title:       "New Test Todo",
+    Description: "This is a new test todo",
+    Done:        false,
+    User:        user,
+  }
+
+  // Create the object with the queries.Objects function, send signals before and after
+  if err := queries.CreateObject(todo); err != nil {
+    t.Fatalf("Failed to insert todo: %v", err)
+  }
+```
+
+---
+
+#### Updating records
+
+```go
+  // Update the todo instance
+  todo.Title = "Updated Test Todo"
+  todo.Done = true
+
+  // Create the object with the queries.Objects function using the primary key in the where clause,
+  // send signals before and after
+  if err := queries.UpdateObject(todo); err != nil {
+    t.Fatalf("Failed to update todo: %v", err)
+  }
+```
+
+---
+
+#### Deleting records
+
+```go
+  // Create the object with the queries.Objects function using the primary key in the where clause,
+  // send signals before and after
+  if err := queries.DeleteObject(todo); err != nil {1
+    t.Fatalf("Failed to delete todo: %v", err)
+  }
 ```

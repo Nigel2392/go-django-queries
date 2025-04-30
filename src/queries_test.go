@@ -135,7 +135,7 @@ func (m *Todo) FieldDefs() attrs.Definitions {
 
 func init() {
 	// make db globally available
-	var db, err = sql.Open("sqlite3", ":memory:")
+	var db, err = sql.Open("sqlite3", "file:queries_memory?mode=memory&cache=shared")
 	if err != nil {
 		panic(err)
 	}
@@ -1275,4 +1275,148 @@ func TestQueryGetOrCreate(t *testing.T) {
 	}
 
 	t.Logf("Created or retrieved todo: %+v, %+v", tdo, tdo.User)
+}
+
+func TestQuerySetChaining(t *testing.T) {
+	var todos = []*Todo{
+		{Title: "TestQuerySetChaining1", Description: "Description TestQuerySetChaining", Done: false},
+		{Title: "TestQuerySetChaining2", Description: "Description TestQuerySetChaining", Done: true},
+		{Title: "TestQuerySetChaining3", Description: "Description TestQuerySetChaining", Done: false},
+	}
+
+	for _, todo := range todos {
+		if err := queries.CreateObject(todo); err != nil {
+			t.Fatalf("Failed to insert todo: %v", err)
+		}
+	}
+
+	var qs = queries.Objects(&Todo{}).
+		Select("ID", "Title", "Description", "Done", "User").
+		Filter("Title__icontains", "TestQuerySetChaining").
+		Filter("Done", false)
+
+	qs = qs.Filter("ID", todos[0].ID)
+
+	todosList, err := qs.All().Exec()
+	if err != nil {
+		t.Fatalf("Failed to get todos: %v", err)
+	}
+
+	if len(todosList) != 1 {
+		t.Fatalf("Expected 1 todo, got %d", len(todosList))
+	}
+}
+
+type testQuerySet_Concurrency struct {
+	idx   int
+	sql   string
+	args  []any
+	todos []attrs.Definer
+	err   error
+}
+
+func TestQuerySet_SharedInstance_Concurrency(t *testing.T) {
+	var baseQS = queries.Objects(&Todo{}).
+		Select("ID", "Title", "Description", "Done", "User").
+		Filter("Done", false).
+		Filter("Title__startswith", "ConcurrentTodo")
+
+	queries.LogQueries = false
+
+	const goroutines = 1000
+
+	var todos = make([]*Todo, goroutines)
+	for i := range goroutines {
+		todo := &Todo{
+			Title:       fmt.Sprintf("ConcurrentTodo %d", i),
+			Description: "Testing thread safety",
+			Done:        i%2 != 0,
+		}
+
+		if err := queries.CreateObject(todo); err != nil {
+			t.Fatalf("Failed to insert todo: %v", err)
+		}
+
+		todos[i] = todo
+	}
+
+	var items = make(chan testQuerySet_Concurrency, goroutines)
+	for i, todo := range todos {
+		idx := i
+		todo := todo
+		go func(idx int, todo *Todo) {
+			defer func() {
+				if r := recover(); r != nil {
+					items <- testQuerySet_Concurrency{
+						err: fmt.Errorf("goroutine %d panicked: %v", i, r),
+					}
+				}
+			}()
+
+			var qs = baseQS
+			if idx%2 == 0 {
+				qs = baseQS.Filter("ID", todo.ID)
+			}
+
+			allQuery := qs.All()
+			todos, err := allQuery.Exec()
+			items <- testQuerySet_Concurrency{
+				idx:   idx,
+				sql:   allQuery.SQL(),
+				args:  allQuery.Args(),
+				todos: todos,
+				err:   err,
+			}
+		}(idx, todo)
+	}
+
+	var checkTodo = func(todo *Todo) {
+		if todo == nil {
+			t.Fatalf("Expected a todo, got nil")
+		}
+
+		if todo.ID == 0 {
+			t.Fatalf("Expected todo ID to be not 0, got %d", todo.ID)
+		}
+
+		if todo.Title == "" {
+			t.Fatalf("Expected todo title to be not empty")
+		}
+
+		if !strings.Contains(strings.ToLower(todo.Title), "concurrenttodo") {
+			t.Errorf("Expected todo title to contain 'concurrenttodo', got: %s", todo.Title)
+		}
+
+		if todo.Done {
+			t.Errorf("Expected todo to be not done, got done: %+v", todo)
+		}
+	}
+
+	for i := 0; i < goroutines; i++ {
+		var item = <-items
+		if item.err != nil {
+			t.Errorf("Failed to get todos: %v", item.err)
+			continue
+		}
+
+		if len(item.todos) == 0 {
+			t.Errorf("Expected at least 1 todo, got 0")
+			continue
+		}
+
+		if len(item.todos) > 0 {
+			if item.idx%2 == 0 {
+				if len(item.todos) != 1 {
+					t.Errorf("Expected 1 todo, got %d", len(item.todos))
+				}
+				checkTodo(item.todos[0].(*Todo))
+				continue
+			}
+
+			for _, todo := range item.todos {
+				var todo = todo.(*Todo)
+				checkTodo(todo)
+			}
+		}
+	}
 }

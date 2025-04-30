@@ -3,6 +3,7 @@ package queries
 import (
 	"database/sql/driver"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -156,8 +157,12 @@ func Expr(field string, operation string, value ...any) *ExprNode {
 func (e *ExprNode) With(d driver.Driver, m attrs.Definer, quote string) Expression {
 	var nE = e.Clone().(*ExprNode)
 
-	if m == nil || e.used {
-		return e
+	if m == nil {
+		panic("model is nil")
+	}
+
+	if nE.used {
+		return nE
 	}
 
 	nE.used = true
@@ -176,7 +181,9 @@ func (e *ExprNode) With(d driver.Driver, m attrs.Definer, quote string) Expressi
 		quote, field.ColumnName(), quote,
 	)
 
-	nE.sql, nE.args, err = newLookup(d, col, nE.lookup, nE.args)
+	nE.sql, nE.args, err = newLookup(
+		d, col, nE.lookup, slices.Clone(nE.args),
+	)
 	if err != nil {
 		panic(err)
 	}

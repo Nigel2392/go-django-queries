@@ -11,6 +11,7 @@ const (
 	ErrLastInsertId      errs.Error = "Last insert id is not valid"
 	ErrUnsupportedLookup errs.Error = "Unsupported lookup type"
 
+	ErrNoResults    errs.Error = "No results found"
 	ErrNoRows       errs.Error = "No rows in result set"
 	ErrMultipleRows errs.Error = "Multiple rows in result set"
 

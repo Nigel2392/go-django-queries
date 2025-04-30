@@ -29,7 +29,7 @@ This package provides simple ways to build queries, inserts, updates, deletes, a
     - [Updating records](#updating-records)
     - [Deleting records](#deleting-records)
 
-Latest version: `v1.0.7`
+Latest version: `v1.0.8`
 
 ---
 

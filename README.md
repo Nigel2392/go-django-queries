@@ -440,6 +440,7 @@ Again, these methods (if defined) will only be called when using the helper func
   }
 
   // Create the object with the queries.Objects function, send signals before and after
+  // if the model adheres to `models.Saver`, the model's Save method will be called
   if err := queries.CreateObject(profile); err != nil || profile.ID == 0 {
      t.Fatalf("Failed to insert profile: %v", err)
   }
@@ -451,6 +452,7 @@ Again, these methods (if defined) will only be called when using the helper func
   }
 
   // Create the object with the queries.Objects function, send signals before and after
+  // if the model adheres to `models.Saver`, the model's Save method will be called
   if err := queries.CreateObject(user); err != nil || user.ID == 0 {
      t.Fatalf("Failed to insert user: %v", err)
   }
@@ -464,6 +466,7 @@ Again, these methods (if defined) will only be called when using the helper func
   }
 
   // Create the object with the queries.Objects function, send signals before and after
+  // if the model adheres to `models.Saver`, the model's Save method will be called
   if err := queries.CreateObject(todo); err != nil {
     t.Fatalf("Failed to insert todo: %v", err)
   }
@@ -479,7 +482,7 @@ Again, these methods (if defined) will only be called when using the helper func
   todo.Done = true
 
   // Create the object with the queries.Objects function using the primary key in the where clause,
-  // send signals before and after
+  // send signals before and after, if the model adheres to `models.Saver`, the model's Save method will be called
   if err := queries.UpdateObject(todo); err != nil {
     t.Fatalf("Failed to update todo: %v", err)
   }
@@ -491,7 +494,7 @@ Again, these methods (if defined) will only be called when using the helper func
 
 ```go
   // Create the object with the queries.Objects function using the primary key in the where clause,
-  // send signals before and after
+  // send signals before and after, if the model adheres to `models.Deleter`, the model's Delete method will be called
   if err := queries.DeleteObject(todo); err != nil {1
     t.Fatalf("Failed to delete todo: %v", err)
   }

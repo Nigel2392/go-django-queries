@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strconv"
@@ -20,6 +21,12 @@ import (
 // -----------------------------------------------------------------------------
 
 const MAX_GET_RESULTS = 21
+
+type QueryDefiner interface {
+	attrs.Definer
+
+	GetQuerySet() *QuerySet
+}
 
 type Union func(*QuerySet) *QuerySet
 
@@ -96,6 +103,7 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, d driver.Driver, m attrs.De
 type QuerySet struct {
 	queryInfo    *queryInfo
 	model        attrs.Definer
+	annotations  map[string]VirtualField
 	fields       []FieldInfo
 	where        []Expression
 	having       []Expression
@@ -113,6 +121,9 @@ type QuerySet struct {
 
 // Objects creates a new QuerySet for the given model.
 //
+// If the model implements the QueryDefiner interface,
+// it will use the GetQuerySet method to get the initial QuerySet.
+//
 // It panics if:
 // - the model is nil
 // - the base query info cannot be retrieved
@@ -126,6 +137,11 @@ func Objects(model attrs.Definer) *QuerySet {
 		panic("QuerySet: model is nil")
 	}
 
+	if m, ok := model.(QueryDefiner); ok {
+		var qs = m.GetQuerySet()
+		return qs.Clone()
+	}
+
 	var queryInfo, err = getBaseQueryInfo(model)
 	if err != nil {
 		panic(fmt.Errorf("QuerySet: %w", err))
@@ -136,36 +152,46 @@ func Objects(model attrs.Definer) *QuerySet {
 	}
 
 	var qs = &QuerySet{
-		model:     model,
-		queryInfo: queryInfo,
-		where:     make([]Expression, 0),
-		having:    make([]Expression, 0),
-		joins:     make([]JoinDef, 0),
-		groupBy:   make([]FieldInfo, 0),
-		orderBy:   make([]OrderBy, 0),
-		limit:     1000,
-		offset:    0,
+		model:       model,
+		queryInfo:   queryInfo,
+		annotations: make(map[string]VirtualField),
+		where:       make([]Expression, 0),
+		having:      make([]Expression, 0),
+		joins:       make([]JoinDef, 0),
+		groupBy:     make([]FieldInfo, 0),
+		orderBy:     make([]OrderBy, 0),
+		limit:       1000,
+		offset:      0,
 	}
 	qs.compiler = Compiler(model)
 	return qs
 }
 
+// Return the underlying database which the compiler is using.
 func (qs *QuerySet) DB() DB {
 	return qs.compiler.DB()
 }
 
+// Return the model which the queryset is for.
 func (qs *QuerySet) Model() attrs.Definer {
 	return qs.model
 }
 
+// Return the compiler which the queryset is using.
 func (qs *QuerySet) Compiler() QueryCompiler {
 	return qs.compiler
 }
 
+// Clone creates a new QuerySet with the same parameters as the original one.
+//
+// It is used to create a new QuerySet with the same parameters as the original one, so that the original one is not modified.
+//
+// It is a shallow clone, underlying values like `*queries.Expr` are not cloned and have built- in immutability.
 func (qs *QuerySet) Clone() *QuerySet {
 	return &QuerySet{
 		model:        qs.model,
 		queryInfo:    qs.queryInfo,
+		annotations:  maps.Clone(qs.annotations),
 		fields:       slices.Clone(qs.fields),
 		union:        slices.Clone(qs.union),
 		where:        slices.Clone(qs.where),
@@ -182,6 +208,7 @@ func (qs *QuerySet) Clone() *QuerySet {
 	}
 }
 
+// Return the string representation of the QuerySet.
 func (w *QuerySet) String() string {
 	var sb = strings.Builder{}
 	sb.WriteString("QuerySet{")
@@ -210,6 +237,7 @@ func (w *QuerySet) String() string {
 	return sb.String()
 }
 
+// Return a detailed string representation of the QuerySet.
 func (qs *QuerySet) GoString() string {
 	var sb = strings.Builder{}
 	sb.WriteString("QuerySet{")
@@ -266,6 +294,11 @@ func (qs *QuerySet) GoString() string {
 	return sb.String()
 }
 
+// The core function used to convert a list of fields to a list of FieldInfo.
+//
+// This function will make sure to map each provided field name to a model field.
+//
+// Relations are also respected, joins are automatically added to the query.
 func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelated bool) {
 	infos = make([]FieldInfo, 0, len(qs.fields))
 	var info = FieldInfo{
@@ -311,7 +344,9 @@ func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelate
 		info.Fields = append(info.Fields, field)
 	}
 
-	infos = append(infos, info)
+	if len(info.Fields) > 0 {
+		infos = append(infos, info)
+	}
 	return infos, hasRelated
 }
 
@@ -344,6 +379,22 @@ func (qs *QuerySet) attrFields(obj attrs.Definer) []attrs.Field {
 	return fields
 }
 
+// Select is used to select specific fields from the model.
+//
+// It takes a list of field names as arguments and returns a new QuerySet with the selected fields.
+//
+// If no fields are provided, it selects all fields from the model.
+//
+// If the first field is "*", it selects all fields from the model,
+// extra fields (i.e. relations) can be provided thereafter - these will also be added to the selection.
+//
+// An example of usage:
+//
+// `Select("field1", "field2")`
+// `Select("field1", "field2", "relation.*")`
+// `Select("*", "relation.*")`
+// `Select("relation.*")`
+// `Select("*", "relation.field1", "relation.field2", "relation.nested.*")`
 func (qs *QuerySet) Select(fields ...string) *QuerySet {
 	qs = qs.Clone()
 
@@ -353,11 +404,17 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 		joinM      = make(map[string]bool)
 	)
 
-	if len(fields) == 0 || len(fields) == 1 && fields[0] == "*" {
+	if len(fields) == 0 {
 		fields = make([]string, 0, len(qs.queryInfo.fields))
 		for _, field := range qs.queryInfo.fields {
 			fields = append(fields, field.Name())
 		}
+	} else if len(fields) > 0 && fields[0] == "*" {
+		var f = make([]string, 0, len(qs.queryInfo.fields)+(len(fields)-1))
+		for _, field := range qs.queryInfo.fields {
+			f = append(f, field.Name())
+		}
+		fields = append(f, fields[1:]...)
 	}
 
 	for _, info := range fields {
@@ -372,6 +429,15 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 			qs.model, info,
 		)
 		if err != nil {
+			field, ok := qs.annotations[info]
+			if ok {
+				fieldInfos = append(fieldInfos, FieldInfo{
+					Table:  qs.queryInfo.tableName,
+					Fields: []attrs.Field{field},
+				})
+				continue
+			}
+
 			panic(err)
 		}
 
@@ -456,24 +522,44 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 	return qs
 }
 
+// Filter is used to filter the results of a query.
+//
+// It takes a key and a list of values as arguments and returns a new QuerySet with the filtered results.
+//
+// The key can be a field name (string), an expression (Expression) or a map of field names to values.
+//
+// By default the `__exact` (=) operator is used, each where clause is separated by `AND`.
 func (qs *QuerySet) Filter(key interface{}, vals ...interface{}) *QuerySet {
 	var nqs = qs.Clone()
 	nqs.where = append(qs.where, express(key, vals...)...)
 	return nqs
 }
 
+// Having is used to filter the results of a query after aggregation.
+//
+// It takes a key and a list of values as arguments and returns a new QuerySet with the filtered results.
+//
+// The key can be a field name (string), an expression (Expression) or a map of field names to values.
 func (qs *QuerySet) Having(key interface{}, vals ...interface{}) *QuerySet {
 	var nqs = qs.Clone()
 	nqs.having = append(qs.having, express(key, vals...)...)
 	return nqs
 }
 
+// GroupBy is used to group the results of a query.
+//
+// It takes a list of field names as arguments and returns a new QuerySet with the grouped results.
 func (qs *QuerySet) GroupBy(fields ...string) *QuerySet {
 	var nqs = qs.Clone()
 	nqs.groupBy, _ = qs.unpackFields(fields...)
 	return nqs
 }
 
+// OrderBy is used to order the results of a query.
+//
+// It takes a list of field names as arguments and returns a new QuerySet with the ordered results.
+//
+// The field names can be prefixed with a minus sign (-) to indicate descending order.
 func (qs *QuerySet) OrderBy(fields ...string) *QuerySet {
 	var nqs = qs.Clone()
 	nqs.orderBy = make([]OrderBy, 0, len(fields))
@@ -511,6 +597,9 @@ func (qs *QuerySet) OrderBy(fields ...string) *QuerySet {
 	return nqs
 }
 
+// Reverse is used to reverse the order of the results of a query.
+//
+// It returns a new QuerySet with the reversed order.
 func (qs *QuerySet) Reverse() *QuerySet {
 	var ordBy = make([]OrderBy, 0, len(qs.orderBy))
 	for _, ord := range qs.orderBy {
@@ -532,37 +621,115 @@ func (qs *QuerySet) Union(f func(*QuerySet) *QuerySet) *QuerySet {
 	return nqs
 }
 
+// Limit is used to limit the number of results returned by a query.
 func (qs *QuerySet) Limit(n int) *QuerySet {
 	var nqs = qs.Clone()
 	nqs.limit = n
 	return nqs
 }
 
+// Offset is used to set the offset of the results returned by a query.
 func (qs *QuerySet) Offset(n int) *QuerySet {
 	var nqs = qs.Clone()
 	nqs.offset = n
 	return nqs
 }
 
+// ForUpdate is used to lock the rows returned by a query for update.
+//
+// It is used to prevent other transactions from modifying the rows until the current transaction is committed or rolled back.
 func (qs *QuerySet) ForUpdate() *QuerySet {
 	var nqs = qs.Clone()
 	nqs.forUpdate = true
 	return nqs
 }
 
+// Distinct is used to select distinct rows from the results of a query.
+//
+// It is used to remove duplicate rows from the results.
 func (qs *QuerySet) Distinct() *QuerySet {
 	var nqs = qs.Clone()
 	nqs.distinct = true
 	return nqs
 }
 
+// ExplicitSave is used to indicate that the save operation should be explicit.
+//
+// It is used to prevent the automatic save operation from being performed on the model.
+//
+// I.E. when using the `Create` method after calling `qs.ExplicitSave()`, it will **not** automatically
+// save the model to the database using the model's own `Save` method.
 func (qs *QuerySet) ExplicitSave() *QuerySet {
 	var nqs = qs.Clone()
 	nqs.explicitSave = true
 	return nqs
 }
 
-func (qs *QuerySet) All() Query[[]attrs.Definer] {
+func (qs *QuerySet) annotate(alias string, expr Expression) {
+	field := newQueryField[any](alias, expr)
+	qs.annotations[alias] = field
+
+	qs.fields = append(qs.fields, FieldInfo{
+		Model:  nil,
+		Table:  qs.queryInfo.tableName,
+		Fields: []attrs.Field{field},
+	})
+}
+
+// Annotate is used to add annotations to the results of a query.
+//
+// It takes a string or a map of strings to expressions as arguments and returns a new QuerySet with the annotations.
+//
+// If a string is provided, it is used as the alias for the expression.
+//
+// If a map is provided, the keys are used as aliases for the expressions.
+func (qs *QuerySet) Annotate(aliasOrAliasMap interface{}, expr ...Expression) *QuerySet {
+	qs = qs.Clone()
+
+	switch aliasOrAliasMap := aliasOrAliasMap.(type) {
+	case string:
+		if len(expr) == 0 {
+			panic("QuerySet: no expression provided")
+		}
+		qs.annotate(aliasOrAliasMap, expr[0])
+	case map[string]Expression:
+		if len(expr) > 0 {
+			panic("QuerySet: map and expressions both provided")
+		}
+		for alias, e := range aliasOrAliasMap {
+			qs.annotate(alias, e)
+		}
+	case map[string]any:
+		if len(expr) > 0 {
+			panic("QuerySet: map and expressions both provided")
+		}
+		for alias, e := range aliasOrAliasMap {
+			if expr, ok := e.(Expression); ok {
+				qs.annotate(alias, expr)
+			} else {
+				panic(fmt.Errorf(
+					"QuerySet: %q is not an expression (%T)", alias, e,
+				))
+			}
+		}
+	}
+
+	return qs
+}
+
+type Row struct {
+	Object      attrs.Definer
+	Annotations map[string]any
+}
+
+// All is used to retrieve all rows from the database.
+//
+// It returns a Query that can be executed to get the results, which is a slice of Row objects.
+//
+// Each Row object contains the model object and a map of annotations.
+//
+// If no fields are provided, it selects all fields from the model, see `Select()` for more details.
+func (qs *QuerySet) All() Query[[]*Row] {
 	if len(qs.fields) == 0 {
 		qs = qs.Select("*")
 	}
@@ -583,33 +750,40 @@ func (qs *QuerySet) All() Query[[]attrs.Definer] {
 		qs.distinct,
 	)
 
-	return &wrappedQuery[[][]interface{}, []attrs.Definer]{
+	return &wrappedQuery[[][]interface{}, []*Row]{
 		query: resultQuery,
-		exec: func(q Query[[][]interface{}]) ([]attrs.Definer, error) {
+		exec: func(q Query[[][]interface{}]) ([]*Row, error) {
 			var results, err = q.Exec()
 			if err != nil {
 				return nil, err
 			}
 
-			var list = make([]attrs.Definer, len(results))
+			var list = make([]*Row, len(results))
+
 			for i, row := range results {
-				var obj = newObjectFromIface(qs.model)
-				var fields = getScannableFields(qs.fields, obj)
+				obj := newObjectFromIface(qs.model)
+				scannables := getScannableFields(qs.fields, obj)
 
-				for j, field := range fields {
-					var f = field.(attrs.Field)
-					var val = row[j]
+				annotations := make(map[string]any)
 
-					if err = f.Scan(val); err != nil {
-						return nil, errors.Wrapf(
-							err,
-							"failed to scan field %q in %T",
-							f.Name(), obj,
-						)
+				for j, field := range scannables {
+					f := field.(attrs.Field)
+					val := row[j]
+
+					if err := f.Scan(val); err != nil {
+						return nil, errors.Wrapf(err, "failed to scan field %q in %T", f.Name(), obj)
+					}
+
+					// If it's a virtual field not in the model, store as annotation
+					if vf, ok := f.(VirtualField); ok {
+						annotations[vf.Alias()] = f.GetValue()
 					}
 				}
 
-				list[i] = obj
+				list[i] = &Row{
+					Object:      obj,
+					Annotations: annotations,
+				}
 			}
 
 			return list, nil
@@ -617,6 +791,9 @@ func (qs *QuerySet) All() Query[[]attrs.Definer] {
 	}
 }
 
+// ValuesList is used to retrieve a list of values from the database.
+//
+// It takes a list of field names as arguments and returns a ValuesListQuery.
 func (qs *QuerySet) ValuesList(fields ...string) ValuesListQuery {
 
 	qs = qs.Select(fields...)
@@ -674,13 +851,86 @@ func (qs *QuerySet) ValuesList(fields ...string) ValuesListQuery {
 	}
 }
 
-func (qs *QuerySet) Get() Query[attrs.Definer] {
+// Aggregate is used to perform aggregation on the results of a query.
+//
+// It takes a map of field names to expressions as arguments and returns a Query that can be executed to get the results.
+func (qs *QuerySet) Aggregate(annotations map[string]Expression) Query[map[string]any] {
+	qs = qs.Clone()
+	qs.fields = make([]FieldInfo, 0, len(annotations))
+
+	for alias, expr := range annotations {
+		qs.fields = append(qs.fields, FieldInfo{
+			Model:  nil,
+			Table:  qs.queryInfo.tableName,
+			Fields: []attrs.Field{newQueryField[any](alias, expr)},
+		})
+	}
+
+	query := qs.compiler.BuildSelectQuery(
+		context.Background(),
+		qs,
+		qs.fields,
+		qs.where,
+		qs.having,
+		qs.joins,
+		qs.groupBy,
+		nil,   // no order
+		1,     // just one row
+		0,     // no offset
+		nil,   // no union
+		false, // not for update
+		false, // not distinct
+	)
+
+	return &wrappedQuery[[][]interface{}, map[string]any]{
+		query: query,
+		exec: func(q Query[[][]interface{}]) (map[string]any, error) {
+			results, err := q.Exec()
+			if err != nil {
+				return nil, err
+			}
+			if len(results) == 0 {
+				return map[string]any{}, nil
+			}
+
+			scannables := getScannableFields(qs.fields, newObjectFromIface(qs.model))
+			row := results[0]
+			out := make(map[string]any)
+
+			for i, field := range scannables {
+				if vf, ok := field.(VirtualField); ok {
+					if err := vf.Scan(row[i]); err != nil {
+						return nil, err
+					}
+					out[vf.Alias()] = vf.GetValue()
+				}
+			}
+			return out, nil
+		},
+	}
+}
+
+// Get is used to retrieve a single row from the database.
+//
+// It returns a Query that can be executed to get the result, which is a Row object
+// that contains the model object and a map of annotations.
+//
+// It panics if the queryset has no where clause.
+//
+// If no rows are found, it returns queries.ErrNoRows.
+//
+// If multiple rows are found, it returns queries.ErrMultipleRows.
+func (qs *QuerySet) Get() Query[*Row] {
+	if len(qs.where) == 0 {
+		panic(ErrNoWhereClause)
+	}
+
 	qs = qs.Limit(MAX_GET_RESULTS)
 	q := qs.All()
 
-	return &wrappedQuery[[]attrs.Definer, attrs.Definer]{
+	return &wrappedQuery[[]*Row, *Row]{
 		query: q,
-		exec: func(q Query[[]attrs.Definer]) (attrs.Definer, error) {
+		exec: func(q Query[[]*Row]) (*Row, error) {
 			var results, err = q.Exec()
 			if err != nil {
 				return nil, err
@@ -708,10 +958,17 @@ func (qs *QuerySet) Get() Query[attrs.Definer] {
 	}
 }
 
+// GetOrCreate is used to retrieve a single row from the database or create it if it does not exist.
+//
+// It returns the definer object and an error if any occurred.
+//
+// This method executes a transaction to ensure that the object is created only once.
+//
+// It panics if the queryset has no where clause.
 func (qs *QuerySet) GetOrCreate(value attrs.Definer) (attrs.Definer, error) {
 
 	if len(qs.where) == 0 {
-		return nil, ErrNoWhereClause
+		panic(ErrNoWhereClause)
 	}
 
 	// Create a new transaction
@@ -725,7 +982,7 @@ func (qs *QuerySet) GetOrCreate(value attrs.Definer) (attrs.Definer, error) {
 
 	// Check if the object already exists
 	var resultQuery = qs.Get()
-	obj, err := resultQuery.Exec()
+	row, err := resultQuery.Exec()
 	if err != nil {
 		if errors.Is(err, ErrNoRows) {
 			goto create
@@ -735,14 +992,14 @@ func (qs *QuerySet) GetOrCreate(value attrs.Definer) (attrs.Definer, error) {
 	}
 
 	// Object already exists, return it and commit the transaction
-	if obj != nil {
-		return obj, transaction.Commit()
+	if row != nil {
+		return row.Object, transaction.Commit()
 	}
 
 	// Object does not exist, create it
 create:
 	var createQuery = qs.Create(value)
-	obj, err = createQuery.Exec()
+	obj, err := createQuery.Exec()
 	if err != nil {
 		return nil, err
 	}
@@ -751,13 +1008,17 @@ create:
 	return obj, transaction.Commit()
 }
 
-func (qs *QuerySet) First() Query[attrs.Definer] {
+// First is used to retrieve the first row from the database.
+//
+// It returns a Query that can be executed to get the result, which is a Row object
+// that contains the model object and a map of annotations.
+func (qs *QuerySet) First() Query[*Row] {
 	qs = qs.Limit(1)
 	q := qs.All()
 
-	return &wrappedQuery[[]attrs.Definer, attrs.Definer]{
+	return &wrappedQuery[[]*Row, *Row]{
 		query: q,
-		exec: func(q Query[[]attrs.Definer]) (attrs.Definer, error) {
+		exec: func(q Query[[]*Row]) (*Row, error) {
 			var results, err = q.Exec()
 			if err != nil {
 				return nil, err
@@ -770,27 +1031,21 @@ func (qs *QuerySet) First() Query[attrs.Definer] {
 	}
 }
 
-func (qs *QuerySet) Last() Query[attrs.Definer] {
+// Last is used to retrieve the last row from the database.
+//
+// It reverses the order of the results and then calls First to get the last row.
+//
+// It returns a Query that can be executed to get the result, which is a Row object
+// that contains the model object and a map of annotations.
+func (qs *QuerySet) Last() Query[*Row] {
 	var nqs = qs.Reverse()
-	nqs.limit = 1
-	nqs.offset = 0
-	q := nqs.All()
-
-	return &wrappedQuery[[]attrs.Definer, attrs.Definer]{
-		query: q,
-		exec: func(q Query[[]attrs.Definer]) (attrs.Definer, error) {
-			var results, err = q.Exec()
-			if err != nil {
-				return nil, err
-			}
-			if len(results) == 0 {
-				return nil, ErrNoRows
-			}
-			return results[0], nil
-		},
-	}
+	return nqs.First()
 }
 
+// Exists is used to check if any rows exist in the database.
+//
+// It returns a Query that can be executed to get the result,
+// which is a boolean indicating if any rows exist.
 func (qs *QuerySet) Exists() ExistsQuery {
 	qs = qs.Clone()
 
@@ -816,6 +1071,9 @@ func (qs *QuerySet) Exists() ExistsQuery {
 	}
 }
 
+// Count is used to count the number of rows in the database.
+//
+// It returns a CountQuery that can be executed to get the result, which is an int64 indicating the number of rows.
 func (qs *QuerySet) Count() CountQuery {
 
 	qs = qs.Clone()
@@ -831,6 +1089,18 @@ func (qs *QuerySet) Count() CountQuery {
 	)
 }
 
+// Create is used to create a new object in the database.
+//
+// It takes a definer object as an argument and returns a Query that can be executed
+// to get the result, which is the created object.
+//
+// It panics if a non- nullable field is null or if the field is not found in the model.
+//
+// The model can adhere to django's `models.Saver` interface, in which case the `Save()` method will be called
+// unless `ExplicitSave()` was called on the queryset.
+//
+// If `ExplicitSave()` was called, the `Create()` method will return a query that can be executed to create the object
+// without calling the `Save()` method on the model.
 func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 
 	// Check if the object is a saver
@@ -1009,6 +1279,15 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 	}
 }
 
+// Update is used to update an object in the database.
+//
+// It takes a definer object as an argument and returns a CountQuery that can be executed
+// to get the result, which is the number of rows affected.
+//
+// It panics if a non- nullable field is null or if the field is not found in the model.
+//
+// If the model adheres to django's `models.Saver` interface, no where clause is provided
+// and ExplicitSave() was not called, the `Save()` method will be called on the model
 func (qs *QuerySet) Update(value attrs.Definer) CountQuery {
 	qs = qs.Clone()
 
@@ -1097,6 +1376,9 @@ func (qs *QuerySet) Update(value attrs.Definer) CountQuery {
 	return resultQuery
 }
 
+// Delete is used to delete an object from the database.
+//
+// It returns a CountQuery that can be executed to get the result, which is the number of rows affected.
 func (qs *QuerySet) Delete() CountQuery {
 	qs = qs.Clone()
 
@@ -1123,6 +1405,13 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []any {
 		if info.SourceField == nil {
 			defs := root.FieldDefs()
 			for _, f := range info.Fields {
+
+				if _, ok := f.(VirtualField); ok && info.Model == nil {
+					// If field is virtual and not bound to a model, just scan it directly
+					scannables = append(scannables, f)
+					continue
+				}
+
 				field, ok := defs.Field(f.Name())
 				if !ok {
 					panic(fmt.Errorf("field %q not found in %T", f.Name(), root))

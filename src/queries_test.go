@@ -389,7 +389,7 @@ func TestQuerySet_Filter(t *testing.T) {
 	}
 
 	for _, todo := range todos {
-		todo := todo.(*Todo)
+		todo := todo.Object.(*Todo)
 		if !strings.Contains(strings.ToLower(todo.Title), "test") {
 			t.Fatalf("Expected todo title to contain 'test', got: %s", todo.Title)
 		}
@@ -416,7 +416,7 @@ func TestQuerySet_First(t *testing.T) {
 		t.Fatalf("Expected a todo, got nil")
 	}
 
-	var tdo = todo.(*Todo)
+	var tdo = todo.Object.(*Todo)
 	if !tdo.Done {
 		t.Fatalf("Expected todo to be done, got not done: %+v", tdo)
 	}
@@ -441,7 +441,7 @@ func TestQuerySet_Where(t *testing.T) {
 	}
 
 	for _, todo := range todos {
-		todo := todo.(*Todo)
+		todo := todo.Object.(*Todo)
 		if !strings.Contains(strings.ToLower(todo.Title), "test") {
 			t.Fatalf("Expected todo title to contain 'test', got: %s", todo.Title)
 		}
@@ -522,7 +522,7 @@ func TestQueryRelated(t *testing.T) {
 		t.Fatalf("Expected 1 todo, got %d", len(todos))
 	}
 
-	var dbTodo = todos[0].(*Todo)
+	var dbTodo = todos[0].Object.(*Todo)
 	t.Logf("Created todo: %+v, %+v", todo, todo.User)
 	t.Logf("Filtered todo: %+v, %+v", dbTodo, dbTodo.User)
 
@@ -605,7 +605,7 @@ func TestQueryRelatedIDOnly(t *testing.T) {
 		t.Fatalf("Expected 1 todo, got %d", len(todos))
 	}
 
-	var dbTodo = todos[0].(*Todo)
+	var dbTodo = todos[0].Object.(*Todo)
 	t.Logf("Created todo: %+v, %+v", todo, todo.User)
 	t.Logf("Filtered todo: %+v, %+v", dbTodo, dbTodo.User)
 
@@ -771,7 +771,7 @@ func TestQueryNestedRelated(t *testing.T) {
 	}
 
 	todos, err := queries.Objects(&Todo{}).
-		Select("ID", "Title", "Description", "Done", "User.*", "User.Profile.*", "User.Profile.Image.*").
+		Select("*", "User.*", "User.Profile.*", "User.Profile.Image.*").
 		Filter(
 			queries.Q("Title__icontains", "new test"),
 			queries.Q("Done", false),
@@ -804,7 +804,7 @@ func TestQueryNestedRelated(t *testing.T) {
 		t.Fatalf("Expected 1 todo, got %d", len(todos))
 	}
 
-	var dbTodo = todos[0].(*Todo)
+	var dbTodo = todos[0].Object.(*Todo)
 	t.Logf("Created todo: %+v, %+v, %+v, %+v", todo, todo.User, todo.User.Profile, todo.User.Profile.Image)
 	t.Logf("Filtered todo: %+v, %+v, %+v, %+v", dbTodo, dbTodo.User, dbTodo.User.Profile, dbTodo.User.Profile.Image)
 
@@ -993,7 +993,7 @@ func TestQueryGet(t *testing.T) {
 		t.Fatalf("Expected a todo, got nil")
 	}
 
-	var tdo = todo.(*Todo)
+	var tdo = todo.Object.(*Todo)
 
 	if tdo.ID != todos[0].ID || todos[0].ID == 0 {
 		t.Fatalf("Expected todo ID %d, got %d", todos[0].ID, tdo.ID)
@@ -1311,7 +1311,7 @@ type testQuerySet_Concurrency struct {
 	idx   int
 	sql   string
 	args  []any
-	todos []attrs.Definer
+	todos []*queries.Row
 	err   error
 }
 
@@ -1409,14 +1409,16 @@ func TestQuerySet_SharedInstance_Concurrency(t *testing.T) {
 				if len(item.todos) != 1 {
 					t.Errorf("Expected 1 todo, got %d", len(item.todos))
 				}
-				checkTodo(item.todos[0].(*Todo))
+				checkTodo(item.todos[0].Object.(*Todo))
 				continue
 			}
 
 			for _, todo := range item.todos {
-				var todo = todo.(*Todo)
+				var todo = todo.Object.(*Todo)
 				checkTodo(todo)
 			}
 		}
 	}
+
+	queries.LogQueries = true
 }

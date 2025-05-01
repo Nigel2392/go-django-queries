@@ -67,7 +67,7 @@ func ListObjectsByIDs[T attrs.Definer, T2 any](offset, limit uint64, ids []T2) (
 
 	var results = make([]T, 0, len(ids))
 	for _, obj := range d {
-		results = append(results, obj.(T))
+		results = append(results, obj.Object.(T))
 	}
 
 	return results, nil
@@ -90,7 +90,7 @@ func ListObjects[T attrs.Definer](offset, limit uint64, ordering ...string) ([]T
 
 	var results = make([]T, 0, len(d))
 	for _, obj := range d {
-		results = append(results, obj.(T))
+		results = append(results, obj.Object.(T))
 	}
 
 	return results, nil
@@ -136,7 +136,7 @@ func GetObject[T attrs.Definer](identifier any) (T, error) {
 		return obj, err
 	}
 
-	return d.(T), nil
+	return d.Object.(T), nil
 }
 
 // CountObjects counts the number of objects in the database.

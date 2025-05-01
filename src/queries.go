@@ -218,7 +218,7 @@ func CreateObject[T attrs.Definer](obj T) error {
 			return errors.Errorf("field %q not found in %T", field.Name(), obj)
 		}
 
-		var value = f.GetDefault()
+		var value = f.GetValue()
 		if value == nil && !field.AllowNull() {
 			return errors.Wrapf(
 				ErrFieldNull,
@@ -228,7 +228,10 @@ func CreateObject[T attrs.Definer](obj T) error {
 		}
 
 		if err = field.SetValue(value, true); err != nil {
-			return err
+			return errors.Wrapf(
+				err, "failed to set value %v to field %q",
+				value, field.Name(),
+			)
 		}
 	}
 

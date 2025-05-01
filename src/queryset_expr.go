@@ -175,11 +175,20 @@ func (e *ExprNode) With(d driver.Driver, m attrs.Definer, quote string) Expressi
 	}
 
 	var defs = current.FieldDefs()
-	col := fmt.Sprintf(
-		"%s%s%s.%s%s%s",
-		quote, defs.TableName(), quote,
-		quote, field.ColumnName(), quote,
-	)
+	var col string
+
+	if vF, ok := field.(VirtualField); ok {
+		col = fmt.Sprintf(
+			"%s%s%s",
+			quote, vF.Alias(), quote,
+		)
+	} else {
+		col = fmt.Sprintf(
+			"%s%s%s.%s%s%s",
+			quote, defs.TableName(), quote,
+			quote, field.ColumnName(), quote,
+		)
+	}
 
 	nE.sql, nE.args, err = newLookup(
 		d, col, nE.lookup, slices.Clone(nE.args),

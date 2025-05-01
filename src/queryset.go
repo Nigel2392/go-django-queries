@@ -2,6 +2,7 @@ package queries
 
 import (
 	"context"
+	"database/sql/driver"
 	"fmt"
 	"reflect"
 	"slices"
@@ -41,13 +42,32 @@ type FieldInfo struct {
 type OrderBy struct {
 	Table string
 	Field string
+	Alias string
 	Desc  bool
 }
 
-func (f *FieldInfo) WriteFields(sb *strings.Builder, quote string) {
+func (f *FieldInfo) WriteFields(sb *strings.Builder, d driver.Driver, m attrs.Definer, quote string) []any {
+	var args = make([]any, 0, len(f.Fields))
 	for i, field := range f.Fields {
 		if i > 0 {
 			sb.WriteString(", ")
+		}
+
+		if ve, ok := field.(VirtualField); ok && m != nil {
+			var alias = ve.Alias()
+			var sql, a = ve.SQL(d, m, quote)
+
+			sb.WriteString(sql)
+
+			if alias != "" {
+				sb.WriteString(" AS ")
+				sb.WriteString(quote)
+				sb.WriteString(alias)
+				sb.WriteString(quote)
+			}
+
+			args = append(args, a...)
+			continue
 		}
 
 		sb.WriteString(quote)
@@ -58,6 +78,8 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, quote string) {
 		sb.WriteString(field.ColumnName())
 		sb.WriteString(quote)
 	}
+
+	return args
 }
 
 // QuerySet is a struct that represents a query set in the database.
@@ -472,10 +494,16 @@ func (qs *QuerySet) OrderBy(fields ...string) *QuerySet {
 			panic(err)
 		}
 
+		var alias string
+		if vF, ok := field.(VirtualField); ok {
+			alias = vF.Alias()
+		}
+
 		var defs = obj.FieldDefs()
 		nqs.orderBy = append(nqs.orderBy, OrderBy{
 			Table: defs.TableName(),
 			Field: field.ColumnName(),
+			Alias: alias,
 			Desc:  desc,
 		})
 	}
@@ -489,6 +517,7 @@ func (qs *QuerySet) Reverse() *QuerySet {
 		ordBy = append(ordBy, OrderBy{
 			Table: ord.Table,
 			Field: ord.Field,
+			Alias: ord.Alias,
 			Desc:  !ord.Desc,
 		})
 	}

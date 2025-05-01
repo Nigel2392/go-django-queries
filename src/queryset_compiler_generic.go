@@ -109,6 +109,7 @@ func (g *GenericQueryBuilder) BuildSelectQuery(
 	var (
 		query = new(strings.Builder)
 		args  []any
+		model = qs.Model()
 	)
 
 	query.WriteString("SELECT ")
@@ -122,10 +123,11 @@ func (g *GenericQueryBuilder) BuildSelectQuery(
 			query.WriteString(", ")
 		}
 
-		info.WriteFields(query, g.quote)
+		args = append(
+			args, info.WriteFields(
+				query, g.driver, model, g.quote)...)
 	}
 
-	var model = qs.Model()
 	query.WriteString(" FROM ")
 	g.writeTableName(query)
 	g.writeJoins(query, joins)
@@ -488,7 +490,7 @@ func (g *GenericQueryBuilder) writeGroupBy(sb *strings.Builder, groupBy []FieldI
 				sb.WriteString(", ")
 			}
 
-			info.WriteFields(sb, g.quote)
+			info.WriteFields(sb, g.driver, nil, g.quote)
 		}
 	}
 }
@@ -512,13 +514,20 @@ func (g *GenericQueryBuilder) writeOrderBy(sb *strings.Builder, orderBy []OrderB
 			if i > 0 {
 				sb.WriteString(", ")
 			}
-			sb.WriteString(g.quote)
-			sb.WriteString(field.Table)
-			sb.WriteString(g.quote)
-			sb.WriteString(".")
-			sb.WriteString(g.quote)
-			sb.WriteString(field.Field)
-			sb.WriteString(g.quote)
+
+			if field.Alias != "" {
+				sb.WriteString(g.quote)
+				sb.WriteString(field.Alias)
+				sb.WriteString(g.quote)
+			} else {
+				sb.WriteString(g.quote)
+				sb.WriteString(field.Table)
+				sb.WriteString(g.quote)
+				sb.WriteString(".")
+				sb.WriteString(g.quote)
+				sb.WriteString(field.Field)
+				sb.WriteString(g.quote)
+			}
 
 			if field.Desc {
 				sb.WriteString(" DESC")

@@ -2,3 +2,8 @@
 src/tables_types_test.go
 src/tables_types.go
 src/tables.go
+src/queryset_fields_rel_fk.go
+src/queryset_fields_rel_m2m.go
+src/queryset_fields_rel_o2o.go
+src/queryset_fields_rel_registry.go
+src/queryset_fields_rel.go

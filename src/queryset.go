@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/forms/fields"
 	"github.com/Nigel2392/go-django/src/models"
@@ -21,12 +22,6 @@ import (
 // -----------------------------------------------------------------------------
 
 const MAX_GET_RESULTS = 21
-
-type QueryDefiner interface {
-	attrs.Definer
-
-	GetQuerySet() *QuerySet
-}
 
 type Union func(*QuerySet) *QuerySet
 
@@ -68,6 +63,10 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, d driver.Driver, m attrs.De
 		if ve, ok := field.(VirtualField); ok && m != nil {
 			var alias = ve.Alias()
 			var sql, a = ve.SQL(d, m, quote)
+			if sql == "" {
+				// SQL is empty, we don't need to add it to the query
+				continue
+			}
 
 			sb.WriteString(sql)
 
@@ -142,13 +141,30 @@ type QuerySet struct {
 // It returns a pointer to a new QuerySet.
 //
 // The model must implement the Definer interface.
-func Objects(model attrs.Definer) *QuerySet {
+func Objects(model attrs.Definer, database ...string) *QuerySet {
 
 	if model == nil {
 		panic("QuerySet: model is nil")
 	}
 
-	if m, ok := model.(QueryDefiner); ok {
+	var defaultDb = django.APPVAR_DATABASE
+	if len(database) > 1 {
+		panic("QuerySet: too many databases provided")
+	}
+
+	// If the model implements the QuerySetDatabaseDefiner interface,
+	// it will use the QuerySetDatabase method to get the default database.
+	// Function arguments still take precedence however.
+	if m, ok := model.(QuerySetDatabaseDefiner); ok && len(database) == 0 {
+		defaultDb = m.QuerySetDatabase()
+	}
+
+	// Arguments take precedence over the default database
+	if len(database) == 1 {
+		defaultDb = database[0]
+	}
+
+	if m, ok := model.(QuerySetDefiner); ok {
 		var qs = m.GetQuerySet()
 		return qs.Clone()
 	}
@@ -174,7 +190,7 @@ func Objects(model attrs.Definer) *QuerySet {
 		limit:       1000,
 		offset:      0,
 	}
-	qs.compiler = Compiler(model)
+	qs.compiler = Compiler(model, defaultDb)
 	return qs
 }
 
@@ -553,7 +569,10 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 			panic(err)
 		}
 
-		// The field might be a relation
+		if inj, ok := field.(InjectorField); ok {
+			qs = inj.Inject(qs)
+		}
+
 		// The field might be a relation
 		var (
 			rel        attrs.Definer
@@ -593,6 +612,62 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 				info *FieldInfo
 				join []JoinDef
 			)
+
+			/*
+				This works fine for fetching related fields, I.E. Select("Parent.Parent.*"), but
+				am unsure if this is the best way to do it. It looks messy, but does behave how it should.
+
+			*/
+			//	var (
+			//		joinChainModel = qs.model
+			//	)
+			//
+			//	for i := 0; i < len(chain); i++ {
+			//		fieldName := chain[i]
+			//		defs := joinChainModel.FieldDefs()
+			//
+			//		cField, ok := defs.Field(fieldName)
+			//		if !ok {
+			//			panic(fmt.Errorf("field %q not found in %T", fieldName, joinChainModel))
+			//		}
+			//
+			//		nextModel := cField.ForeignKey()
+			//		if nextModel == nil && cField.OneToOne() != nil {
+			//			nextModel = cField.OneToOne().Model()
+			//			if nextModel == nil {
+			//				nextModel = cField.OneToOne().Through()
+			//			}
+			//		} else if nextModel == nil && cField.ManyToMany() != nil {
+			//			nextModel = cField.ManyToMany().Through()
+			//		}
+			//		if nextModel == nil {
+			//			panic(fmt.Errorf("field %q in %T is not a relation", fieldName, joinChainModel))
+			//		}
+			//
+			//		alias := aliases[i]
+			//		if joinM[alias] {
+			//			joinChainModel = nextModel
+			//			continue // already joined
+			//		}
+			//
+			//		// This is the join we need to add
+			//		switch {
+			//		case cField.ForeignKey() != nil:
+			//			_, j := addJoinForFK(qs, cField.ForeignKey(), defs, cField, nil, chain[:i+1], aliases[:i+1], true, joinM)
+			//			joins = append(joins, j...)
+			//		case cField.OneToOne() != nil:
+			//			_, j := addJoinForO2O(qs, cField.OneToOne(), defs, cField, nil, chain[:i+1], aliases[:i+1], true, joinM)
+			//			joins = append(joins, j...)
+			//		case cField.ManyToMany() != nil:
+			//			_, j := addJoinForM2M(qs, cField.ManyToMany(), defs, cField, nil, chain[:i+1], aliases[:i+1], true, joinM)
+			//			joins = append(joins, j...)
+			//		default:
+			//			panic(fmt.Errorf("field %q is not a relation", cField.Name()))
+			//		}
+			//
+			//		joinM[alias] = true
+			//		joinChainModel = nextModel
+			//	}
 
 			var parentDefs = parent.FieldDefs()
 			var parentField, ok = parentDefs.Field(chain[len(chain)-1])

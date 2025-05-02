@@ -2,326 +2,203 @@ package queries
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"fmt"
+	"reflect"
+	"strings"
 
+	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/Nigel2392/go-django/src/forms/fields"
-	"github.com/Nigel2392/go-django/src/models"
-	"github.com/Nigel2392/go-signals"
-	"github.com/pkg/errors"
 )
 
-// CT_GetObject retrieves an object from the database by its identifier.
-//
-// This is a function with the CT_ prefix to indicate that it is a function to be used in a `contenttypes.ContentTypeDefinition` context.
-func CT_GetObject[T attrs.Definer](identifier any) (interface{}, error) {
-	var obj, err = GetObject[T](identifier)
-	return obj, err
+type VirtualField interface {
+	attrs.Field
+	Alias() string
+	SQL(d driver.Driver, m attrs.Definer, quote string) (string, []any)
 }
 
-// CT_ListObjects lists objects from the database.
-//
-// This is a function with the CT_ prefix to indicate that it is a function to be used in a `contenttypes.ContentTypeDefinition` context.
-func CT_ListObjects[T attrs.Definer](amount, offset uint) ([]interface{}, error) {
-	var results, err = ListObjects[T](uint64(offset), uint64(amount))
-	if err != nil {
-		return nil, err
+type InjectorField interface {
+	attrs.Field
+
+	Inject(qs *QuerySet) *QuerySet
+}
+
+type DataModel interface {
+	HasQueryValue(key string) bool
+	GetQueryValue(key string) (any, bool)
+	SetQueryValue(key string, value any) error
+}
+
+type QuerySetDefiner interface {
+	attrs.Definer
+
+	GetQuerySet() *QuerySet
+}
+
+type QuerySetDatabaseDefiner interface {
+	attrs.Definer
+
+	QuerySetDatabase() string
+}
+
+type DB interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+type Transaction interface {
+	DB
+	Commit() error
+	Rollback() error
+}
+
+type Expression interface {
+	SQL(sb *strings.Builder)
+	Args() []any
+	IsNot() bool
+	Not(b bool) Expression
+	And(...Expression) Expression
+	Or(...Expression) Expression
+	Clone() Expression
+	With(d driver.Driver, model attrs.Definer, quote string) Expression
+}
+
+type Query[T1 any] interface {
+	SQL() string
+	Args() []any
+	Model() attrs.Definer
+	Exec() (T1, error)
+	Compiler() QueryCompiler
+}
+
+type QueryCompiler interface {
+	// DB returns the database connection used by the query compiler.
+	//
+	// If a transaction was started, it will return the transaction instead of the database connection.
+	DB() DB
+
+	// Quote returns the quotes used by the database.
+	//
+	// This is used to quote table and field names.
+	// For example, MySQL uses backticks (`) and PostgreSQL uses double quotes (").
+	Quote() (front string, back string)
+
+	// SupportsReturning returns the type of returning supported by the database.
+	// It can be one of the following:
+	//
+	// - SupportsReturningNone: no returning supported
+	// - SupportsReturningLastInsertId: last insert id supported
+	// - SupportsReturningColumns: returning columns supported
+	SupportsReturning() SupportsReturning
+
+	// StartTransaction starts a new transaction.
+	StartTransaction(ctx context.Context) (Transaction, error)
+
+	// CommitTransaction commits the current ongoing transaction.
+	CommitTransaction() error
+
+	// RollbackTransaction rolls back the current ongoing transaction.
+	RollbackTransaction() error
+
+	// InTransaction returns true if the current query compiler is in a transaction.
+	InTransaction() bool
+
+	// BuildSelectQuery builds a select query with the given parameters.
+	BuildSelectQuery(
+		ctx context.Context,
+		qs *QuerySet,
+		fields []FieldInfo,
+		where []Expression,
+		having []Expression,
+		joins []JoinDef,
+		groupBy []FieldInfo,
+		orderBy []OrderBy,
+		limit int,
+		offset int,
+		union []Union,
+		forUpdate bool,
+		distinct bool,
+	) Query[[][]interface{}]
+
+	// BuildCountQuery builds a count query with the given parameters.
+	BuildCountQuery(
+		ctx context.Context,
+		qs *QuerySet,
+		where []Expression,
+		joins []JoinDef,
+		groupBy []FieldInfo,
+		limit int,
+		offset int,
+	) CountQuery
+
+	// BuildCreateQuery builds a create query with the given parameters.
+	BuildCreateQuery(
+		ctx context.Context,
+		qs *QuerySet,
+		fields FieldInfo,
+		primary attrs.Field,
+		values []any,
+	) Query[[]interface{}]
+
+	// BuildValuesListQuery builds a values list query with the given parameters.
+	BuildUpdateQuery(
+		ctx context.Context,
+		qs *QuerySet,
+		fields FieldInfo,
+		where []Expression,
+		joins []JoinDef,
+		groupBy []FieldInfo,
+		values []any,
+	) CountQuery
+
+	// BuildUpdateQuery builds an update query with the given parameters.
+	BuildDeleteQuery(
+		ctx context.Context,
+		qs *QuerySet,
+		where []Expression,
+		joins []JoinDef,
+		groupBy []FieldInfo,
+	) CountQuery
+}
+
+var compilerRegistry = make(map[reflect.Type]func(model attrs.Definer, defaultDB string) QueryCompiler)
+
+func RegisterCompiler(driver driver.Driver, compiler func(model attrs.Definer, defaultDB string) QueryCompiler) {
+	var driverType = reflect.TypeOf(driver)
+	if driverType == nil {
+		panic("driver is nil")
 	}
-	return attrs.InterfaceList(results), nil
+
+	compilerRegistry[driverType] = compiler
 }
 
-// CT_ListObjectsByIDs lists objects from the database by their IDs.
-//
-// This is a function with the CT_ prefix to indicate that it is a function to be used in a `contenttypes.ContentTypeDefinition` context.
-func CT_ListObjectsByIDs[T attrs.Definer](i []interface{}) ([]interface{}, error) {
-	var results, err = ListObjectsByIDs[T](0, 1000, i)
-	if err != nil {
-		return nil, err
+func Compiler(model attrs.Definer, defaultDB string) QueryCompiler {
+	if defaultDB == "" {
+		defaultDB = django.APPVAR_DATABASE
 	}
-	return attrs.InterfaceList(results), nil
-}
 
-// ListObjectsByIDs lists objects from the database by their IDs.
-//
-// It takes an offset, limit, and a slice of IDs as parameters and returns a slice of objects of type T.
-func ListObjectsByIDs[T attrs.Definer, T2 any](offset, limit uint64, ids []T2) ([]T, error) {
-
-	var (
-		obj          = newDefiner[T]()
-		definitions  = obj.FieldDefs()
-		primaryField = definitions.Primary()
+	var db = django.ConfigGet[interface{ Driver() driver.Driver }](
+		django.Global.Settings,
+		defaultDB,
 	)
-
-	var d, err = Objects(obj).
-		Filter(
-			fmt.Sprintf("%s__in", primaryField.Name()),
-			attrs.InterfaceList(ids)...,
-		).
-		Limit(int(limit)).
-		Offset(int(offset)).
-		All().Exec()
-
-	if err != nil {
-		return nil, err
+	if db == nil {
+		panic(fmt.Errorf(
+			"no database connection found for %q",
+			defaultDB,
+		))
 	}
 
-	var results = make([]T, 0, len(ids))
-	for _, obj := range d {
-		results = append(results, obj.Object.(T))
+	var driverType = reflect.TypeOf(db.Driver())
+	if driverType == nil {
+		panic("driver is nil")
 	}
 
-	return results, nil
-}
-
-// ListObjects lists objects from the database.
-//
-// It takes an offset and a limit as parameters and returns a slice of objects of type T.
-func ListObjects[T attrs.Definer](offset, limit uint64, ordering ...string) ([]T, error) {
-	var obj = newDefiner[T]()
-	var d, err = Objects(obj).
-		OrderBy(ordering...).
-		Limit(int(limit)).
-		Offset(int(offset)).
-		All().Exec()
-
-	if err != nil {
-		return nil, err
+	var compiler, ok = compilerRegistry[driverType]
+	if !ok {
+		panic(fmt.Errorf("no compiler registered for driver %T", db.Driver()))
 	}
 
-	var results = make([]T, 0, len(d))
-	for _, obj := range d {
-		results = append(results, obj.Object.(T))
-	}
-
-	return results, nil
-}
-
-// GetObject retrieves an object from the database by its identifier.
-//
-// It takes an identifier as a parameter and returns the object of type T.
-//
-// The identifier can be any type, but it is expected to be the primary key of the object.
-func GetObject[T attrs.Definer](identifier any) (T, error) {
-	var obj = newDefiner[T]()
-	var (
-		defs         = obj.FieldDefs()
-		primaryField = defs.Primary()
-	)
-
-	if err := primaryField.SetValue(identifier, true); err != nil {
-		return obj, err
-	}
-
-	primaryValue, err := primaryField.Value()
-	if err != nil {
-		return obj, err
-	}
-
-	if fields.IsZero(primaryValue) {
-		return obj, errors.Wrapf(
-			ErrFieldNull,
-			"Primary field %q cannot be null",
-			primaryField.Name(),
-		)
-	}
-
-	d, err := Objects(obj).
-		Filter(
-			fmt.Sprintf("%s__exact", primaryField.Name()),
-			primaryValue,
-		).
-		Get().Exec()
-
-	if err != nil {
-		return obj, err
-	}
-
-	return d.Object.(T), nil
-}
-
-// CountObjects counts the number of objects in the database.
-func CountObjects[T attrs.Definer](obj T) (int64, error) {
-	return Objects(obj).Count().Exec()
-}
-
-// SaveObject saves an object to the database.
-//
-// It checks if the primary key is set. If it is not set, it creates a new object. If it is set, it updates the existing object.
-//
-// It sends a pre-save signal before saving and a post-save signal after saving.
-//
-// If the object implements the models.Saver interface, it will call the Save method instead of executing a query.
-func SaveObject[T attrs.Definer](obj T) error {
-	var fieldDefs = obj.FieldDefs()
-	var primaryField = fieldDefs.Primary()
-	var primaryValue, err = primaryField.Value()
-	if err != nil {
-		return err
-	}
-	if fields.IsZero(primaryValue) {
-		return CreateObject(obj)
-	}
-	_, err = UpdateObject(obj)
-	return err
-}
-
-func sendSignal(s signals.Signal[SignalSave], obj attrs.Definer, q QueryCompiler) error {
-	return s.Send(SignalSave{
-		Instance: obj,
-		Using:    q,
-	})
-}
-
-// CreateObject creates a new object in the database and sets its default values.
-//
-// It sends a pre-save signal before saving and a post-save signal after saving.
-//
-// If the object implements the models.Saver interface, it will call the Save method instead of executing a query.
-func CreateObject[T attrs.Definer](obj T) error {
-	var (
-		definitions = obj.FieldDefs()
-	)
-
-	var (
-		qs       = Objects(obj).Create(obj)
-		compiler = qs.Compiler()
-	)
-
-	// Send pre model save signal
-	if err := sendSignal(SignalPreModelSave, obj, compiler); err != nil {
-		return err
-	}
-
-	var (
-		d       attrs.Definer
-		retDefs attrs.Definitions
-		err     error
-	)
-
-	if saver, ok := any(obj).(models.Saver); ok {
-		err = saver.Save(context.Background())
-		if err != nil {
-			return err
-		}
-		goto postSaveSignal
-	} else {
-		d, err = qs.Exec()
-		if err != nil {
-			return err
-		}
-	}
-
-	retDefs = d.FieldDefs()
-	for _, field := range definitions.Fields() {
-		var f, ok = retDefs.Field(field.Name())
-		if !ok {
-			return errors.Errorf("field %q not found in %T", field.Name(), obj)
-		}
-
-		var value = f.GetValue()
-		if value == nil && !field.AllowNull() {
-			return errors.Wrapf(
-				ErrFieldNull,
-				"Field %q cannot be null",
-				field.Name(),
-			)
-		}
-
-		if err = field.SetValue(value, true); err != nil {
-			return errors.Wrapf(
-				err, "failed to set value %v to field %q",
-				value, field.Name(),
-			)
-		}
-	}
-
-postSaveSignal:
-	// Send post model save signal
-	return sendSignal(SignalPostModelSave, obj, compiler)
-}
-
-// UpdateObject updates an existing object in the database.
-//
-// It sends a pre-save signal before saving and a post-save signal after saving.
-//
-// If the object implements the models.Saver interface, it will call the Save method instead of executing a query.
-func UpdateObject[T attrs.Definer](obj T) (int64, error) {
-	var (
-		definitions = obj.FieldDefs()
-		primary     = definitions.Primary()
-	)
-
-	var primaryVal, err = primary.Value()
-	if err != nil {
-		return 0, err
-	}
-
-	var (
-		qs = Objects(obj).
-			Filter(primary.Name(), primaryVal).
-			Update(obj)
-		compiler = qs.Compiler()
-	)
-
-	// Send pre model save signal
-	if err := sendSignal(SignalPreModelSave, obj, compiler); err != nil {
-		return 0, err
-	}
-
-	var d int64
-	if saver, ok := any(obj).(models.Saver); ok {
-		err = saver.Save(context.Background())
-		d = 1
-	} else {
-		d, err = qs.Exec()
-	}
-	if err != nil {
-		return 0, err
-	}
-
-	if err := sendSignal(SignalPostModelSave, obj, compiler); err != nil {
-		return 0, err
-	}
-
-	return d, nil
-}
-
-// DeleteObject deletes an object from the database.
-//
-// It sends a pre-delete signal before deleting and a post-delete signal after deleting.
-//
-// If the object implements the models.Deleter interface, it will call the Delete method instead of executing a query.
-func DeleteObject[T attrs.Definer](obj T) (int64, error) {
-	var (
-		definitions = obj.FieldDefs()
-		primary     = definitions.Primary()
-	)
-
-	var primaryVal, err = primary.Value()
-	if err != nil {
-		return 0, err
-	}
-
-	if err := SignalPreModelDelete.Send(obj); err != nil {
-		return 0, err
-	}
-
-	var d int64
-	if deleter, ok := any(obj).(models.Deleter); ok {
-		err = deleter.Delete(context.Background())
-		d = 1
-	} else {
-		d, err = Objects(obj).
-			Filter(primary.Name(), primaryVal).
-			Delete().Exec()
-	}
-	if err != nil {
-		return 0, err
-	}
-
-	if err := SignalPostModelDelete.Send(obj); err != nil {
-		return d, err
-	}
-
-	return d, nil
+	return compiler(model, defaultDB)
 }

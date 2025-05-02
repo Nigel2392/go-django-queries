@@ -6,7 +6,7 @@ import (
 
 type wrappedTransaction struct {
 	*sql.Tx
-	compiler *GenericQueryBuilder
+	compiler *genericQueryBuilder
 }
 
 func (w *wrappedTransaction) Rollback() error {

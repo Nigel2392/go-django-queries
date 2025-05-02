@@ -11,7 +11,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-type GenericQueryBuilder struct {
+type genericQueryBuilder struct {
 	transaction Transaction
 	queryInfo   *queryInfo
 	support     SupportsReturning
@@ -19,8 +19,8 @@ type GenericQueryBuilder struct {
 	driver      driver.Driver
 }
 
-func NewGenericQueryBuilder(model attrs.Definer) QueryCompiler {
-	var q, err = getQueryInfo(model)
+func NewGenericQueryBuilder(model attrs.Definer, db string) QueryCompiler {
+	var q, err = getQueryInfo(model, db)
 	if err != nil {
 		panic(err)
 	}
@@ -35,7 +35,7 @@ func NewGenericQueryBuilder(model attrs.Definer) QueryCompiler {
 		quote = "`"
 	}
 
-	return &GenericQueryBuilder{
+	return &genericQueryBuilder{
 		quote:     quote,
 		support:   supportsReturning(q.db),
 		driver:    q.db.Driver(),
@@ -43,18 +43,18 @@ func NewGenericQueryBuilder(model attrs.Definer) QueryCompiler {
 	}
 }
 
-func (g *GenericQueryBuilder) DB() DB {
+func (g *genericQueryBuilder) DB() DB {
 	if g.InTransaction() {
 		return g.transaction
 	}
 	return g.queryInfo.db
 }
 
-func (g *GenericQueryBuilder) Quote() (string, string) {
+func (g *genericQueryBuilder) Quote() (string, string) {
 	return g.quote, g.quote
 }
 
-func (g *GenericQueryBuilder) StartTransaction(ctx context.Context) (Transaction, error) {
+func (g *genericQueryBuilder) StartTransaction(ctx context.Context) (Transaction, error) {
 	if g.InTransaction() {
 		return nil, ErrTransactionStarted
 	}
@@ -68,7 +68,7 @@ func (g *GenericQueryBuilder) StartTransaction(ctx context.Context) (Transaction
 	return g.transaction, nil
 }
 
-func (g *GenericQueryBuilder) CommitTransaction() error {
+func (g *genericQueryBuilder) CommitTransaction() error {
 	if !g.InTransaction() {
 		return ErrNoTransaction
 	}
@@ -76,22 +76,22 @@ func (g *GenericQueryBuilder) CommitTransaction() error {
 	return g.transaction.Commit()
 }
 
-func (g *GenericQueryBuilder) RollbackTransaction() error {
+func (g *genericQueryBuilder) RollbackTransaction() error {
 	if !g.InTransaction() {
 		return ErrNoTransaction
 	}
 	return g.transaction.Rollback()
 }
 
-func (g *GenericQueryBuilder) InTransaction() bool {
+func (g *genericQueryBuilder) InTransaction() bool {
 	return g.transaction != nil
 }
 
-func (g *GenericQueryBuilder) SupportsReturning() SupportsReturning {
+func (g *genericQueryBuilder) SupportsReturning() SupportsReturning {
 	return g.support
 }
 
-func (g *GenericQueryBuilder) BuildSelectQuery(
+func (g *genericQueryBuilder) BuildSelectQuery(
 	ctx context.Context,
 	qs *QuerySet,
 	fields []FieldInfo,
@@ -188,7 +188,7 @@ func (g *GenericQueryBuilder) BuildSelectQuery(
 	}
 }
 
-func (g *GenericQueryBuilder) BuildCountQuery(
+func (g *genericQueryBuilder) BuildCountQuery(
 	ctx context.Context,
 	qs *QuerySet,
 	where []Expression,
@@ -225,7 +225,7 @@ func (g *GenericQueryBuilder) BuildCountQuery(
 	}
 }
 
-func (g *GenericQueryBuilder) BuildCreateQuery(
+func (g *genericQueryBuilder) BuildCreateQuery(
 	ctx context.Context,
 	qs *QuerySet,
 	fields FieldInfo,
@@ -358,7 +358,7 @@ func (g *GenericQueryBuilder) BuildCreateQuery(
 	}
 }
 
-func (g *GenericQueryBuilder) BuildUpdateQuery(
+func (g *genericQueryBuilder) BuildUpdateQuery(
 	ctx context.Context,
 	qs *QuerySet,
 	fields FieldInfo,
@@ -411,7 +411,7 @@ func (g *GenericQueryBuilder) BuildUpdateQuery(
 	}
 }
 
-func (g *GenericQueryBuilder) BuildDeleteQuery(
+func (g *genericQueryBuilder) BuildDeleteQuery(
 	ctx context.Context,
 	qs *QuerySet,
 	where []Expression,
@@ -448,13 +448,13 @@ func (g *GenericQueryBuilder) BuildDeleteQuery(
 	}
 }
 
-func (g *GenericQueryBuilder) writeTableName(sb *strings.Builder) {
+func (g *genericQueryBuilder) writeTableName(sb *strings.Builder) {
 	sb.WriteString(g.quote)
 	sb.WriteString(g.queryInfo.tableName)
 	sb.WriteString(g.quote)
 }
 
-func (g *GenericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) {
+func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) {
 	for _, join := range joins {
 		sb.WriteString(" ")
 		sb.WriteString(join.TypeJoin)
@@ -477,7 +477,7 @@ func (g *GenericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) {
 	}
 }
 
-func (g *GenericQueryBuilder) writeWhereClause(sb *strings.Builder, model attrs.Definer, where []Expression) []any {
+func (g *genericQueryBuilder) writeWhereClause(sb *strings.Builder, model attrs.Definer, where []Expression) []any {
 	var args = make([]any, 0)
 	if len(where) > 0 {
 		sb.WriteString(" WHERE ")
@@ -488,7 +488,7 @@ func (g *GenericQueryBuilder) writeWhereClause(sb *strings.Builder, model attrs.
 	return args
 }
 
-func (g *GenericQueryBuilder) writeGroupBy(sb *strings.Builder, groupBy []FieldInfo) {
+func (g *genericQueryBuilder) writeGroupBy(sb *strings.Builder, groupBy []FieldInfo) {
 	if len(groupBy) > 0 {
 		sb.WriteString(" GROUP BY ")
 		for i, info := range groupBy {
@@ -501,7 +501,7 @@ func (g *GenericQueryBuilder) writeGroupBy(sb *strings.Builder, groupBy []FieldI
 	}
 }
 
-func (g *GenericQueryBuilder) writeHaving(sb *strings.Builder, model attrs.Definer, having []Expression) []any {
+func (g *genericQueryBuilder) writeHaving(sb *strings.Builder, model attrs.Definer, having []Expression) []any {
 	var args = make([]any, 0)
 	if len(having) > 0 {
 		sb.WriteString(" HAVING ")
@@ -512,7 +512,7 @@ func (g *GenericQueryBuilder) writeHaving(sb *strings.Builder, model attrs.Defin
 	return args
 }
 
-func (g *GenericQueryBuilder) writeOrderBy(sb *strings.Builder, orderBy []OrderBy) {
+func (g *genericQueryBuilder) writeOrderBy(sb *strings.Builder, orderBy []OrderBy) {
 	if len(orderBy) > 0 {
 		sb.WriteString(" ORDER BY ")
 
@@ -548,7 +548,7 @@ func (g *GenericQueryBuilder) writeOrderBy(sb *strings.Builder, orderBy []OrderB
 	}
 }
 
-func (g *GenericQueryBuilder) writeLimitOffset(sb *strings.Builder, limit int, offset int) []any {
+func (g *genericQueryBuilder) writeLimitOffset(sb *strings.Builder, limit int, offset int) []any {
 	var args = make([]any, 0)
 	if limit > 0 {
 		sb.WriteString(" LIMIT ?")

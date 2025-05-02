@@ -9,17 +9,6 @@ import (
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
-type Expression interface {
-	SQL(sb *strings.Builder)
-	Args() []any
-	IsNot() bool
-	Not(b bool) Expression
-	And(...Expression) Expression
-	Or(...Expression) Expression
-	Clone() Expression
-	With(d driver.Driver, model attrs.Definer, quote string) Expression
-}
-
 type LogicalOp string
 
 const (

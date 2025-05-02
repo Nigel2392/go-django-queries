@@ -1572,7 +1572,7 @@ func TestRecursiveAliasConflict(t *testing.T) {
 
 	// Select deeply nested field that should require distinct aliases
 	q := queries.Objects(&Category{}).
-		Select("*", "Parent.*", "Parent.Parent.*").
+		Select("*", "Parent.ID", "Parent.Parent.*").
 		Filter("Parent.Parent.Name", "Root").
 		All()
 
@@ -1596,12 +1596,24 @@ func TestRecursiveAliasConflict(t *testing.T) {
 		t.Fatalf("Expected Parent.Parent to be not nil")
 	}
 
+	if dbObj.Parent.Parent.ID != root.ID {
+		t.Fatalf("Expected Parent.Parent.ID to be %d, got %d", root.ID, dbObj.Parent.Parent.ID)
+	}
+
 	if dbObj.Parent.Parent.Name != "Root" {
 		t.Fatalf("Expected Parent.Parent.Name to be 'Root', got %q", dbObj.Parent.Parent.Name)
 	}
 
-	if dbObj.Parent.Name != "Child" {
-		t.Fatalf("Expected Parent.Name to be 'Child', got %q", dbObj.Parent.Name)
+	if dbObj.Parent.ID != child.ID {
+		t.Fatalf("Expected Parent.ID to be %d, got %d", child.ID, dbObj.Parent.ID)
+	}
+
+	if dbObj.Parent.Name != "" {
+		t.Fatalf("Expected Parent.Name to be '', got %q", dbObj.Parent.Name)
+	}
+
+	if dbObj.ID != grandchild.ID {
+		t.Fatalf("Expected ID to be %d, got %d", grandchild.ID, dbObj.ID)
 	}
 
 	if dbObj.Name != "Grandchild" {

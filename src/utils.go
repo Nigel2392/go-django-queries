@@ -185,10 +185,10 @@ func getBaseQueryInfo(obj attrs.Definer) (*queryInfo, error) {
 	}, nil
 }
 
-func getQueryInfo(obj attrs.Definer) (*queryInfo, error) {
+func getQueryInfo(obj attrs.Definer, dbKey string) (*queryInfo, error) {
 	var db = django.ConfigGet[*sql.DB](
 		django.Global.Settings,
-		django.APPVAR_DATABASE,
+		dbKey,
 	)
 	if db == nil {
 		return nil, ErrNoDatabase

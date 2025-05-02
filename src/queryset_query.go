@@ -8,17 +8,10 @@ import (
 var (
 	_ Query[int64] = &QueryObject[int64]{}
 	_ Query[int64] = &wrappedQuery[int64, int64]{}
+	_ Query[bool]  = &ErrorQuery[bool]{}
 
 	LogQueries = true
 )
-
-type Query[T1 any] interface {
-	SQL() string
-	Args() []any
-	Model() attrs.Definer
-	Exec() (T1, error)
-	Compiler() QueryCompiler
-}
 
 type CountQuery Query[int64]
 type ExistsQuery Query[bool]

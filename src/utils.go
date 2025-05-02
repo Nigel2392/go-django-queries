@@ -3,7 +3,9 @@ package queries
 import (
 	"database/sql"
 	"database/sql/driver"
+	"fmt"
 	"reflect"
+	"strings"
 
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -86,6 +88,75 @@ func newObjectFromIface(obj attrs.Definer) attrs.Definer {
 		panic("newObjectFromIface: objTyp is not a pointer")
 	}
 	return reflect.New(objTyp.Elem()).Interface().(attrs.Definer)
+}
+
+// safer alias generator
+func newJoinAlias(field attrs.Field, tableName string, chain []string) string {
+	var l = len(chain)
+	return fmt.Sprintf("%s_%s_%d", field.ColumnName(), tableName, l-1)
+	//	if l > 1 {
+	//}
+	//return fmt.Sprintf("%s_%s", field.ColumnName(), tableName)
+}
+
+func walkFields(
+	m attrs.Definer,
+	column string,
+) (
+	definer attrs.Definer,
+	parent attrs.Definer,
+	f attrs.Field,
+	chain []string,
+	aliases []string,
+	isRelated bool,
+	err error,
+) {
+	var parts = strings.Split(column, ".")
+	var current = m
+	var field attrs.Field
+
+	chain = make([]string, 0, len(parts)-1)
+	aliases = make([]string, 0, len(parts)-1)
+
+	for i, part := range parts {
+		defs := current.FieldDefs()
+		f, ok := defs.Field(part)
+		if !ok {
+			return nil, nil, nil, nil, nil, false, fmt.Errorf("field %q not found in %T", part, current)
+		}
+		field = f
+
+		if i == len(parts)-1 {
+			break
+		}
+
+		chain = append(chain, part)
+		alias := newJoinAlias(f, defs.TableName(), chain)
+		aliases = append(aliases, alias)
+		parent = current
+
+		switch {
+		case f.ForeignKey() != nil:
+			current = f.ForeignKey()
+		case f.OneToOne() != nil:
+			if through := f.OneToOne().Through(); through != nil {
+				current = through
+			} else {
+				current = f.OneToOne().Model()
+			}
+		case f.ManyToMany() != nil:
+			current = f.ManyToMany().Through()
+		default:
+			return nil, nil, nil, nil, nil, false, fmt.Errorf("field %q is not a relation", part)
+		}
+
+		if current == nil {
+			return nil, nil, nil, nil, nil, false, fmt.Errorf("field %q has no related model", part)
+		}
+		isRelated = true
+	}
+
+	return current, parent, field, chain, aliases, isRelated, nil
 }
 
 type queryInfo struct {

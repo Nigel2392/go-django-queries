@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -19,20 +20,31 @@ type VirtualField interface {
 }
 
 type DataModel interface {
-	Has(key string) bool
-	Get(key string) (any, bool)
-	Set(key string, value any) error
+	HasQueryValue(key string) bool
+	GetQueryValue(key string) (any, bool)
+	SetQueryValue(key string, value any) error
 }
 
 type BaseModel struct {
-	data map[string]interface{}
+	data  map[string]interface{}
+	_defs attrs.Definitions
 }
 
-func (m *BaseModel) Has(key string) bool {
+func (m *BaseModel) Define(def attrs.Definer, definitions attrs.Definitions) attrs.Definitions {
+	if m._defs == nil {
+		if definitions == nil {
+			definitions = def.FieldDefs()
+		}
+		m._defs = definitions
+	}
+	return m._defs
+}
+
+func (m *BaseModel) HasQueryValue(key string) bool {
 	return m.data != nil && m.data[key] != nil
 }
 
-func (m *BaseModel) Get(key string) (any, bool) {
+func (m *BaseModel) GetQueryValue(key string) (any, bool) {
 	if m.data == nil {
 		return nil, false
 	}
@@ -40,34 +52,12 @@ func (m *BaseModel) Get(key string) (any, bool) {
 	return val, ok
 }
 
-func (m *BaseModel) Set(key string, value any) error {
+func (m *BaseModel) SetQueryValue(key string, value any) error {
 	if m.data == nil {
 		m.data = make(map[string]interface{})
 	}
 	m.data[key] = value
 	return nil
-}
-
-func NewVirtualField[T any](forModel attrs.Definer, dataModel DataModel, name string, expr Expression) *ExpressionField[T] {
-
-	if forModel == nil || dataModel == nil {
-		panic("NewVirtualField: model is nil")
-	}
-	if name == "" {
-		panic("NewVirtualField: name is empty")
-	}
-	if expr == nil {
-		panic("NewVirtualField: expression is nil")
-	}
-
-	var f = &ExpressionField[T]{
-		model:     forModel,
-		dataModel: dataModel,
-		name:      name,
-		expr:      expr,
-	}
-
-	return f
 }
 
 type ExpressionField[T any] struct {
@@ -85,6 +75,51 @@ type ExpressionField[T any] struct {
 
 	// expr is the expression used to calculate the field's value
 	expr Expression
+
+	// resultType is the type of the result of the expression
+	resultType reflect.Type
+}
+
+func NewVirtualField[T any](forModel attrs.Definer, dst any, name string, expr Expression) *ExpressionField[T] {
+
+	if forModel == nil || dst == nil {
+		panic("NewVirtualField: model is nil")
+	}
+	if name == "" {
+		panic("NewVirtualField: name is empty")
+	}
+	if expr == nil {
+		panic("NewVirtualField: expression is nil")
+	}
+
+	var (
+		dataModel  DataModel
+		resultType = reflect.TypeOf(*new(T))
+	)
+
+	if m, ok := dst.(DataModel); ok {
+		dataModel = m
+		goto retField
+	}
+
+retField:
+	var f = &ExpressionField[T]{
+		model:      forModel,
+		dataModel:  dataModel,
+		resultType: resultType,
+		name:       name,
+		expr:       expr,
+	}
+
+	return f
+}
+
+func (f *ExpressionField[T]) getQueryValue() (any, bool) {
+	return f.dataModel.GetQueryValue(f.name)
+}
+
+func (f *ExpressionField[T]) setQueryValue(v any) error {
+	return f.dataModel.SetQueryValue(f.name, v)
 }
 
 func (f *ExpressionField[T]) Name() string {
@@ -147,7 +182,7 @@ func (e *ExpressionField[T]) GetValue() interface{} {
 		panic("model is nil")
 	}
 
-	var val, ok = e.dataModel.Get(e.name)
+	var val, ok = e.getQueryValue()
 	if !ok || val == nil {
 		return *new(T)
 	}
@@ -160,6 +195,33 @@ func (e *ExpressionField[T]) GetValue() interface{} {
 	return valTyped
 }
 
+func castToNumber[T any](s string) (any, error) {
+	var n, err = attrs.CastToNumber[T](s)
+	return n, err
+}
+
+var reflect_convert = map[reflect.Kind]func(string) (any, error){
+	reflect.Int:     castToNumber[int],
+	reflect.Int8:    castToNumber[int8],
+	reflect.Int16:   castToNumber[int16],
+	reflect.Int32:   castToNumber[int32],
+	reflect.Int64:   castToNumber[int64],
+	reflect.Uint:    castToNumber[uint],
+	reflect.Uint8:   castToNumber[uint8],
+	reflect.Uint16:  castToNumber[uint16],
+	reflect.Uint32:  castToNumber[uint32],
+	reflect.Uint64:  castToNumber[uint64],
+	reflect.Float32: castToNumber[float32],
+	reflect.Float64: castToNumber[float64],
+	reflect.String: func(s string) (any, error) {
+		return s, nil
+	},
+	reflect.Bool: func(s string) (any, error) {
+		var b, err = strconv.ParseBool(s)
+		return b, err
+	},
+}
+
 func (e *ExpressionField[T]) SetValue(v interface{}, _ bool) error {
 	if e.dataModel == nil {
 		panic("model is nil")
@@ -168,27 +230,38 @@ func (e *ExpressionField[T]) SetValue(v interface{}, _ bool) error {
 	var (
 		rV = reflect.ValueOf(v)
 		rT = reflect.TypeOf(v)
-
-		resT = reflect.TypeOf(*new(T))
 	)
 
-	if rT != resT {
-		if rT.ConvertibleTo(resT) {
-			rV = rV.Convert(resT)
-		} else if rV.IsValid() && rT.Kind() == reflect.Ptr && (rT.Elem() == resT || rT.Elem().ConvertibleTo(resT)) {
+	if rT != e.resultType {
+
+		if rT.ConvertibleTo(e.resultType) {
+			rV = rV.Convert(e.resultType)
+		} else if rV.IsValid() && rT.Kind() == reflect.Ptr && (rT.Elem() == e.resultType || rT.Elem().ConvertibleTo(e.resultType)) {
 			rV = rV.Elem()
-			if rT.Elem() != resT {
-				rV = rV.Convert(resT)
+			if rT.Elem() != e.resultType {
+				rV = rV.Convert(e.resultType)
 			}
-		} else {
-			return fmt.Errorf("value %v is not of type %T", v, *new(T))
+		}
+
+		if rT.Kind() == reflect.String && rT.Kind() != e.resultType.Kind() {
+
+			if f, ok := reflect_convert[e.resultType.Kind()]; ok {
+				var val, err = f(rV.String())
+				if err != nil {
+					return fmt.Errorf("cannot convert %v to %T: %w", v, *new(T), err)
+				}
+				rV = reflect.ValueOf(val)
+			} else {
+				return fmt.Errorf("cannot convert %v to %T", v, *new(T))
+			}
+
 		}
 	}
 
 	v = rV.Interface()
 
 	if _, ok := v.(T); ok {
-		e.dataModel.Set(e.name, v)
+		e.setQueryValue(v)
 		return nil
 	}
 
@@ -255,20 +328,6 @@ type queryField[T any] struct {
 	name  string
 	expr  Expression
 	value T
-}
-
-func QuerySum(name, field string) attrs.Field {
-	return newQueryField[float64](name, &RawExpr{
-		Statement: "SUM(%s)",
-		Fields:    []string{field},
-	})
-}
-
-func QueryCount(name, field string) attrs.Field {
-	return newQueryField[int64](name, &RawExpr{
-		Statement: "COUNT(%s)",
-		Fields:    []string{field},
-	})
 }
 
 func newQueryField[T any](name string, expr Expression) *queryField[T] {

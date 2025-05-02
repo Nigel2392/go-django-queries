@@ -30,8 +30,13 @@ type QueryDefiner interface {
 
 type Union func(*QuerySet) *QuerySet
 
+type Table struct {
+	Name  string
+	Alias string
+}
+
 type JoinDef struct {
-	Table      string
+	Table      Table
 	TypeJoin   string
 	ConditionA string
 	Logic      string
@@ -41,13 +46,13 @@ type JoinDef struct {
 type FieldInfo struct {
 	SourceField attrs.Field
 	Model       attrs.Definer
-	Table       string
+	Table       Table
 	Chain       []string
 	Fields      []attrs.Field
 }
 
 type OrderBy struct {
-	Table string
+	Table Table
 	Field string
 	Alias string
 	Desc  bool
@@ -78,7 +83,13 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, d driver.Driver, m attrs.De
 		}
 
 		sb.WriteString(quote)
-		sb.WriteString(f.Table)
+
+		if f.Table.Alias == "" {
+			sb.WriteString(f.Table.Name)
+		} else {
+			sb.WriteString(f.Table.Alias)
+		}
+
 		sb.WriteString(quote)
 		sb.WriteString(".")
 		sb.WriteString(quote)
@@ -182,6 +193,13 @@ func (qs *QuerySet) Compiler() QueryCompiler {
 	return qs.compiler
 }
 
+// StartTransaction starts a transaction on the underlying database.
+//
+// It returns a transaction object which can be used to commit or rollback the transaction.
+func (qs *QuerySet) StartTransaction(ctx context.Context) (Transaction, error) {
+	return qs.compiler.StartTransaction(ctx)
+}
+
 // Clone creates a new QuerySet with the same parameters as the original one.
 //
 // It is used to create a new QuerySet with the same parameters as the original one, so that the original one is not modified.
@@ -279,7 +297,11 @@ func (qs *QuerySet) GoString() string {
 			sb.WriteString("\n\t\t")
 			sb.WriteString(join.TypeJoin)
 			sb.WriteString(" ")
-			sb.WriteString(join.Table)
+			if join.Table.Alias == "" {
+				sb.WriteString(join.Table.Name)
+			} else {
+				sb.WriteString(join.Table.Alias)
+			}
 			sb.WriteString(" ON ")
 			sb.WriteString(join.ConditionA)
 			sb.WriteString(" ")
@@ -302,7 +324,9 @@ func (qs *QuerySet) GoString() string {
 func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelated bool) {
 	infos = make([]FieldInfo, 0, len(qs.fields))
 	var info = FieldInfo{
-		Table:  qs.queryInfo.tableName,
+		Table: Table{
+			Name: qs.queryInfo.tableName,
+		},
 		Fields: make([]attrs.Field, 0),
 	}
 
@@ -321,7 +345,7 @@ func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelate
 			onlyPrimary = true
 		}
 
-		var current, _, field, chain, isRelated, err = walkFields(qs.model, field)
+		var current, _, field, chain, aliases, isRelated, err = walkFields(qs.model, field)
 		if err != nil {
 			panic(err)
 		}
@@ -330,12 +354,16 @@ func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelate
 			hasRelated = true
 
 			var relDefs = current.FieldDefs()
+			var tableName = relDefs.TableName()
 			infos = append(infos, FieldInfo{
 				SourceField: field,
 				Model:       current,
-				Table:       relDefs.TableName(),
-				Fields:      relDefs.Fields(),
-				Chain:       chain,
+				Table: Table{
+					Name:  tableName,
+					Alias: aliases[len(aliases)-1],
+				},
+				Fields: relDefs.Fields(),
+				Chain:  chain,
 			})
 
 			continue
@@ -379,6 +407,87 @@ func (qs *QuerySet) attrFields(obj attrs.Definer) []attrs.Field {
 	return fields
 }
 
+func addJoinForFK(qs *QuerySet, foreignKey attrs.Definer, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) (*FieldInfo, []JoinDef) {
+	var defs = foreignKey.FieldDefs()
+	var tableName = defs.TableName()
+	var relField = defs.Primary()
+
+	var front, back = qs.compiler.Quote()
+
+	var (
+		condA_Alias = parentDefs.TableName()
+		condB_Alias = tableName
+	)
+
+	if len(aliases) == 1 {
+		condB_Alias = aliases[0]
+	} else if len(aliases) > 1 {
+		condA_Alias = aliases[len(aliases)-2]
+		condB_Alias = aliases[len(aliases)-1]
+	}
+
+	var condA = fmt.Sprintf(
+		"%s%s%s.%s%s%s",
+		front, condA_Alias, back,
+		front, parentField.ColumnName(), back,
+	)
+	var condB = fmt.Sprintf(
+		"%s%s%s.%s%s%s",
+		front, condB_Alias, back,
+		front, relField.ColumnName(), back,
+	)
+
+	var includedFields []attrs.Field
+	if all {
+		includedFields = defs.Fields()
+	} else {
+		includedFields = []attrs.Field{field}
+	}
+
+	var info = &FieldInfo{
+		SourceField: field,
+		Table: Table{
+			Name:  tableName,
+			Alias: aliases[len(aliases)-1],
+		},
+		Model:  foreignKey,
+		Fields: includedFields,
+		Chain:  chain,
+	}
+
+	var key = fmt.Sprintf("%s.%s", condA, condB)
+	if _, ok := joinM[key]; ok {
+		return info, nil
+	}
+
+	joinM[key] = true
+	var join = JoinDef{
+		TypeJoin: "LEFT JOIN",
+		Table: Table{
+			Name:  tableName,
+			Alias: aliases[len(aliases)-1],
+		},
+		ConditionA: condA,
+		Logic:      "=",
+		ConditionB: condB,
+	}
+
+	return info, []JoinDef{join}
+}
+
+func addJoinForM2M(qs *QuerySet, manyToMany attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) (*FieldInfo, []JoinDef) {
+	// TBA
+	return nil, nil
+}
+
+func addJoinForO2O(qs *QuerySet, oneToOne attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) (*FieldInfo, []JoinDef) {
+	var through = oneToOne.Through()
+	if through == nil {
+		return addJoinForFK(qs, oneToOne.Model(), parentDefs, parentField, field, chain, aliases, all, joinM)
+	}
+	return addJoinForM2M(qs, oneToOne, parentDefs, parentField, field, chain, aliases, all, joinM)
+}
+
 // Select is used to select specific fields from the model.
 //
 // It takes a list of field names as arguments and returns a new QuerySet with the selected fields.
@@ -388,13 +497,14 @@ func (qs *QuerySet) attrFields(obj attrs.Definer) []attrs.Field {
 // If the first field is "*", it selects all fields from the model,
 // extra fields (i.e. relations) can be provided thereafter - these will also be added to the selection.
 //
-// An example of usage:
+// How to call Select:
 //
-// `Select("field1", "field2")`
-// `Select("field1", "field2", "relation.*")`
-// `Select("*", "relation.*")`
-// `Select("relation.*")`
-// `Select("*", "relation.field1", "relation.field2", "relation.nested.*")`
+// `Select("*")`
+// `Select("Field1", "Field2")`
+// `Select("Field1", "Field2", "Relation.*")`
+// `Select("*", "Relation.*")`
+// `Select("Relation.*")`
+// `Select("*", "Relation.Field1", "Relation.Field2", "Relation.Nested.*")`
 func (qs *QuerySet) Select(fields ...string) *QuerySet {
 	qs = qs.Clone()
 
@@ -417,22 +527,24 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 		fields = append(f, fields[1:]...)
 	}
 
-	for _, info := range fields {
+	for _, selectedField := range fields {
 
 		var allFields bool
-		if strings.HasSuffix(strings.ToLower(info), ".*") {
-			info = info[:len(info)-2]
+		if strings.HasSuffix(strings.ToLower(selectedField), ".*") {
+			selectedField = selectedField[:len(selectedField)-2]
 			allFields = true
 		}
 
-		var current, parent, field, chain, isRelated, err = walkFields(
-			qs.model, info,
+		var current, parent, field, chain, aliases, isRelated, err = walkFields(
+			qs.model, selectedField,
 		)
 		if err != nil {
-			field, ok := qs.annotations[info]
+			field, ok := qs.annotations[selectedField]
 			if ok {
 				fieldInfos = append(fieldInfos, FieldInfo{
-					Table:  qs.queryInfo.tableName,
+					Table: Table{
+						Name: qs.queryInfo.tableName,
+					},
 					Fields: []attrs.Field{field},
 				})
 				continue
@@ -442,78 +554,85 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 		}
 
 		// The field might be a relation
-		var rel = field.Rel()
+		// The field might be a relation
+		var (
+			rel        attrs.Definer
+			foreignKey = field.ForeignKey()
+			oneToOne   = field.OneToOne()
+			manyToMany = field.ManyToMany()
+		)
 
 		// If all fields of the relation are requested, we need to add the relation
 		// to the join list. We also need to add the parent field to the chain.
-		if rel != nil && allFields {
+		if (foreignKey != nil || oneToOne != nil || manyToMany != nil) && allFields {
 			chain = append(chain, field.Name())
+			aliases = append(aliases, newJoinAlias(
+				field, current.FieldDefs().TableName(), chain,
+			))
 			parent = current
-			current = rel
 			isRelated = true
+
+			switch {
+			case foreignKey != nil:
+				rel = foreignKey
+			case oneToOne != nil:
+				rel = oneToOne.Through()
+				if rel == nil {
+					rel = oneToOne.Model()
+				}
+			case manyToMany != nil:
+				rel = manyToMany.Through()
+			}
 		}
 
 		var defs = current.FieldDefs()
 		var tableName = defs.TableName()
 		if len(chain) > 0 && isRelated {
-			var relField = defs.Primary()
+
+			var (
+				info *FieldInfo
+				join []JoinDef
+			)
+
 			var parentDefs = parent.FieldDefs()
 			var parentField, ok = parentDefs.Field(chain[len(chain)-1])
 			if !ok {
 				panic(fmt.Errorf("field %q not found in %T", chain[len(chain)-1], parent))
 			}
 
-			var front, back = qs.compiler.Quote()
-			var condA = fmt.Sprintf(
-				"%s%s%s.%s%s%s",
-				front, parentDefs.TableName(), back,
-				front, parentField.ColumnName(), back,
-			)
-			var condB = fmt.Sprintf(
-				"%s%s%s.%s%s%s",
-				front, tableName, back,
-				front, relField.ColumnName(), back,
-			)
-
-			var includedFields []attrs.Field
-			if allFields {
-				includedFields = defs.Fields()
-			} else {
-				includedFields = []attrs.Field{field}
+			if rel == nil {
+				foreignKey = parentField.ForeignKey()
+				oneToOne = parentField.OneToOne()
+				manyToMany = parentField.ManyToMany()
 			}
 
-			fieldInfos = append(fieldInfos, FieldInfo{
-				SourceField: field,
-				Table:       tableName,
-				Model:       current,
-				Fields:      includedFields,
-				Chain:       chain,
-			})
-
-			var key = fmt.Sprintf("%s.%s", condA, condB)
-			if _, ok := joinM[key]; ok {
-				continue
+			switch {
+			case foreignKey != nil:
+				info, join = addJoinForFK(qs, foreignKey, parentDefs, parentField, field, chain, aliases, allFields, joinM)
+			case oneToOne != nil:
+				info, join = addJoinForO2O(qs, oneToOne, parentDefs, parentField, field, chain, aliases, allFields, joinM)
+			case manyToMany != nil:
+				info, join = addJoinForM2M(qs, manyToMany, parentDefs, parentField, field, chain, aliases, allFields, joinM)
+			default:
+				panic(fmt.Errorf("field %q is not a relation", field.Name()))
 			}
 
-			joinM[key] = true
-			joins = append(joins, JoinDef{
-				TypeJoin:   "LEFT JOIN",
-				Table:      defs.TableName(),
-				ConditionA: condA,
-				Logic:      "=",
-				ConditionB: condB,
-			})
+			if info != nil {
+				fieldInfos = append(fieldInfos, *info)
+				joins = append(joins, join...)
+			}
 
 			continue
 		}
 
 		fieldInfos = append(fieldInfos, FieldInfo{
-			Model:  current,
-			Table:  tableName,
+			Model: current,
+			Table: Table{
+				Name: tableName,
+			},
 			Fields: []attrs.Field{field},
 			Chain:  chain,
 		})
-
 	}
 
 	qs.joins = joins
@@ -572,7 +691,7 @@ func (qs *QuerySet) OrderBy(fields ...string) *QuerySet {
 			ord = strings.TrimPrefix(ord, "-")
 		}
 
-		var obj, _, field, _, _, err = walkFields(
+		var obj, _, field, _, aliases, _, err = walkFields(
 			qs.model, ord,
 		)
 
@@ -586,8 +705,18 @@ func (qs *QuerySet) OrderBy(fields ...string) *QuerySet {
 		}
 
 		var defs = obj.FieldDefs()
+		var tableAlias string
+		if len(aliases) > 0 {
+			tableAlias = aliases[len(aliases)-1]
+		} else {
+			tableAlias = defs.TableName()
+		}
+
 		nqs.orderBy = append(nqs.orderBy, OrderBy{
-			Table: defs.TableName(),
+			Table: Table{
+				Name:  defs.TableName(),
+				Alias: tableAlias,
+			},
 			Field: field.ColumnName(),
 			Alias: alias,
 			Desc:  desc,
@@ -670,8 +799,10 @@ func (qs *QuerySet) annotate(alias string, expr Expression) {
 	qs.annotations[alias] = field
 
 	qs.fields = append(qs.fields, FieldInfo{
-		Model:  nil,
-		Table:  qs.queryInfo.tableName,
+		Model: nil,
+		Table: Table{
+			Name: qs.queryInfo.tableName,
+		},
 		Fields: []attrs.Field{field},
 	})
 }
@@ -860,8 +991,10 @@ func (qs *QuerySet) Aggregate(annotations map[string]Expression) Query[map[strin
 
 	for alias, expr := range annotations {
 		qs.fields = append(qs.fields, FieldInfo{
-			Model:  nil,
-			Table:  qs.queryInfo.tableName,
+			Model: nil,
+			Table: Table{
+				Name: qs.queryInfo.tableName,
+			},
 			Fields: []attrs.Field{newQueryField[any](alias, expr)},
 		})
 	}
@@ -1135,7 +1268,9 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 	var infoFields = make([]attrs.Field, 0, len(fields))
 	var info = FieldInfo{
 		Model: value,
-		Table: defs.TableName(),
+		Table: Table{
+			Name: defs.TableName(),
+		},
 		Chain: make([]string, 0),
 	}
 
@@ -1329,8 +1464,10 @@ func (qs *QuerySet) Update(value attrs.Definer) CountQuery {
 	var fields []attrs.Field = qs.attrFields(value)
 	var values = make([]any, 0, len(fields))
 	var info = FieldInfo{
-		Model:  value,
-		Table:  defs.TableName(),
+		Model: value,
+		Table: Table{
+			Name: defs.TableName(),
+		},
 		Fields: make([]attrs.Field, 0),
 		Chain:  make([]string, 0),
 	}

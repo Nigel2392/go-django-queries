@@ -460,8 +460,14 @@ func (g *GenericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) {
 		sb.WriteString(join.TypeJoin)
 		sb.WriteString(" ")
 		sb.WriteString(g.quote)
-		sb.WriteString(join.Table)
+		sb.WriteString(join.Table.Name)
 		sb.WriteString(g.quote)
+		if join.Table.Alias != "" {
+			sb.WriteString(" AS ")
+			sb.WriteString(g.quote)
+			sb.WriteString(join.Table.Alias)
+			sb.WriteString(g.quote)
+		}
 		sb.WriteString(" ON ")
 		sb.WriteString(join.ConditionA)
 		sb.WriteString(" ")
@@ -521,7 +527,11 @@ func (g *GenericQueryBuilder) writeOrderBy(sb *strings.Builder, orderBy []OrderB
 				sb.WriteString(g.quote)
 			} else {
 				sb.WriteString(g.quote)
-				sb.WriteString(field.Table)
+				if field.Table.Alias == "" {
+					sb.WriteString(field.Table.Name)
+				} else {
+					sb.WriteString(field.Table.Alias)
+				}
 				sb.WriteString(g.quote)
 				sb.WriteString(".")
 				sb.WriteString(g.quote)

@@ -34,6 +34,19 @@ const (
 	profile_id INTEGER REFERENCES profiles(id),
 	name TEXT
 )`
+
+	createTableObjectWithMultipleRelations = `CREATE TABLE IF NOT EXISTS object_with_multiple_relations (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	obj1_id INTEGER REFERENCES users(id),
+	obj2_id INTEGER REFERENCES users(id)
+)`
+
+	createTableCategories = `CREATE TABLE IF NOT EXISTS categories (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	name TEXT,
+	parent_id INTEGER REFERENCES categories(id)
+)`
+
 	createTableTodos = `CREATE TABLE IF NOT EXISTS todos (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	title TEXT,
@@ -127,10 +140,55 @@ func (m *Todo) FieldDefs() attrs.Definitions {
 		}),
 		attrs.NewField(m, "Done", &attrs.FieldConfig{}),
 		attrs.NewField(m, "User", &attrs.FieldConfig{
-			Column:        "user_id",
-			RelForeignKey: &User{},
+			Column: "user_id",
+			RelOneToOne: &queries.Related{
+				Object: &User{},
+			},
 		}),
 	).WithTableName("todos")
+}
+
+type ObjectWithMultipleRelations struct {
+	ID   int
+	Obj1 *User
+	Obj2 *User
+}
+
+func (m *ObjectWithMultipleRelations) FieldDefs() attrs.Definitions {
+	return attrs.Define(m,
+		attrs.NewField(m, "ID", &attrs.FieldConfig{
+			Primary:  true,
+			ReadOnly: true,
+		}),
+		attrs.NewField(m, "Obj1", &attrs.FieldConfig{
+			RelForeignKey: &User{},
+			Column:        "obj1_id",
+		}),
+		attrs.NewField(m, "Obj2", &attrs.FieldConfig{
+			RelForeignKey: &User{},
+			Column:        "obj2_id",
+		}),
+	).WithTableName("object_with_multiple_relations")
+}
+
+type Category struct {
+	ID     int
+	Name   string
+	Parent *Category
+}
+
+func (m *Category) FieldDefs() attrs.Definitions {
+	return attrs.Define(m,
+		attrs.NewField(m, "ID", &attrs.FieldConfig{
+			Primary:  true,
+			ReadOnly: true,
+		}),
+		attrs.NewField(m, "Name", &attrs.FieldConfig{}),
+		attrs.NewField(m, "Parent", &attrs.FieldConfig{
+			Column:        "parent_id",
+			RelForeignKey: &Category{},
+		}),
+	).WithTableName("categories")
 }
 
 func init() {
@@ -154,6 +212,14 @@ func init() {
 
 	if _, err = db.Exec(createTableUsers); err != nil {
 		panic(fmt.Sprint("failed to create table todos ", err))
+	}
+
+	if _, err = db.Exec(createTableObjectWithMultipleRelations); err != nil {
+		panic(fmt.Sprint("failed to create table object_with_multiple_relations ", err))
+	}
+
+	if _, err = db.Exec(createTableCategories); err != nil {
+		panic(fmt.Sprint("failed to create table categories ", err))
 	}
 
 	if _, err = db.Exec(createTableTodos); err != nil {
@@ -503,7 +569,7 @@ func TestQueryRelated(t *testing.T) {
 		t.Fatalf("Failed to insert todo: %v", err)
 	}
 
-	todos, err := queries.Objects(&Todo{}).
+	var q = queries.Objects(&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User.Name", "User.Profile.*").
 		Filter(
 			queries.Q("Title__icontains", "new test"),
@@ -512,10 +578,10 @@ func TestQueryRelated(t *testing.T) {
 		).
 		OrderBy("-ID", "-User.Name").
 		Limit(5).
-		All().Exec()
-
+		All()
+	todos, err := q.Exec()
 	if err != nil {
-		t.Fatalf("Failed to filter todos: %v", err)
+		t.Fatalf("Failed to filter todos: %v (%s)", err, q.SQL())
 	}
 
 	if len(todos) != 1 {
@@ -568,6 +634,71 @@ func TestQueryRelated(t *testing.T) {
 
 	if dbTodo.User.Profile.Email != todo.User.Profile.Email {
 		t.Fatalf("Expected todo user profile email %q, got %q", todo.User.Profile.Email, dbTodo.User.Profile.Email)
+	}
+}
+
+func TestQueryRelatedMultiple(t *testing.T) {
+	var user1 = &User{
+		Name: "TestQueryRelatedMultiple 1",
+	}
+	if err := queries.CreateObject(user1); err != nil || user1.ID == 0 {
+		t.Fatalf("Failed to insert user1: %v", err)
+	}
+
+	var user2 = &User{
+		Name: "TestQueryRelatedMultiple 2",
+	}
+	if err := queries.CreateObject(user2); err != nil || user2.ID == 0 {
+		t.Fatalf("Failed to insert user2: %v", err)
+	}
+
+	var obj = &ObjectWithMultipleRelations{
+		Obj1: user1,
+		Obj2: user2,
+	}
+
+	if err := queries.CreateObject(obj); err != nil {
+		t.Fatalf("Failed to insert object with multiple relations: %v", err)
+	}
+
+	var q = queries.Objects(&ObjectWithMultipleRelations{}).
+		Select("ID", "Obj1.*", "Obj2.*").
+		OrderBy("-ID").
+		All()
+	var objs, err = q.Exec()
+	if err != nil {
+		t.Fatalf("Failed to filter objects with multiple relations: %v (%s)", err, q.SQL())
+	}
+
+	if len(objs) != 1 {
+		t.Fatalf("Expected 1 object, got %d", len(objs))
+	}
+
+	var dbObj = objs[0].Object.(*ObjectWithMultipleRelations)
+	t.Logf("Created object: %+v, %+v, %+v", obj, obj.Obj1, obj.Obj2)
+
+	if dbObj.Obj1.ID == 0 {
+		t.Fatalf("Expected Obj1 ID to be not 0")
+	}
+
+	if dbObj.Obj2.ID == 0 {
+		t.Fatalf("Expected Obj2 ID to be not 0")
+	}
+
+	if user1.ID != dbObj.Obj1.ID {
+		t.Fatalf("Expected Obj1 ID %d, got %d", user1.ID, dbObj.Obj1.ID)
+	}
+
+	if user2.ID != dbObj.Obj2.ID {
+		t.Fatalf("Expected Obj2 ID %d, got %d", user2.ID, dbObj.Obj2.ID)
+	}
+
+	if user1.Name != dbObj.Obj1.Name {
+		t.Fatalf("Expected Obj1 name %q, got %q", user1.Name, dbObj.Obj1.Name)
+	}
+
+	if user2.Name != dbObj.Obj2.Name {
+		t.Fatalf("Expected Obj2 name %q, got %q", user2.Name, dbObj.Obj2.Name)
 	}
 }
 
@@ -770,7 +901,7 @@ func TestQueryNestedRelated(t *testing.T) {
 		t.Fatalf("Failed to insert todo: %v", err)
 	}
 
-	todos, err := queries.Objects(&Todo{}).
+	var q = queries.Objects(&Todo{}).
 		Select("*", "User.*", "User.Profile.*", "User.Profile.Image.*").
 		Filter(
 			queries.Q("Title__icontains", "new test"),
@@ -794,10 +925,10 @@ func TestQueryNestedRelated(t *testing.T) {
 		).
 		OrderBy("-ID", "-User.Name", "-User.Profile.Email").
 		Limit(5).
-		All().Exec()
-
+		All()
+	todos, err := q.Exec()
 	if err != nil {
-		t.Fatalf("Failed to filter todos: %v", err)
+		t.Fatalf("Failed to filter todos: %v (%s)", err, q.SQL())
 	}
 
 	if len(todos) != 1 {
@@ -1421,4 +1552,59 @@ func TestQuerySet_SharedInstance_Concurrency(t *testing.T) {
 	}
 
 	queries.LogQueries = true
+}
+func TestRecursiveAliasConflict(t *testing.T) {
+	// Create deep hierarchy
+	root := &Category{Name: "Root"}
+	if err := queries.CreateObject(root); err != nil {
+		t.Fatalf("Failed to insert root: %v", err)
+	}
+
+	child := &Category{Name: "Child", Parent: root}
+	if err := queries.CreateObject(child); err != nil {
+		t.Fatalf("Failed to insert child: %v", err)
+	}
+
+	grandchild := &Category{Name: "Grandchild", Parent: child}
+	if err := queries.CreateObject(grandchild); err != nil {
+		t.Fatalf("Failed to insert grandchild: %v", err)
+	}
+
+	// Select deeply nested field that should require distinct aliases
+	q := queries.Objects(&Category{}).
+		Select("*", "Parent.*", "Parent.Parent.*").
+		Filter("Parent.Parent.Name", "Root").
+		All()
+
+	obj, err := q.Exec()
+	if err != nil {
+		t.Fatalf("Failed to execute query: %v (%s)", err, q.SQL())
+	}
+
+	if len(obj) != 1 {
+		t.Fatalf("Expected 1 object, got %d", len(obj))
+	}
+
+	var dbObj = obj[0].Object.(*Category)
+	t.Logf("Created object: %+v", dbObj)
+
+	if dbObj.Parent == nil {
+		t.Fatalf("Expected Parent to be not nil")
+	}
+
+	if dbObj.Parent.Parent == nil {
+		t.Fatalf("Expected Parent.Parent to be not nil")
+	}
+
+	if dbObj.Parent.Parent.Name != "Root" {
+		t.Fatalf("Expected Parent.Parent.Name to be 'Root', got %q", dbObj.Parent.Parent.Name)
+	}
+
+	if dbObj.Parent.Name != "Child" {
+		t.Fatalf("Expected Parent.Name to be 'Child', got %q", dbObj.Parent.Name)
+	}
+
+	if dbObj.Name != "Grandchild" {
+		t.Fatalf("Expected Name to be 'Grandchild', got %q", dbObj.Name)
+	}
 }

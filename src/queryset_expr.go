@@ -104,38 +104,6 @@ func normalizeArgs(op string, value []any) []any {
 	return value
 }
 
-func walkFields(m attrs.Definer, column string) (definer attrs.Definer, parent attrs.Definer, f attrs.Field, chain []string, isRelated bool, err error) {
-	var parts = strings.Split(column, ".")
-	var current = m
-	var field attrs.Field
-	var chainParts = make([]string, 0, len(parts))
-	for i, part := range parts {
-		var defs = current.FieldDefs()
-		var f, ok = defs.Field(part)
-		if !ok {
-			return nil, nil, nil, nil, false, fmt.Errorf("field %q not found in %T", part, current)
-		}
-
-		field = f
-
-		var rel = f.Rel()
-		if i == len(parts)-1 {
-			break
-		}
-
-		chainParts = append(chainParts, part)
-		parent = current
-		current = rel
-		if current == nil {
-			return nil, nil, nil, nil, false, fmt.Errorf("field %q has no related model in %T", part, f)
-		}
-
-		isRelated = true
-	}
-
-	return current, parent, field, chainParts, isRelated, nil
-}
-
 type ExprNode struct {
 	sql    string
 	args   []any
@@ -169,13 +137,18 @@ func (e *ExprNode) With(d driver.Driver, m attrs.Definer, quote string) Expressi
 
 	nE.model = m
 
-	var current, _, field, _, _, err = walkFields(m, nE.field)
+	var current, _, field, _, aliases, _, err = walkFields(m, nE.field)
 	if err != nil {
 		panic(err)
 	}
 
-	var defs = current.FieldDefs()
 	var col string
+	var alias string
+	if len(aliases) > 0 {
+		alias = aliases[len(aliases)-1]
+	} else {
+		alias = current.FieldDefs().TableName()
+	}
 
 	if vF, ok := field.(VirtualField); ok {
 		col = fmt.Sprintf(
@@ -185,7 +158,7 @@ func (e *ExprNode) With(d driver.Driver, m attrs.Definer, quote string) Expressi
 	} else {
 		col = fmt.Sprintf(
 			"%s%s%s.%s%s%s",
-			quote, defs.TableName(), quote,
+			quote, alias, quote,
 			quote, field.ColumnName(), quote,
 		)
 	}
@@ -387,14 +360,21 @@ func (e *RawExpr) With(d driver.Driver, m attrs.Definer, quote string) Expressio
 	nE.used = true
 
 	for i, field := range nE.Fields {
-		var current, _, f, _, _, err = walkFields(m, field)
+		var current, _, f, _, aliases, _, err = walkFields(m, field)
 		if err != nil {
 			panic(err)
 		}
-		var defs = current.FieldDefs()
+
+		var alias string
+		if len(aliases) > 0 {
+			alias = aliases[len(aliases)-1]
+		} else {
+			alias = current.FieldDefs().TableName()
+		}
+
 		nE.Fields[i] = fmt.Sprintf(
 			"%s%s%s.%s%s%s",
-			quote, defs.TableName(), quote,
+			quote, alias, quote,
 			quote, f.ColumnName(), quote,
 		)
 	}

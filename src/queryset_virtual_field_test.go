@@ -55,7 +55,7 @@ type TestStruct struct {
 }
 
 func (t *TestStruct) FieldDefs() attrs.Definitions {
-	return attrs.Define(t,
+	return t.BaseModel.Define(t, attrs.Define(t,
 		attrs.NewField(t, "ID", &attrs.FieldConfig{
 			Column:  "id",
 			Primary: true,
@@ -79,7 +79,7 @@ func (t *TestStruct) FieldDefs() attrs.Definitions {
 			Statement: "UPPER(%s)",
 			Fields:    []string{"Name"},
 		}),
-	).WithTableName("test_struct")
+	).WithTableName("test_struct"))
 }
 
 func TestSetName(t *testing.T) {
@@ -97,9 +97,9 @@ func TestSetName(t *testing.T) {
 	fUpper.SetValue("test3", false)
 
 	var (
-		textV, _  = test.BaseModel.Get("TestNameText")
-		lowerV, _ = test.BaseModel.Get("TestNameLower")
-		upperV, _ = test.BaseModel.Get("TestNameUpper")
+		textV, _  = test.GetQueryValue("TestNameText")
+		lowerV, _ = test.GetQueryValue("TestNameLower")
+		upperV, _ = test.GetQueryValue("TestNameUpper")
 	)
 
 	if textV != "test1" {
@@ -174,17 +174,17 @@ func TestVirtualFieldsQuerySetSingleObject(t *testing.T) {
 		t.Errorf("Expected Text to be %q, got %q", test.Text, o.Text)
 	}
 
-	var textV, _ = o.BaseModel.Get("TestNameText")
+	var textV, _ = o.BaseModel.GetQueryValue("TestNameText")
 	if textV != "test1 test2 test" && obj.Annotations["TestNameText"] != "test1 test2 test" {
 		t.Errorf("Expected TestNameText to be 'test1 test2', got %v", textV)
 	}
 
-	var lowerV, _ = o.BaseModel.Get("TestNameLower")
+	var lowerV, _ = o.BaseModel.GetQueryValue("TestNameLower")
 	if lowerV != "test1" && obj.Annotations["TestNameLower"] != "test1" {
 		t.Errorf("Expected TestNameLower to be 'test1', got %v", lowerV)
 	}
 
-	var upperV, _ = o.BaseModel.Get("TestNameUpper")
+	var upperV, _ = o.BaseModel.GetQueryValue("TestNameUpper")
 	if upperV != "TEST1" && obj.Annotations["TestNameUpper"] != "TEST1" {
 		t.Errorf("Expected TestNameUpper to be 'TEST1', got %v", upperV)
 	}

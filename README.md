@@ -499,3 +499,129 @@ Again, these methods (if defined) will only be called when using the helper func
     t.Fatalf("Failed to delete todo: %v", err)
   }
 ```
+
+Here's the **final, corrected and complete documentation section** for **Virtual Fields**, now including the **`DataModel` integration**, explanation of **runtime value access**, and notes about how values are stored per row. This version is suitable for inclusion in the README or reference guide:
+
+---
+
+## Virtual Fields
+
+Virtual fields are computed fields defined at the model level. They behave like real fields in queries, but are **not stored in the database**.
+
+They are used to inject SQL expressions (functions, subqueries, math, etc.) into queries and bind their results to fields in the row.
+
+---
+
+### Defining Virtual Fields
+
+Use `queries.NewVirtualField`:
+
+```go
+queries.NewVirtualField[string](model, model, "UpperName", &queries.RawExpr{
+  Statement: "UPPER(%s)",
+  Fields:    []string{"Name"},
+})
+```
+
+- `model`: the `attrs.Definer` (model schema)
+- `dataModel`: must implement `DataModel` (e.g. embed `BaseModel`)
+- `name`: name of the field (also used as alias in SQL)
+- `expr`: a query `Expression`
+
+> ⚠️ If `dataModel` doesn't implement `DataModel` or DataModel is nil, the virtual field will **panic** at runtime when accessing `.GetValue()`.
+
+---
+
+### Required Interface: `DataModel`
+
+The virtual field **requires the target struct** to implement the `DataModel` interface so values can be stored and retrieved at runtime.
+
+```go
+type DataModel interface {
+  Has(key string) bool
+  Get(key string) (any, bool)
+  Set(key string, value any) error
+}
+```
+
+You can embed `BaseModel`:
+
+```go
+type MyModel struct {
+  BaseModel
+  Name string
+}
+```
+
+---
+
+### How it Works Internally
+
+A virtual field is defined using an `ExpressionField[T]` which implements both `attrs.Field` and `VirtualField`.
+
+At query time:
+
+- The SQL expression is included via `.SQL(...)`
+- The alias is set to `name`
+- Query results are scanned per row using `.SetValue(...)`
+- Values are stored in `dataModel.Set(...)` (usually backed by a `map[string]interface{}`)
+
+At runtime:
+
+- Call `.GetValue()` or `.ToString()` to access the actual value
+- Or get it from the row's `.Annotations[name]` map
+
+---
+
+### Example: Uppercase Name + Concat
+
+```go
+type TestModel struct {
+  queries.BaseModel
+  Name string
+  Text string
+}
+
+func (m *TestModel) FieldDefs() attrs.Definitions {
+  return attrs.Define(m,
+    attrs.NewField(m, "Name", nil),
+    attrs.NewField(m, "Text", nil),
+
+    // UPPER(name)
+    queries.NewVirtualField[string](m, &m.BaseModel, "UpperName", &queries.RawExpr{
+      Statement: "UPPER(%s)",
+      Fields:    []string{"Name"},
+    }),
+
+    // name || ' - ' || text
+    queries.NewVirtualField[string](m, &m.BaseModel, "Concat", &queries.RawExpr{
+      Statement: "%s || ' - ' || %s",
+      Fields:    []string{"Name", "Text"},
+    }),
+  ).WithTableName("test_model")
+}
+```
+
+---
+
+### Usage in Queries
+
+```go
+rows, _ := queries.Objects(&TestModel{}).All().Exec()
+
+for _, row := range rows {
+  fmt.Println(row.Annotations["UpperName"]) // from SQL alias
+  fmt.Println(row.Annotations["Concat"])    // also from alias
+}
+```
+
+### Filtering and Ordering by Virtual Field
+
+```go
+queries.Objects(&TestModel{}).
+  Filter("UpperName__icontains", "JOHN").
+  OrderBy("-Concat").
+  All().Exec()
+```
+
+---

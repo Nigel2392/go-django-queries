@@ -116,6 +116,19 @@ func (m *User) FieldDefs() attrs.Definitions {
 	).WithTableName("users")
 }
 
+type Related struct {
+	Object        attrs.Definer
+	ThroughObject attrs.Definer
+}
+
+func (r *Related) Model() attrs.Definer {
+	return r.Object
+}
+
+func (r *Related) Through() attrs.Definer {
+	return r.ThroughObject
+}
+
 type Todo struct {
 	ID          int
 	Title       string
@@ -143,7 +156,7 @@ func (m *Todo) FieldDefs() attrs.Definitions {
 		attrs.NewField(m, "Done", &attrs.FieldConfig{}),
 		attrs.NewField(m, "User", &attrs.FieldConfig{
 			Column: "user_id",
-			RelOneToOne: &queries.Related{
+			RelOneToOne: &Related{
 				Object: &User{},
 			},
 		}),

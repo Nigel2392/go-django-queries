@@ -40,7 +40,7 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string) *Dat
 		panic("NewDataModelField: name is empty")
 	}
 
-	var Type = reflect.TypeOf(*new(T))
+	var Type = reflect.TypeOf((*T)(nil)).Elem()
 	if _, ok := dst.(queries.DataModel); !ok {
 		var (
 			dstT = reflect.TypeOf(dst)
@@ -51,11 +51,17 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string) *Dat
 		}
 
 		if !dstV.IsValid() {
-			panic(fmt.Errorf("NewDataModelField: resultType is nil: %T (%v)", dst, dstV))
+			panic(fmt.Errorf("NewDataModelField: resultType is nil: %T", dst))
 		}
 
-		if dstT.Elem() != Type {
-			panic("NewDataModelField: resultType is not a pointer to T")
+		if Type.Kind() != reflect.Interface {
+			if dstT.Elem() != Type {
+				panic(fmt.Errorf("NewDataModelField: resultType %T is not a pointer to T: %T (%T.%s)", Type.Name(), dst, forModel, name))
+			}
+		} else {
+			if !dstT.Elem().Implements(Type) {
+				panic(fmt.Errorf("NewDataModelField: resultType %T does not implement T: %T (%T.%s)", Type.Name(), dst, forModel, name))
+			}
 		}
 
 		if dstV.Elem().Kind() == reflect.Ptr && dstV.Elem().IsNil() {
@@ -156,7 +162,8 @@ func (e *DataModelField[T]) GetValue() interface{} {
 
 	var val, ok = e.getQueryValue()
 	if !ok || val == nil {
-		return *new(T)
+		var t = reflect.TypeOf((*T)(nil)).Elem()
+		return reflect.New(t).Interface()
 	}
 
 	valTyped, ok := val.(T)
@@ -212,6 +219,11 @@ func (e *DataModelField[T]) SetValue(v interface{}, _ bool) error {
 		rT = reflect.TypeOf(v)
 	)
 
+	if !rV.IsValid() || rT == nil {
+		rV = reflect.New(e.resultType).Elem()
+		rT = rV.Type()
+	}
+
 	if rT != e.resultType {
 
 		if rT.ConvertibleTo(e.resultType) {
@@ -244,13 +256,19 @@ func (e *DataModelField[T]) SetValue(v interface{}, _ bool) error {
 	}
 
 	v = rV.Interface()
+	if v == nil {
+		e.setQueryValue(
+			reflect.New(e.resultType).Interface(),
+		)
+		return nil
+	}
 
 	if _, ok := v.(T); ok {
 		e.setQueryValue(v)
 		return nil
 	}
 
-	return fmt.Errorf("value %v is not of type %T", v, *new(T))
+	return fmt.Errorf("value %v (%T) is not of type %T", v, v, *new(T))
 }
 func (e *DataModelField[T]) Value() (driver.Value, error) {
 	var val = e.GetValue()

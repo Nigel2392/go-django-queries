@@ -55,50 +55,43 @@ type InjectorField interface {
 	Inject(qs *QuerySet) *QuerySet
 }
 
+type ForUseInQueriesField interface {
+	attrs.Field
+	// ForUseInQueries returns true if the field is for use in queries.
+	// This is used to determine if the field should be included in the query.
+	// If the field does not implement this method, it is assumed to be for use in queries.
+	ForSelectAll() bool
+}
+
 type RelatedField interface {
 	attrs.Field
-	// ...
+
+	Relation() Relation
+
+	// GetRelatedField returns the related field for the field.
+	// This is used to determine the column name for the field, for example for a through table.
+	GetTargetField() attrs.Field
+
+	ForeignKey() attrs.Definer
+	ManyToOne() attrs.Relation
+	ManyToMany() attrs.Relation
+	OneToOne() attrs.Relation
+}
+
+func ForSelectAll(f attrs.Field) bool {
+	if f == nil {
+		return false
+	}
+	if f, ok := f.(ForUseInQueriesField); ok {
+		return f.ForSelectAll()
+	}
+	return true
 }
 
 type DataModel interface {
 	HasQueryValue(key string) bool
 	GetQueryValue(key string) (any, bool)
 	SetQueryValue(key string, value any) error
-}
-
-type Model struct {
-	data  map[string]interface{}
-	_defs attrs.Definitions
-}
-
-func (m *Model) Define(def attrs.Definer, definitions attrs.Definitions) attrs.Definitions {
-	if m._defs == nil {
-		if definitions == nil {
-			definitions = def.FieldDefs()
-		}
-		m._defs = definitions
-	}
-	return m._defs
-}
-
-func (m *Model) HasQueryValue(key string) bool {
-	return m.data != nil && m.data[key] != nil
-}
-
-func (m *Model) GetQueryValue(key string) (any, bool) {
-	if m.data == nil {
-		return nil, false
-	}
-	var val, ok = m.data[key]
-	return val, ok
-}
-
-func (m *Model) SetQueryValue(key string, value any) error {
-	if m.data == nil {
-		m.data = make(map[string]interface{})
-	}
-	m.data[key] = value
-	return nil
 }
 
 type QuerySetDefiner interface {
@@ -177,7 +170,6 @@ type QueryCompiler interface {
 		orderBy []OrderBy,
 		limit int,
 		offset int,
-		union []Union,
 		forUpdate bool,
 		distinct bool,
 	) Query[[][]interface{}]

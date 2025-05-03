@@ -23,7 +23,6 @@ func NewVirtualField[T any](forModel attrs.Definer, dst any, name string, expr e
 		DataModelField: NewDataModelField[T](forModel, dst, name),
 		expr:           expr,
 	}
-
 	return f
 }
 

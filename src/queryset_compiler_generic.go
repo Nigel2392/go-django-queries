@@ -105,7 +105,6 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 	orderBy []OrderBy,
 	limit int,
 	offset int,
-	union []Union,
 	forUpdate bool,
 	distinct bool,
 ) Query[[][]interface{}] {

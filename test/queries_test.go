@@ -10,6 +10,7 @@ import (
 
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/expr"
+	"github.com/Nigel2392/go-django-queries/src/models"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -97,13 +98,14 @@ func (m *Profile) FieldDefs() attrs.Definitions {
 }
 
 type User struct {
+	models.Model
 	ID      int
 	Name    string
 	Profile *Profile
 }
 
 func (m *User) FieldDefs() attrs.Definitions {
-	return attrs.Define(m,
+	return m.Model.Define(m,
 		attrs.NewField(m, "ID", &attrs.FieldConfig{
 			Primary:  true,
 			ReadOnly: true,
@@ -187,13 +189,14 @@ func (m *ObjectWithMultipleRelations) FieldDefs() attrs.Definitions {
 }
 
 type Category struct {
+	models.Model
 	ID     int
 	Name   string
 	Parent *Category
 }
 
 func (m *Category) FieldDefs() attrs.Definitions {
-	return attrs.Define(m,
+	return m.Model.Define(m,
 		attrs.NewField(m, "ID", &attrs.FieldConfig{
 			Primary:  true,
 			ReadOnly: true,
@@ -240,6 +243,9 @@ func init() {
 	if _, err = db.Exec(createTableTodos); err != nil {
 		panic(fmt.Sprint("failed to create table todos ", err))
 	}
+
+	queries.RegisterModel(&User{})
+	queries.RegisterModel(&Todo{})
 
 	logger.Setup(&logger.Logger{
 		Level:       logger.DBG,

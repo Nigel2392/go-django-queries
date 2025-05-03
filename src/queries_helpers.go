@@ -185,7 +185,7 @@ func CreateObject[T attrs.Definer](obj T) error {
 	)
 
 	var (
-		qs       = Objects(obj).Create(obj)
+		qs       = Objects(obj).ExplicitSave().Create(obj)
 		compiler = qs.Compiler()
 	)
 

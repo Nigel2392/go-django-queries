@@ -7,6 +7,7 @@ import (
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/fields"
+	"github.com/Nigel2392/go-django-queries/src/models"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
@@ -59,17 +60,18 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
+
 }
 
 type TestStruct struct {
-	queries.Model
+	models.Model
 	ID   int64
 	Name string
 	Text string
 }
 
 func (t *TestStruct) FieldDefs() attrs.Definitions {
-	return t.Model.Define(t, attrs.Define(t,
+	return t.Model.Define(t,
 		attrs.NewField(t, "ID", &attrs.FieldConfig{
 			Column:  "id",
 			Primary: true,
@@ -93,7 +95,7 @@ func (t *TestStruct) FieldDefs() attrs.Definitions {
 			Statement: "UPPER(%s)",
 			Fields:    []string{"Name"},
 		}),
-	).WithTableName("test_struct"))
+	).WithTableName("test_struct")
 }
 
 type TestStructNoObject struct {

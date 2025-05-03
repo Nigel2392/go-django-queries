@@ -31,8 +31,6 @@ func express(key interface{}, vals ...interface{}) []expr.Expression
 
 const MAX_GET_RESULTS = 21
 
-type Union func(*QuerySet) *QuerySet
-
 type Table struct {
 	Name  string
 	Alias string
@@ -125,7 +123,6 @@ type QuerySetInternals struct {
 	OrderBy     []OrderBy
 	Limit       int
 	Offset      int
-	Union       []Union
 	ForUpdate   bool
 	Distinct    bool
 }
@@ -147,6 +144,7 @@ type QuerySet struct {
 	model        attrs.Definer
 	compiler     QueryCompiler
 	explicitSave bool
+	useCache     bool
 	cached       any
 }
 
@@ -212,6 +210,11 @@ func Objects(model attrs.Definer, database ...string) *QuerySet {
 			Limit:       1000,
 			Offset:      0,
 		},
+
+		// enable queryset caching by default
+		// this can result in race conditions in some rare edge cases
+		// but is generally safe to use
+		useCache: true,
 	}
 	qs.compiler = Compiler(model, defaultDb)
 	return qs
@@ -251,7 +254,6 @@ func (qs *QuerySet) Clone() *QuerySet {
 		internals: &QuerySetInternals{
 			Annotations: maps.Clone(qs.internals.Annotations),
 			Fields:      slices.Clone(qs.internals.Fields),
-			Union:       slices.Clone(qs.internals.Union),
 			Where:       slices.Clone(qs.internals.Where),
 			Having:      slices.Clone(qs.internals.Having),
 			Joins:       slices.Clone(qs.internals.Joins),
@@ -263,6 +265,7 @@ func (qs *QuerySet) Clone() *QuerySet {
 			Distinct:    qs.internals.Distinct,
 		},
 		explicitSave: qs.explicitSave,
+		useCache:     qs.useCache,
 		compiler:     qs.compiler,
 	}
 }
@@ -451,7 +454,13 @@ func (qs *QuerySet) attrFields(obj attrs.Definer) []attrs.Field {
 func addJoinForFK(qs *QuerySet, foreignKey attrs.Definer, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) (*FieldInfo, []JoinDef) {
 	var defs = foreignKey.FieldDefs()
 	var tableName = defs.TableName()
-	var relField = defs.Primary()
+	var relField attrs.Field
+
+	if relFieldGetter, ok := field.(RelatedField); ok {
+		relField = relFieldGetter.GetTargetField()
+	} else {
+		relField = defs.Primary()
+	}
 
 	var front, back = qs.compiler.Quote()
 
@@ -480,7 +489,14 @@ func addJoinForFK(qs *QuerySet, foreignKey attrs.Definer, parentDefs attrs.Defin
 
 	var includedFields []attrs.Field
 	if all {
-		includedFields = defs.Fields()
+		var fields = defs.Fields()
+		includedFields = make([]attrs.Field, 0, len(fields))
+		for _, f := range fields {
+			if !ForSelectAll(f) {
+				continue
+			}
+			includedFields = append(includedFields, f)
+		}
 	} else {
 		includedFields = []attrs.Field{field}
 	}
@@ -558,12 +574,16 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 	if len(fields) == 0 {
 		fields = make([]string, 0, len(qs.queryInfo.Fields))
 		for _, field := range qs.queryInfo.Fields {
-			fields = append(fields, field.Name())
+			if ForSelectAll(field) {
+				fields = append(fields, field.Name())
+			}
 		}
 	} else if len(fields) > 0 && fields[0] == "*" {
 		var f = make([]string, 0, len(qs.queryInfo.Fields)+(len(fields)-1))
 		for _, field := range qs.queryInfo.Fields {
-			f = append(f, field.Name())
+			if ForSelectAll(field) {
+				f = append(f, field.Name())
+			}
 		}
 		fields = append(f, fields[1:]...)
 	}
@@ -594,7 +614,10 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 			panic(err)
 		}
 
-		// The field might be a relation
+		//if !ForSelectAll(field) {
+		//	panic(fmt.Errorf("field %q is not for use in queries", field.Name()))
+		//}
+
 		// The field might be a relation
 		var (
 			rel        attrs.Definer
@@ -843,12 +866,6 @@ func (qs *QuerySet) Reverse() *QuerySet {
 	return nqs
 }
 
-func (qs *QuerySet) Union(f func(*QuerySet) *QuerySet) *QuerySet {
-	var nqs = qs.Clone()
-	nqs.internals.Union = append(nqs.internals.Union, f)
-	return nqs
-}
-
 // Limit is used to limit the number of results returned by a query.
 func (qs *QuerySet) Limit(n int) *QuerySet {
 	var nqs = qs.Clone()
@@ -975,7 +992,6 @@ func (qs *QuerySet) All() Query[[]*Row] {
 		qs.internals.OrderBy,
 		qs.internals.Limit,
 		qs.internals.Offset,
-		qs.internals.Union,
 		qs.internals.ForUpdate,
 		qs.internals.Distinct,
 	)
@@ -983,7 +999,7 @@ func (qs *QuerySet) All() Query[[]*Row] {
 	return &wrappedQuery[[][]interface{}, []*Row]{
 		query: resultQuery,
 		exec: func(q Query[[][]interface{}]) ([]*Row, error) {
-			if qs.cached != nil {
+			if qs.cached != nil && qs.useCache {
 				return qs.cached.([]*Row), nil
 			}
 
@@ -1033,7 +1049,9 @@ func (qs *QuerySet) All() Query[[]*Row] {
 				}
 			}
 
-			qs.cached = list
+			if qs.useCache {
+				qs.cached = list
+			}
 
 			return list, nil
 		},
@@ -1058,7 +1076,6 @@ func (qs *QuerySet) ValuesList(fields ...string) ValuesListQuery {
 		qs.internals.OrderBy,
 		qs.internals.Limit,
 		qs.internals.Offset,
-		qs.internals.Union,
 		qs.internals.ForUpdate,
 		qs.internals.Distinct,
 	)
@@ -1066,7 +1083,7 @@ func (qs *QuerySet) ValuesList(fields ...string) ValuesListQuery {
 	return &wrappedQuery[[][]interface{}, [][]any]{
 		query: resultQuery,
 		exec: func(q Query[[][]interface{}]) ([][]any, error) {
-			if qs.cached != nil {
+			if qs.cached != nil && qs.useCache {
 				return qs.cached.([][]any), nil
 			}
 
@@ -1099,7 +1116,9 @@ func (qs *QuerySet) ValuesList(fields ...string) ValuesListQuery {
 				list[i] = values
 			}
 
-			qs.cached = list
+			if qs.useCache {
+				qs.cached = list
+			}
 
 			return list, nil
 		},
@@ -1134,7 +1153,6 @@ func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[
 		nil,   // no order
 		1,     // just one row
 		0,     // no offset
-		nil,   // no union
 		false, // not for update
 		false, // not distinct
 	)
@@ -1142,7 +1160,7 @@ func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[
 	return &wrappedQuery[[][]interface{}, map[string]any]{
 		query: query,
 		exec: func(q Query[[][]interface{}]) (map[string]any, error) {
-			if qs.cached != nil {
+			if qs.cached != nil && qs.useCache {
 				return qs.cached.(map[string]any), nil
 			}
 
@@ -1167,8 +1185,9 @@ func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[
 				}
 			}
 
-			qs.cached = out
-
+			if qs.useCache {
+				qs.cached = out
+			}
 			return out, nil
 		},
 	}
@@ -1195,8 +1214,7 @@ func (qs *QuerySet) Get() Query[*Row] {
 	return &wrappedQuery[[]*Row, *Row]{
 		query: q,
 		exec: func(q Query[[]*Row]) (*Row, error) {
-
-			if qs.cached != nil {
+			if qs.cached != nil && qs.useCache {
 				return qs.cached.(*Row), nil
 			}
 
@@ -1223,7 +1241,9 @@ func (qs *QuerySet) Get() Query[*Row] {
 				)
 			}
 
-			qs.cached = results[0]
+			if qs.useCache {
+				qs.cached = results[0]
+			}
 
 			return results[0], nil
 		},
@@ -1253,7 +1273,7 @@ func (qs *QuerySet) GetOrCreate(value attrs.Definer) (attrs.Definer, error) {
 	defer transaction.Rollback()
 
 	// Check if the object already exists
-	qs.cached = nil
+	qs.useCache = false
 	var resultQuery = qs.Get()
 	row, err := resultQuery.Exec()
 	if err != nil {

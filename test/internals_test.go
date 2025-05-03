@@ -244,10 +244,17 @@ func TestWalkFieldPaths(t *testing.T) {
 			var meta, err = internal.WalkFieldPath(test.model, test.column)
 			if err != nil {
 				t.Errorf("expected no error, got %v", err)
+				return
 			}
 
 			if meta == nil {
 				t.Errorf("expected meta not nil, got nil")
+				return
+			}
+
+			if meta.Last == nil || meta.Last.Object == nil {
+				t.Errorf("expected meta.Last not nil, got nil")
+				return
 			}
 
 			if reflect.TypeOf(meta.Last.Object) != reflect.TypeOf(test.expected.definer) {

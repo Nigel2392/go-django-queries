@@ -115,6 +115,21 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, d driver.Driver, m attrs.De
 	return args
 }
 
+type QuerySetInternals struct {
+	Annotations map[string]*queryField[any]
+	Fields      []FieldInfo
+	Where       []expr.Expression
+	Having      []expr.Expression
+	Joins       []JoinDef
+	GroupBy     []FieldInfo
+	OrderBy     []OrderBy
+	Limit       int
+	Offset      int
+	Union       []Union
+	ForUpdate   bool
+	Distinct    bool
+}
+
 // QuerySet is a struct that represents a query set in the database.
 //
 // It contains methods to filter, order, and limit the results of a query.
@@ -128,21 +143,11 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, d driver.Driver, m attrs.De
 // Queries are built internally with the help of the QueryCompiler interface, which is responsible for generating the SQL queries for the database.
 type QuerySet struct {
 	queryInfo    *internal.QueryInfo
+	internals    *QuerySetInternals
 	model        attrs.Definer
-	annotations  map[string]*queryField[any]
-	fields       []FieldInfo
-	where        []expr.Expression
-	having       []expr.Expression
-	joins        []JoinDef
-	groupBy      []FieldInfo
-	orderBy      []OrderBy
-	limit        int
-	offset       int
-	union        []Union
-	forUpdate    bool
-	distinct     bool
-	explicitSave bool
 	compiler     QueryCompiler
+	explicitSave bool
+	cached       any
 }
 
 // Objects creates a new QuerySet for the given model.
@@ -195,16 +200,18 @@ func Objects(model attrs.Definer, database ...string) *QuerySet {
 	}
 
 	var qs = &QuerySet{
-		model:       model,
-		queryInfo:   queryInfo,
-		annotations: make(map[string]*queryField[any]),
-		where:       make([]expr.Expression, 0),
-		having:      make([]expr.Expression, 0),
-		joins:       make([]JoinDef, 0),
-		groupBy:     make([]FieldInfo, 0),
-		orderBy:     make([]OrderBy, 0),
-		limit:       1000,
-		offset:      0,
+		model:     model,
+		queryInfo: queryInfo,
+		internals: &QuerySetInternals{
+			Annotations: make(map[string]*queryField[any]),
+			Where:       make([]expr.Expression, 0),
+			Having:      make([]expr.Expression, 0),
+			Joins:       make([]JoinDef, 0),
+			GroupBy:     make([]FieldInfo, 0),
+			OrderBy:     make([]OrderBy, 0),
+			Limit:       1000,
+			Offset:      0,
+		},
 	}
 	qs.compiler = Compiler(model, defaultDb)
 	return qs
@@ -239,20 +246,22 @@ func (qs *QuerySet) StartTransaction(ctx context.Context) (Transaction, error) {
 // It is a shallow clone, underlying values like `*queries.Expr` are not cloned and have built- in immutability.
 func (qs *QuerySet) Clone() *QuerySet {
 	return &QuerySet{
-		model:        qs.model,
-		queryInfo:    qs.queryInfo,
-		annotations:  maps.Clone(qs.annotations),
-		fields:       slices.Clone(qs.fields),
-		union:        slices.Clone(qs.union),
-		where:        slices.Clone(qs.where),
-		having:       slices.Clone(qs.having),
-		joins:        slices.Clone(qs.joins),
-		groupBy:      slices.Clone(qs.groupBy),
-		orderBy:      slices.Clone(qs.orderBy),
-		limit:        qs.limit,
-		offset:       qs.offset,
-		forUpdate:    qs.forUpdate,
-		distinct:     qs.distinct,
+		model:     qs.model,
+		queryInfo: qs.queryInfo,
+		internals: &QuerySetInternals{
+			Annotations: maps.Clone(qs.internals.Annotations),
+			Fields:      slices.Clone(qs.internals.Fields),
+			Union:       slices.Clone(qs.internals.Union),
+			Where:       slices.Clone(qs.internals.Where),
+			Having:      slices.Clone(qs.internals.Having),
+			Joins:       slices.Clone(qs.internals.Joins),
+			GroupBy:     slices.Clone(qs.internals.GroupBy),
+			OrderBy:     slices.Clone(qs.internals.OrderBy),
+			Limit:       qs.internals.Limit,
+			Offset:      qs.internals.Offset,
+			ForUpdate:   qs.internals.ForUpdate,
+			Distinct:    qs.internals.Distinct,
+		},
 		explicitSave: qs.explicitSave,
 		compiler:     qs.compiler,
 	}
@@ -266,7 +275,7 @@ func (w *QuerySet) String() string {
 	sb.WriteString(fmt.Sprintf("%T", w.model))
 	sb.WriteString(", fields: [")
 	var written bool
-	for _, field := range w.fields {
+	for _, field := range w.internals.Fields {
 		for _, f := range field.Fields {
 			if written {
 				sb.WriteString(", ")
@@ -295,7 +304,7 @@ func (qs *QuerySet) GoString() string {
 	sb.WriteString(fmt.Sprintf("%T", qs.model))
 	sb.WriteString(",\n\tfields: [")
 	var written bool
-	for _, field := range qs.fields {
+	for _, field := range qs.internals.Fields {
 		for _, f := range field.Fields {
 			if written {
 				sb.WriteString(", ")
@@ -315,17 +324,17 @@ func (qs *QuerySet) GoString() string {
 	}
 	sb.WriteString("\n\t],")
 
-	if len(qs.where) > 0 {
+	if len(qs.internals.Where) > 0 {
 		sb.WriteString("\n\twhere: [")
-		for _, expr := range qs.where {
+		for _, expr := range qs.internals.Where {
 			fmt.Fprintf(&sb, "\n\t\t%T: %#v", expr, expr)
 		}
 		sb.WriteString("\n\t],")
 	}
 
-	if len(qs.joins) > 0 {
+	if len(qs.internals.Joins) > 0 {
 		sb.WriteString("\n\tjoins: [")
-		for _, join := range qs.joins {
+		for _, join := range qs.internals.Joins {
 			sb.WriteString("\n\t\t")
 			sb.WriteString(join.TypeJoin)
 			sb.WriteString(" ")
@@ -354,7 +363,7 @@ func (qs *QuerySet) GoString() string {
 //
 // Relations are also respected, joins are automatically added to the query.
 func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelated bool) {
-	infos = make([]FieldInfo, 0, len(qs.fields))
+	infos = make([]FieldInfo, 0, len(qs.internals.Fields))
 	var info = FieldInfo{
 		Table: Table{
 			Name: qs.queryInfo.TableName,
@@ -413,9 +422,9 @@ func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelate
 func (qs *QuerySet) attrFields(obj attrs.Definer) []attrs.Field {
 	var defs = obj.FieldDefs()
 	var fields []attrs.Field
-	if len(qs.fields) > 0 {
-		fields = make([]attrs.Field, 0, len(qs.fields))
-		for _, info := range qs.fields {
+	if len(qs.internals.Fields) > 0 {
+		fields = make([]attrs.Field, 0, len(qs.internals.Fields))
+		for _, info := range qs.internals.Fields {
 			for _, field := range info.Fields {
 				var f, ok = defs.Field(field.Name())
 				if !ok {
@@ -571,7 +580,7 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 			qs.model, selectedField,
 		)
 		if err != nil {
-			field, ok := qs.annotations[selectedField]
+			field, ok := qs.internals.Annotations[selectedField]
 			if ok {
 				fieldInfos = append(fieldInfos, FieldInfo{
 					Table: Table{
@@ -723,8 +732,8 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 		})
 	}
 
-	qs.joins = joins
-	qs.fields = fieldInfos
+	qs.internals.Joins = joins
+	qs.internals.Fields = fieldInfos
 
 	return qs
 }
@@ -738,7 +747,7 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 // By default the `__exact` (=) operator is used, each where clause is separated by `AND`.
 func (qs *QuerySet) Filter(key interface{}, vals ...interface{}) *QuerySet {
 	var nqs = qs.Clone()
-	nqs.where = append(qs.where, express(key, vals...)...)
+	nqs.internals.Where = append(qs.internals.Where, express(key, vals...)...)
 	return nqs
 }
 
@@ -749,7 +758,7 @@ func (qs *QuerySet) Filter(key interface{}, vals ...interface{}) *QuerySet {
 // The key can be a field name (string), an expr.Expression (expr.Expression) or a map of field names to values.
 func (qs *QuerySet) Having(key interface{}, vals ...interface{}) *QuerySet {
 	var nqs = qs.Clone()
-	nqs.having = append(qs.having, express(key, vals...)...)
+	nqs.internals.Having = append(qs.internals.Having, express(key, vals...)...)
 	return nqs
 }
 
@@ -758,7 +767,7 @@ func (qs *QuerySet) Having(key interface{}, vals ...interface{}) *QuerySet {
 // It takes a list of field names as arguments and returns a new QuerySet with the grouped results.
 func (qs *QuerySet) GroupBy(fields ...string) *QuerySet {
 	var nqs = qs.Clone()
-	nqs.groupBy, _ = qs.unpackFields(fields...)
+	nqs.internals.GroupBy, _ = qs.unpackFields(fields...)
 	return nqs
 }
 
@@ -769,7 +778,7 @@ func (qs *QuerySet) GroupBy(fields ...string) *QuerySet {
 // The field names can be prefixed with a minus sign (-) to indicate descending order.
 func (qs *QuerySet) OrderBy(fields ...string) *QuerySet {
 	var nqs = qs.Clone()
-	nqs.orderBy = make([]OrderBy, 0, len(fields))
+	nqs.internals.OrderBy = make([]OrderBy, 0, len(fields))
 
 	for _, field := range fields {
 		var ord = strings.TrimSpace(field)
@@ -802,7 +811,7 @@ func (qs *QuerySet) OrderBy(fields ...string) *QuerySet {
 			)
 		}
 
-		nqs.orderBy = append(nqs.orderBy, OrderBy{
+		nqs.internals.OrderBy = append(nqs.internals.OrderBy, OrderBy{
 			Table: Table{
 				Name:  defs.TableName(),
 				Alias: tableAlias,
@@ -820,8 +829,8 @@ func (qs *QuerySet) OrderBy(fields ...string) *QuerySet {
 //
 // It returns a new QuerySet with the reversed order.
 func (qs *QuerySet) Reverse() *QuerySet {
-	var ordBy = make([]OrderBy, 0, len(qs.orderBy))
-	for _, ord := range qs.orderBy {
+	var ordBy = make([]OrderBy, 0, len(qs.internals.OrderBy))
+	for _, ord := range qs.internals.OrderBy {
 		ordBy = append(ordBy, OrderBy{
 			Table: ord.Table,
 			Field: ord.Field,
@@ -830,27 +839,27 @@ func (qs *QuerySet) Reverse() *QuerySet {
 		})
 	}
 	var nqs = qs.Clone()
-	nqs.orderBy = ordBy
+	nqs.internals.OrderBy = ordBy
 	return nqs
 }
 
 func (qs *QuerySet) Union(f func(*QuerySet) *QuerySet) *QuerySet {
 	var nqs = qs.Clone()
-	nqs.union = append(nqs.union, f)
+	nqs.internals.Union = append(nqs.internals.Union, f)
 	return nqs
 }
 
 // Limit is used to limit the number of results returned by a query.
 func (qs *QuerySet) Limit(n int) *QuerySet {
 	var nqs = qs.Clone()
-	nqs.limit = n
+	nqs.internals.Limit = n
 	return nqs
 }
 
 // Offset is used to set the offset of the results returned by a query.
 func (qs *QuerySet) Offset(n int) *QuerySet {
 	var nqs = qs.Clone()
-	nqs.offset = n
+	nqs.internals.Offset = n
 	return nqs
 }
 
@@ -859,7 +868,7 @@ func (qs *QuerySet) Offset(n int) *QuerySet {
 // It is used to prevent other transactions from modifying the rows until the current transaction is committed or rolled back.
 func (qs *QuerySet) ForUpdate() *QuerySet {
 	var nqs = qs.Clone()
-	nqs.forUpdate = true
+	nqs.internals.ForUpdate = true
 	return nqs
 }
 
@@ -868,7 +877,7 @@ func (qs *QuerySet) ForUpdate() *QuerySet {
 // It is used to remove duplicate rows from the results.
 func (qs *QuerySet) Distinct() *QuerySet {
 	var nqs = qs.Clone()
-	nqs.distinct = true
+	nqs.internals.Distinct = true
 	return nqs
 }
 
@@ -886,9 +895,9 @@ func (qs *QuerySet) ExplicitSave() *QuerySet {
 
 func (qs *QuerySet) annotate(alias string, expr expr.Expression) {
 	field := newQueryField[any](alias, expr)
-	qs.annotations[alias] = field
+	qs.internals.Annotations[alias] = field
 
-	qs.fields = append(qs.fields, FieldInfo{
+	qs.internals.Fields = append(qs.internals.Fields, FieldInfo{
 		Model: nil,
 		Table: Table{
 			Name: qs.queryInfo.TableName,
@@ -951,29 +960,33 @@ type Row struct {
 //
 // If no fields are provided, it selects all fields from the model, see `Select()` for more details.
 func (qs *QuerySet) All() Query[[]*Row] {
-	if len(qs.fields) == 0 {
+	if len(qs.internals.Fields) == 0 {
 		qs = qs.Select("*")
 	}
 
 	var resultQuery = qs.compiler.BuildSelectQuery(
 		context.Background(),
 		qs,
-		qs.fields,
-		qs.where,
-		qs.having,
-		qs.joins,
-		qs.groupBy,
-		qs.orderBy,
-		qs.limit,
-		qs.offset,
-		qs.union,
-		qs.forUpdate,
-		qs.distinct,
+		qs.internals.Fields,
+		qs.internals.Where,
+		qs.internals.Having,
+		qs.internals.Joins,
+		qs.internals.GroupBy,
+		qs.internals.OrderBy,
+		qs.internals.Limit,
+		qs.internals.Offset,
+		qs.internals.Union,
+		qs.internals.ForUpdate,
+		qs.internals.Distinct,
 	)
 
 	return &wrappedQuery[[][]interface{}, []*Row]{
 		query: resultQuery,
 		exec: func(q Query[[][]interface{}]) ([]*Row, error) {
+			if qs.cached != nil {
+				return qs.cached.([]*Row), nil
+			}
+
 			var results, err = q.Exec()
 			if err != nil {
 				return nil, err
@@ -983,7 +996,7 @@ func (qs *QuerySet) All() Query[[]*Row] {
 
 			for i, row := range results {
 				obj := internal.NewObjectFromIface(qs.model)
-				scannables := getScannableFields(qs.fields, obj)
+				scannables := getScannableFields(qs.internals.Fields, obj)
 
 				annotations := make(map[string]any)
 				var annotator, _ = obj.(DataModel)
@@ -1020,6 +1033,8 @@ func (qs *QuerySet) All() Query[[]*Row] {
 				}
 			}
 
+			qs.cached = list
+
 			return list, nil
 		},
 	}
@@ -1035,22 +1050,26 @@ func (qs *QuerySet) ValuesList(fields ...string) ValuesListQuery {
 	var resultQuery = qs.compiler.BuildSelectQuery(
 		context.Background(),
 		qs,
-		qs.fields,
-		qs.where,
-		qs.having,
-		qs.joins,
-		qs.groupBy,
-		qs.orderBy,
-		qs.limit,
-		qs.offset,
-		qs.union,
-		qs.forUpdate,
-		qs.distinct,
+		qs.internals.Fields,
+		qs.internals.Where,
+		qs.internals.Having,
+		qs.internals.Joins,
+		qs.internals.GroupBy,
+		qs.internals.OrderBy,
+		qs.internals.Limit,
+		qs.internals.Offset,
+		qs.internals.Union,
+		qs.internals.ForUpdate,
+		qs.internals.Distinct,
 	)
 
 	return &wrappedQuery[[][]interface{}, [][]any]{
 		query: resultQuery,
 		exec: func(q Query[[][]interface{}]) ([][]any, error) {
+			if qs.cached != nil {
+				return qs.cached.([][]any), nil
+			}
+
 			var results, err = q.Exec()
 			if err != nil {
 				return nil, err
@@ -1059,7 +1078,7 @@ func (qs *QuerySet) ValuesList(fields ...string) ValuesListQuery {
 			var list = make([][]any, len(results))
 			for i, row := range results {
 				var obj = internal.NewObjectFromIface(qs.model)
-				var fields = getScannableFields(qs.fields, obj)
+				var fields = getScannableFields(qs.internals.Fields, obj)
 				var values = make([]any, len(fields))
 				for j, field := range fields {
 					var f = field.(attrs.Field)
@@ -1080,6 +1099,8 @@ func (qs *QuerySet) ValuesList(fields ...string) ValuesListQuery {
 				list[i] = values
 			}
 
+			qs.cached = list
+
 			return list, nil
 		},
 	}
@@ -1090,10 +1111,10 @@ func (qs *QuerySet) ValuesList(fields ...string) ValuesListQuery {
 // It takes a map of field names to expr.Expressions as arguments and returns a Query that can be executed to get the results.
 func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[string]any] {
 	qs = qs.Clone()
-	qs.fields = make([]FieldInfo, 0, len(annotations))
+	qs.internals.Fields = make([]FieldInfo, 0, len(annotations))
 
 	for alias, expr := range annotations {
-		qs.fields = append(qs.fields, FieldInfo{
+		qs.internals.Fields = append(qs.internals.Fields, FieldInfo{
 			Model: nil,
 			Table: Table{
 				Name: qs.queryInfo.TableName,
@@ -1105,11 +1126,11 @@ func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[
 	query := qs.compiler.BuildSelectQuery(
 		context.Background(),
 		qs,
-		qs.fields,
-		qs.where,
-		qs.having,
-		qs.joins,
-		qs.groupBy,
+		qs.internals.Fields,
+		qs.internals.Where,
+		qs.internals.Having,
+		qs.internals.Joins,
+		qs.internals.GroupBy,
 		nil,   // no order
 		1,     // just one row
 		0,     // no offset
@@ -1121,6 +1142,10 @@ func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[
 	return &wrappedQuery[[][]interface{}, map[string]any]{
 		query: query,
 		exec: func(q Query[[][]interface{}]) (map[string]any, error) {
+			if qs.cached != nil {
+				return qs.cached.(map[string]any), nil
+			}
+
 			results, err := q.Exec()
 			if err != nil {
 				return nil, err
@@ -1129,7 +1154,7 @@ func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[
 				return map[string]any{}, nil
 			}
 
-			scannables := getScannableFields(qs.fields, internal.NewObjectFromIface(qs.model))
+			scannables := getScannableFields(qs.internals.Fields, internal.NewObjectFromIface(qs.model))
 			row := results[0]
 			out := make(map[string]any)
 
@@ -1141,6 +1166,9 @@ func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[
 					out[vf.Alias()] = vf.GetValue()
 				}
 			}
+
+			qs.cached = out
+
 			return out, nil
 		},
 	}
@@ -1157,7 +1185,7 @@ func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[
 //
 // If multiple rows are found, it returns queries.query_errors.ErrMultipleRows.
 func (qs *QuerySet) Get() Query[*Row] {
-	if len(qs.where) == 0 {
+	if len(qs.internals.Where) == 0 {
 		panic(query_errors.ErrNoWhereClause)
 	}
 
@@ -1167,6 +1195,11 @@ func (qs *QuerySet) Get() Query[*Row] {
 	return &wrappedQuery[[]*Row, *Row]{
 		query: q,
 		exec: func(q Query[[]*Row]) (*Row, error) {
+
+			if qs.cached != nil {
+				return qs.cached.(*Row), nil
+			}
+
 			var results, err = q.Exec()
 			if err != nil {
 				return nil, err
@@ -1189,6 +1222,9 @@ func (qs *QuerySet) Get() Query[*Row] {
 					qs.model, errResCnt,
 				)
 			}
+
+			qs.cached = results[0]
+
 			return results[0], nil
 		},
 	}
@@ -1203,7 +1239,7 @@ func (qs *QuerySet) Get() Query[*Row] {
 // It panics if the queryset has no where clause.
 func (qs *QuerySet) GetOrCreate(value attrs.Definer) (attrs.Definer, error) {
 
-	if len(qs.where) == 0 {
+	if len(qs.internals.Where) == 0 {
 		panic(query_errors.ErrNoWhereClause)
 	}
 
@@ -1217,6 +1253,7 @@ func (qs *QuerySet) GetOrCreate(value attrs.Definer) (attrs.Definer, error) {
 	defer transaction.Rollback()
 
 	// Check if the object already exists
+	qs.cached = nil
 	var resultQuery = qs.Get()
 	row, err := resultQuery.Exec()
 	if err != nil {
@@ -1288,9 +1325,9 @@ func (qs *QuerySet) Exists() ExistsQuery {
 	var resultQuery = qs.compiler.BuildCountQuery(
 		context.Background(),
 		qs,
-		qs.where,
-		qs.joins,
-		qs.groupBy,
+		qs.internals.Where,
+		qs.internals.Joins,
+		qs.internals.GroupBy,
 		1,
 		0,
 	)
@@ -1317,11 +1354,11 @@ func (qs *QuerySet) Count() CountQuery {
 	return qs.compiler.BuildCountQuery(
 		context.Background(),
 		qs,
-		qs.where,
-		qs.joins,
-		qs.groupBy,
-		qs.limit,
-		qs.offset,
+		qs.internals.Where,
+		qs.internals.Joins,
+		qs.internals.GroupBy,
+		qs.internals.Limit,
+		qs.internals.Offset,
 	)
 }
 
@@ -1529,7 +1566,7 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 func (qs *QuerySet) Update(value attrs.Definer) CountQuery {
 	qs = qs.Clone()
 
-	if len(qs.where) == 0 && !qs.explicitSave {
+	if len(qs.internals.Where) == 0 && !qs.explicitSave {
 		var (
 			defs            = value.FieldDefs()
 			primary         = defs.Primary()
@@ -1607,9 +1644,9 @@ func (qs *QuerySet) Update(value attrs.Definer) CountQuery {
 		context.Background(),
 		qs,
 		info,
-		qs.where,
-		qs.joins,
-		qs.groupBy,
+		qs.internals.Where,
+		qs.internals.Joins,
+		qs.internals.GroupBy,
 		values,
 	)
 
@@ -1625,9 +1662,9 @@ func (qs *QuerySet) Delete() CountQuery {
 	var resultQuery = qs.compiler.BuildDeleteQuery(
 		context.Background(),
 		qs,
-		qs.where,
-		qs.joins,
-		qs.groupBy,
+		qs.internals.Where,
+		qs.internals.Joins,
+		qs.internals.GroupBy,
 	)
 
 	return resultQuery

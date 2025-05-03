@@ -3,10 +3,10 @@
 src/tables_types_test.go
 src/tables_types.go
 src/tables.go
-# src/relations_test.go
-# src/relations.go
-# src/fields/queryset_fields_rel.go
-# src/fields/queryset_fields_rel_registry.go
-# src/fields/queryset_fields_rel_o2o.go
-# src/fields/queryset_fields_rel_m2m.go
-# src/fields/queryset_fields_rel_fk.go
+src/relations_test.go
+src/relations.go
+src/fields/queryset_fields_rel.go
+src/fields/queryset_fields_rel_registry.go
+src/fields/queryset_fields_rel_o2o.go
+src/fields/queryset_fields_rel_m2m.go
+src/fields/queryset_fields_rel_fk.go

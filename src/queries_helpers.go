@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Nigel2392/go-django-queries/internal"
+	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/forms/fields"
 	"github.com/Nigel2392/go-django/src/models"
@@ -47,7 +49,7 @@ func CT_ListObjectsByIDs[T attrs.Definer](i []interface{}) ([]interface{}, error
 func ListObjectsByIDs[T attrs.Definer, T2 any](offset, limit uint64, ids []T2) ([]T, error) {
 
 	var (
-		obj          = newDefiner[T]()
+		obj          = internal.NewDefiner[T]()
 		definitions  = obj.FieldDefs()
 		primaryField = definitions.Primary()
 	)
@@ -77,7 +79,7 @@ func ListObjectsByIDs[T attrs.Definer, T2 any](offset, limit uint64, ids []T2) (
 //
 // It takes an offset and a limit as parameters and returns a slice of objects of type T.
 func ListObjects[T attrs.Definer](offset, limit uint64, ordering ...string) ([]T, error) {
-	var obj = newDefiner[T]()
+	var obj = internal.NewDefiner[T]()
 	var d, err = Objects(obj).
 		OrderBy(ordering...).
 		Limit(int(limit)).
@@ -102,7 +104,7 @@ func ListObjects[T attrs.Definer](offset, limit uint64, ordering ...string) ([]T
 //
 // The identifier can be any type, but it is expected to be the primary key of the object.
 func GetObject[T attrs.Definer](identifier any) (T, error) {
-	var obj = newDefiner[T]()
+	var obj = internal.NewDefiner[T]()
 	var (
 		defs         = obj.FieldDefs()
 		primaryField = defs.Primary()
@@ -119,7 +121,7 @@ func GetObject[T attrs.Definer](identifier any) (T, error) {
 
 	if fields.IsZero(primaryValue) {
 		return obj, errors.Wrapf(
-			ErrFieldNull,
+			query_errors.ErrFieldNull,
 			"Primary field %q cannot be null",
 			primaryField.Name(),
 		)
@@ -221,7 +223,7 @@ func CreateObject[T attrs.Definer](obj T) error {
 		var value = f.GetValue()
 		if value == nil && !field.AllowNull() {
 			return errors.Wrapf(
-				ErrFieldNull,
+				query_errors.ErrFieldNull,
 				"Field %q cannot be null",
 				field.Name(),
 			)

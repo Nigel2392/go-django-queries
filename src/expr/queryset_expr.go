@@ -1,4 +1,4 @@
-package queries
+package expr
 
 import (
 	"database/sql/driver"
@@ -6,8 +6,20 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Nigel2392/go-django-queries/internal"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
+
+type Expression interface {
+	SQL(sb *strings.Builder)
+	Args() []any
+	IsNot() bool
+	Not(b bool) Expression
+	And(...Expression) Expression
+	Or(...Expression) Expression
+	Clone() Expression
+	With(d driver.Driver, model attrs.Definer, quote string) Expression
+}
 
 type LogicalOp string
 
@@ -126,7 +138,7 @@ func (e *ExprNode) With(d driver.Driver, m attrs.Definer, quote string) Expressi
 
 	nE.model = m
 
-	var current, _, field, _, aliases, _, err = walkFields(m, nE.field)
+	var current, _, field, _, aliases, _, err = internal.WalkFields(m, nE.field)
 	if err != nil {
 		panic(err)
 	}
@@ -139,10 +151,11 @@ func (e *ExprNode) With(d driver.Driver, m attrs.Definer, quote string) Expressi
 		alias = current.FieldDefs().TableName()
 	}
 
-	if vF, ok := field.(VirtualField); ok {
+	// THIS HAS TO KEEP IN LINE WITH queries.AliasField.Alias()!!!
+	if vF, ok := field.(interface{ Alias() string }); ok {
 		col = fmt.Sprintf(
-			"%s%s%s",
-			quote, vF.Alias(), quote,
+			"%s%s_%s%s",
+			quote, alias, vF.Alias(), quote,
 		)
 	} else {
 		col = fmt.Sprintf(
@@ -349,7 +362,7 @@ func (e *RawExpr) With(d driver.Driver, m attrs.Definer, quote string) Expressio
 	nE.used = true
 
 	for i, field := range nE.Fields {
-		var current, _, f, _, aliases, _, err = walkFields(m, field)
+		var current, _, f, _, aliases, _, err = internal.WalkFields(m, field)
 		if err != nil {
 			panic(err)
 		}

@@ -9,6 +9,7 @@ This package provides simple ways to build queries, inserts, updates, deletes, a
 **Table of Contents**
 
 - [Installation](#installation)
+- [Imports](#imports)
 - [Defining your models](#defining-your-models)
 - [Usage Examples](#usage-examples)
   - [Create a new record](#create-a-new-record)
@@ -40,6 +41,20 @@ go get github.com/Nigel2392/go-django-queries@latest
 ```
 
 ---
+
+## Imports
+
+The following imports will be used throughout the examples:
+
+```go
+import (
+    "github.com/Nigel2392/go-django-queries/queries"
+    "github.com/Nigel2392/go-django-queries/queries/expr"
+    "github.com/Nigel2392/go-django-queries/queries/fields"
+    "github.com/Nigel2392/go-django-queries/queries/query_errors"
+    "github.com/Nigel2392/go-django/src/core/attrs"
+)
+```
 
 ## Defining your models
 
@@ -130,12 +145,12 @@ We will explain the following example query:
     
     // Generate a WHERE clause with the given conditions
     Filter(
-      queries.Q("Title__icontains", "new test"),
-      queries.Q("Done", true),
-      queries.Q("User.Name__icontains", "test"),
-      queries.Q("User.ID", user.ID),
-      queries.Q("User.Profile.Email__icontains", profile.Email),
-      queries.Q("User.Profile.ID", profile.ID),
+      expr.Q("Title__icontains", "new test"),
+      expr.Q("Done", true),
+      expr.Q("User.Name__icontains", "test"),
+      expr.Q("User.ID", user.ID),
+      expr.Q("User.Profile.Email__icontains", profile.Email),
+      expr.Q("User.Profile.ID", profile.ID),
     ).
 
     // Generate an ORDER BY clause with the given conditions
@@ -259,7 +274,7 @@ count, err := queries.Objects(&Todo{}).
 
 ```go
 todo, err := queries.Objects(&Todo{}).
-    Filter(queries.Q("Title__istartswith", "Finish ta")).
+    Filter(expr.Q("Title__istartswith", "Finish ta")).
     Get().Exec()
 ```
 
@@ -292,7 +307,7 @@ this can be skipped by calling the queryset's `.ExplicitSave()` method - this wa
 todo := &Todo{ Title: "Unique task" }
 
 dbTodo, err := queries.Objects(&Todo{}).
-    Filter(queries.Q("Title", todo.Title)).
+    Filter(expr.Q("Title", todo.Title)).
     GetOrCreate(todo)
 ```
 
@@ -302,7 +317,7 @@ dbTodo, err := queries.Objects(&Todo{}).
 
 ```go
 exists, err := queries.Objects(&Todo{}).
-    Filter(queries.Q("Title__icontains", "task")).
+    Filter(expr.Q("Title__icontains", "task")).
     Exists().Exec()
 ```
 
@@ -313,7 +328,7 @@ exists, err := queries.Objects(&Todo{}).
 ```go
 values, err := queries.Objects(&Todo{}).
     Select("ID", "Title").
-    Filter(queries.Q("Done", false)).
+    Filter(expr.Q("Done", false)).
     ValuesList().Exec()
 
 for _, row := range values {
@@ -328,9 +343,9 @@ for _, row := range values {
 ```go
 todos, err := queries.Objects(&Todo{}).
     Filter(
-        queries.Or(
-            queries.Q("Title__icontains", "urgent"),
-            queries.Q("Title__icontains", "important"),
+        expr.Or(
+            expr.Q("Title__icontains", "urgent"),
+            expr.Q("Title__icontains", "important"),
         ),
     ).
     OrderBy("-ID").
@@ -345,8 +360,8 @@ todos, err := queries.Objects(&Todo{}).
 todos, err := queries.Objects(&Todo{}).
     Select("ID", "Title", "Done", "User.*", "User.Profile.*").
     Filter(
-        queries.Q("Done", false),
-        queries.Q("User.Profile.Email__icontains", "example.com"),
+        expr.Q("Done", false),
+        expr.Q("User.Profile.Email__icontains", "example.com"),
     ).
     OrderBy("-ID").
     All().Exec()
@@ -514,17 +529,17 @@ They are used to inject SQL expressions (functions, subqueries, math, etc.) into
 
 ### Defining Virtual Fields
 
-Use `queries.NewVirtualField`:
+Use `fields.NewVirtualField`:
 
 ```go
-queries.NewVirtualField[string](model, model, "UpperName", &queries.RawExpr{
+fields.NewVirtualField[string](model, model, "UpperName", &expr.RawExpr{
   Statement: "UPPER(%s)",
   Fields:    []string{"Name"},
 })
 ```
 
 - `model`: the `attrs.Definer` (model schema)
-- `dataModel`: must implement `DataModel` (e.g. embed `BaseModel`)
+- `dataModel`: must implement `DataModel` (e.g. embed `Model`)
 - `name`: name of the field (also used as alias in SQL)
 - `expr`: a query `Expression`
 
@@ -538,17 +553,17 @@ The virtual field **requires the target struct** to implement the `DataModel` in
 
 ```go
 type DataModel interface {
-  Has(key string) bool
-  Get(key string) (any, bool)
-  Set(key string, value any) error
+  HasQueryValue(key string) bool
+  GetQueryValue(key string) (any, bool)
+  SetQueryValue(key string, value any) error
 }
 ```
 
-You can embed `BaseModel`:
+You can embed `Model`:
 
 ```go
 type MyModel struct {
-  BaseModel
+  Model
   Name string
 }
 ```
@@ -577,7 +592,7 @@ At runtime:
 
 ```go
 type TestModel struct {
-  queries.BaseModel
+  queries.Model
   Name string
   Text string
 }
@@ -588,13 +603,13 @@ func (m *TestModel) FieldDefs() attrs.Definitions {
     attrs.NewField(m, "Text", nil),
 
     // UPPER(name)
-    queries.NewVirtualField[string](m, &m.BaseModel, "UpperName", &queries.RawExpr{
+    fields.NewVirtualField[string](m, &m.Model, "UpperName", &expr.RawExpr{
       Statement: "UPPER(%s)",
       Fields:    []string{"Name"},
     }),
 
     // name || ' - ' || text
-    queries.NewVirtualField[string](m, &m.BaseModel, "Concat", &queries.RawExpr{
+    fields.NewVirtualField[string](m, &m.Model, "Concat", &expr.RawExpr{
       Statement: "%s || ' - ' || %s",
       Fields:    []string{"Name", "Text"},
     }),
@@ -623,5 +638,3 @@ queries.Objects(&TestModel{}).
   OrderBy("-Concat").
   All().Exec()
 ```
-
----

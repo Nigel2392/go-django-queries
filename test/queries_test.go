@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
+	"github.com/Nigel2392/go-django-queries/src/expr"
+	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/core/logger"
@@ -493,8 +495,8 @@ func TestQuerySet_Where(t *testing.T) {
 	todos, err := queries.Objects(&Todo{}).
 		Select("ID", "Title", "Description", "Done").
 		Filter(
-			queries.Expr("Title", "icontains", "test"),
-			queries.Q("Done", false),
+			expr.Expr("Title", "icontains", "test"),
+			expr.Q("Done", false),
 		).
 		All().Exec()
 
@@ -522,9 +524,9 @@ func TestQuerySet_Where(t *testing.T) {
 
 func TestQuerySet_Count(t *testing.T) {
 	count, err := queries.Objects(&Todo{}).
-		Filter(queries.And(
-			queries.Expr("Title", "icontains", "test"),
-			queries.Q("Done", false),
+		Filter(expr.And(
+			expr.Expr("Title", "icontains", "test"),
+			expr.Q("Done", false),
 		)).
 		Count().Exec()
 
@@ -572,9 +574,9 @@ func TestQueryRelated(t *testing.T) {
 	var q = queries.Objects(&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User.Name", "User.Profile.*").
 		Filter(
-			queries.Q("Title__icontains", "new test"),
-			queries.Q("Done", false),
-			queries.Q("User.Name__icontains", "test"),
+			expr.Q("Title__icontains", "new test"),
+			expr.Q("Done", false),
+			expr.Q("User.Name__icontains", "test"),
 		).
 		OrderBy("-ID", "-User.Name").
 		Limit(5).
@@ -904,19 +906,19 @@ func TestQueryNestedRelated(t *testing.T) {
 	var q = queries.Objects(&Todo{}).
 		Select("*", "User.*", "User.Profile.*", "User.Profile.Image.*").
 		Filter(
-			queries.Q("Title__icontains", "new test"),
-			queries.Q("Done", false),
-			queries.Q("User.Name__icontains", "test"),
-			queries.Q("User.ID", user.ID),
-			queries.Q("User.Profile.Email__icontains", profile.Email),
-			queries.Q("User.Profile.ID", profile.ID),
+			expr.Q("Title__icontains", "new test"),
+			expr.Q("Done", false),
+			expr.Q("User.Name__icontains", "test"),
+			expr.Q("User.ID", user.ID),
+			expr.Q("User.Profile.Email__icontains", profile.Email),
+			expr.Q("User.Profile.ID", profile.ID),
 			//&queries.FuncExpr{
 			//	Statement: "LOWER(SUBSTR(%s, 0, 2)) LIKE LOWER(?)",
 			//	Fields:    []string{"User.Name"},
 			//	Params:    []any{"%te%"},
 			//},
 
-			&queries.RawExpr{
+			&expr.RawExpr{
 				Statement: "%s = ?",
 				Fields:    []string{"User.ID"},
 				Params:    []any{user.ID},
@@ -1160,7 +1162,7 @@ func TestQueryGetErrNoRows(t *testing.T) {
 		t.Fatalf("Expected a nil todo, got %+v", todo)
 	}
 
-	if !errors.Is(err, queries.ErrNoRows) {
+	if !errors.Is(err, query_errors.ErrNoRows) {
 		t.Fatalf("Expected ErrNoRows, got %v", err)
 	}
 
@@ -1192,7 +1194,7 @@ func TestQueryGetMultipleRows(t *testing.T) {
 		t.Fatalf("Expected a nil todo, got %+v", todo)
 	}
 
-	if !errors.Is(err, queries.ErrMultipleRows) {
+	if !errors.Is(err, query_errors.ErrMultipleRows) {
 		t.Fatalf("Expected ErrMultipleRows, got %v", err)
 	}
 

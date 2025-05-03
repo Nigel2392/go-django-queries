@@ -7,26 +7,29 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Nigel2392/go-django-queries/internal"
+	"github.com/Nigel2392/go-django-queries/src/expr"
+	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/pkg/errors"
 )
 
 type genericQueryBuilder struct {
 	transaction Transaction
-	queryInfo   *queryInfo
+	queryInfo   *internal.QueryInfo
 	support     SupportsReturning
 	quote       string
 	driver      driver.Driver
 }
 
 func NewGenericQueryBuilder(model attrs.Definer, db string) QueryCompiler {
-	var q, err = getQueryInfo(model, db)
+	var q, err = internal.GetQueryInfo(model, db)
 	if err != nil {
 		panic(err)
 	}
 
 	var quote = "`"
-	switch sqlxDriverName(q.db) {
+	switch internal.SqlxDriverName(q.DB) {
 	case "mysql":
 		quote = "`"
 	case "postgres":
@@ -37,8 +40,8 @@ func NewGenericQueryBuilder(model attrs.Definer, db string) QueryCompiler {
 
 	return &genericQueryBuilder{
 		quote:     quote,
-		support:   supportsReturning(q.db),
-		driver:    q.db.Driver(),
+		support:   internal.DBSupportsReturning(q.DB),
+		driver:    q.DB.Driver(),
 		queryInfo: q,
 	}
 }
@@ -47,7 +50,7 @@ func (g *genericQueryBuilder) DB() DB {
 	if g.InTransaction() {
 		return g.transaction
 	}
-	return g.queryInfo.db
+	return g.queryInfo.DB
 }
 
 func (g *genericQueryBuilder) Quote() (string, string) {
@@ -56,12 +59,12 @@ func (g *genericQueryBuilder) Quote() (string, string) {
 
 func (g *genericQueryBuilder) StartTransaction(ctx context.Context) (Transaction, error) {
 	if g.InTransaction() {
-		return nil, ErrTransactionStarted
+		return nil, query_errors.ErrTransactionStarted
 	}
 
-	var tx, err = g.queryInfo.db.BeginTx(ctx, nil)
+	var tx, err = g.queryInfo.DB.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, ErrFailedStartTransaction
+		return nil, query_errors.ErrFailedStartTransaction
 	}
 
 	g.transaction = &wrappedTransaction{tx, g}
@@ -70,7 +73,7 @@ func (g *genericQueryBuilder) StartTransaction(ctx context.Context) (Transaction
 
 func (g *genericQueryBuilder) CommitTransaction() error {
 	if !g.InTransaction() {
-		return ErrNoTransaction
+		return query_errors.ErrNoTransaction
 	}
 
 	return g.transaction.Commit()
@@ -78,7 +81,7 @@ func (g *genericQueryBuilder) CommitTransaction() error {
 
 func (g *genericQueryBuilder) RollbackTransaction() error {
 	if !g.InTransaction() {
-		return ErrNoTransaction
+		return query_errors.ErrNoTransaction
 	}
 	return g.transaction.Rollback()
 }
@@ -95,8 +98,8 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 	ctx context.Context,
 	qs *QuerySet,
 	fields []FieldInfo,
-	where []Expression,
-	having []Expression,
+	where []expr.Expression,
+	having []expr.Expression,
 	joins []JoinDef,
 	groupBy []FieldInfo,
 	orderBy []OrderBy,
@@ -142,7 +145,7 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 	}
 
 	return &QueryObject[[][]interface{}]{
-		sql:   g.queryInfo.dbx.Rebind(query.String()),
+		sql:   g.queryInfo.DBX.Rebind(query.String()),
 		model: model,
 		args:  args,
 		exec: func(sql string, args ...any) ([][]interface{}, error) {
@@ -191,7 +194,7 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 func (g *genericQueryBuilder) BuildCountQuery(
 	ctx context.Context,
 	qs *QuerySet,
-	where []Expression,
+	where []expr.Expression,
 	joins []JoinDef,
 	groupBy []FieldInfo,
 	limit int,
@@ -208,7 +211,7 @@ func (g *genericQueryBuilder) BuildCountQuery(
 	args = append(args, g.writeLimitOffset(query, limit, offset)...)
 
 	return &QueryObject[int64]{
-		sql:   g.queryInfo.dbx.Rebind(query.String()),
+		sql:   g.queryInfo.DBX.Rebind(query.String()),
 		model: model,
 		args:  args,
 		exec: func(query string, args ...any) (int64, error) {
@@ -236,7 +239,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 	var query = new(strings.Builder)
 	query.WriteString("INSERT INTO ")
 	query.WriteString(g.quote)
-	query.WriteString(g.queryInfo.tableName)
+	query.WriteString(g.queryInfo.TableName)
 	query.WriteString(g.quote)
 	query.WriteString(" (")
 
@@ -261,7 +264,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 
 	query.WriteString(")")
 
-	var support = supportsReturning(g.queryInfo.db)
+	var support = internal.DBSupportsReturning(g.queryInfo.DB)
 
 	switch {
 	case support == SupportsReturningLastInsertId:
@@ -295,7 +298,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 	}
 
 	return &QueryObject[[]interface{}]{
-		sql:   g.queryInfo.dbx.Rebind(query.String()),
+		sql:   g.queryInfo.DBX.Rebind(query.String()),
 		model: model,
 		args:  values,
 		exec: func(query string, args ...any) ([]interface{}, error) {
@@ -362,7 +365,7 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 	ctx context.Context,
 	qs *QuerySet,
 	fields FieldInfo,
-	where []Expression,
+	where []expr.Expression,
 	joins []JoinDef,
 	groupBy []FieldInfo,
 	values []any,
@@ -371,7 +374,7 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 	var query = new(strings.Builder)
 	query.WriteString("UPDATE ")
 	query.WriteString(g.quote)
-	query.WriteString(g.queryInfo.tableName)
+	query.WriteString(g.queryInfo.TableName)
 	query.WriteString(g.quote)
 	query.WriteString(" SET ")
 
@@ -398,7 +401,7 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 	)
 
 	return &QueryObject[int64]{
-		sql:   g.queryInfo.dbx.Rebind(query.String()),
+		sql:   g.queryInfo.DBX.Rebind(query.String()),
 		model: model,
 		args:  args,
 		exec: func(sql string, args ...any) (int64, error) {
@@ -414,7 +417,7 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 func (g *genericQueryBuilder) BuildDeleteQuery(
 	ctx context.Context,
 	qs *QuerySet,
-	where []Expression,
+	where []expr.Expression,
 	joins []JoinDef,
 	groupBy []FieldInfo,
 ) CountQuery {
@@ -422,7 +425,7 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 	var query = new(strings.Builder)
 	query.WriteString("DELETE FROM ")
 	query.WriteString(g.quote)
-	query.WriteString(g.queryInfo.tableName)
+	query.WriteString(g.queryInfo.TableName)
 	query.WriteString(g.quote)
 	g.writeJoins(query, joins)
 
@@ -435,7 +438,7 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 	g.writeGroupBy(query, groupBy)
 
 	return &QueryObject[int64]{
-		sql:   g.queryInfo.dbx.Rebind(query.String()),
+		sql:   g.queryInfo.DBX.Rebind(query.String()),
 		model: model,
 		args:  args,
 		exec: func(sql string, args ...any) (int64, error) {
@@ -450,7 +453,7 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 
 func (g *genericQueryBuilder) writeTableName(sb *strings.Builder) {
 	sb.WriteString(g.quote)
-	sb.WriteString(g.queryInfo.tableName)
+	sb.WriteString(g.queryInfo.TableName)
 	sb.WriteString(g.quote)
 }
 
@@ -477,7 +480,7 @@ func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) {
 	}
 }
 
-func (g *genericQueryBuilder) writeWhereClause(sb *strings.Builder, model attrs.Definer, where []Expression) []any {
+func (g *genericQueryBuilder) writeWhereClause(sb *strings.Builder, model attrs.Definer, where []expr.Expression) []any {
 	var args = make([]any, 0)
 	if len(where) > 0 {
 		sb.WriteString(" WHERE ")
@@ -501,7 +504,7 @@ func (g *genericQueryBuilder) writeGroupBy(sb *strings.Builder, groupBy []FieldI
 	}
 }
 
-func (g *genericQueryBuilder) writeHaving(sb *strings.Builder, model attrs.Definer, having []Expression) []any {
+func (g *genericQueryBuilder) writeHaving(sb *strings.Builder, model attrs.Definer, having []expr.Expression) []any {
 	var args = make([]any, 0)
 	if len(having) > 0 {
 		sb.WriteString(" HAVING ")
@@ -566,7 +569,7 @@ func (g *genericQueryBuilder) writeLimitOffset(sb *strings.Builder, limit int, o
 // Helpers
 // -----------------------------------------------------------------------------
 
-func buildWhereClause(b *strings.Builder, d driver.Driver, model attrs.Definer, quote string, exprs []Expression) []any {
+func buildWhereClause(b *strings.Builder, d driver.Driver, model attrs.Definer, quote string, exprs []expr.Expression) []any {
 	var args = make([]any, 0)
 	for i, e := range exprs {
 		e := e.With(d, model, quote)

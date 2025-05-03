@@ -1,4 +1,4 @@
-package queries
+package fields
 
 import (
 	"database/sql/driver"
@@ -7,46 +7,12 @@ import (
 	"slices"
 	"strconv"
 
+	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/forms/fields"
 )
 
 var _ attrs.Field = &DataModelField[any]{}
-
-type BaseModel struct {
-	data  map[string]interface{}
-	_defs attrs.Definitions
-}
-
-func (m *BaseModel) Define(def attrs.Definer, definitions attrs.Definitions) attrs.Definitions {
-	if m._defs == nil {
-		if definitions == nil {
-			definitions = def.FieldDefs()
-		}
-		m._defs = definitions
-	}
-	return m._defs
-}
-
-func (m *BaseModel) HasQueryValue(key string) bool {
-	return m.data != nil && m.data[key] != nil
-}
-
-func (m *BaseModel) GetQueryValue(key string) (any, bool) {
-	if m.data == nil {
-		return nil, false
-	}
-	var val, ok = m.data[key]
-	return val, ok
-}
-
-func (m *BaseModel) SetQueryValue(key string, value any) error {
-	if m.data == nil {
-		m.data = make(map[string]interface{})
-	}
-	m.data[key] = value
-	return nil
-}
 
 type DataModelField[T any] struct {
 	// model is the model that this field belongs to
@@ -75,7 +41,7 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string) *Dat
 	}
 
 	var Type = reflect.TypeOf(*new(T))
-	if _, ok := dst.(DataModel); !ok {
+	if _, ok := dst.(queries.DataModel); !ok {
 		var (
 			dstT = reflect.TypeOf(dst)
 			dstV = reflect.ValueOf(dst)
@@ -109,7 +75,7 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string) *Dat
 
 func (f *DataModelField[T]) getQueryValue() (any, bool) {
 	switch m := f.DataModel.(type) {
-	case DataModel:
+	case queries.DataModel:
 		return m.GetQueryValue(f.name)
 	}
 
@@ -123,7 +89,7 @@ func (f *DataModelField[T]) getQueryValue() (any, bool) {
 
 func (f *DataModelField[T]) setQueryValue(v any) error {
 	switch m := f.DataModel.(type) {
-	case DataModel:
+	case queries.DataModel:
 		return m.SetQueryValue(f.name, v)
 	}
 
@@ -177,6 +143,10 @@ func (e *DataModelField[T]) AllowBlank() bool {
 
 func (e *DataModelField[T]) AllowEdit() bool {
 	return false
+}
+
+func (e *DataModelField[T]) AnnotateValue(v any) error {
+	return e.SetValue(v, false)
 }
 
 func (e *DataModelField[T]) GetValue() interface{} {

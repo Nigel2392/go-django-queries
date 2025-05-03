@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/forms/fields"
 )
@@ -14,15 +15,16 @@ var _ VirtualField = &queryField[any]{}
 
 type queryField[T any] struct {
 	name  string
-	expr  Expression
+	expr  expr.Expression
 	value T
 }
 
-func newQueryField[T any](name string, expr Expression) *queryField[T] {
+func newQueryField[T any](name string, expr expr.Expression) *queryField[T] {
 	return &queryField[T]{name: name, expr: expr}
 }
 
 // VirtualField
+
 func (q *queryField[T]) Alias() string { return q.name }
 func (q *queryField[T]) SQL(d driver.Driver, m attrs.Definer, quote string) (string, []any) {
 	var sqlBuilder = &strings.Builder{}

@@ -10,12 +10,20 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Nigel2392/go-django-queries/internal"
+	"github.com/Nigel2392/go-django-queries/src/expr"
+	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/forms/fields"
 	"github.com/Nigel2392/go-django/src/models"
 	"github.com/pkg/errors"
+
+	_ "unsafe"
 )
+
+//go:linkname express github.com/Nigel2392/go-django-queries/src/expr.express
+func express(key interface{}, vals ...interface{}) []expr.Expression
 
 // -----------------------------------------------------------------------------
 // QuerySet
@@ -60,8 +68,16 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, d driver.Driver, m attrs.De
 			sb.WriteString(", ")
 		}
 
+		var tableAlias string
+		if f.Table.Alias == "" {
+			tableAlias = f.Table.Name
+		} else {
+			tableAlias = f.Table.Alias
+		}
 		if ve, ok := field.(VirtualField); ok && m != nil {
-			var alias = ve.Alias()
+			var alias = fmt.Sprintf(
+				"%s_%s", tableAlias, ve.Alias(),
+			)
 			var sql, a = ve.SQL(d, m, quote)
 			if sql == "" {
 				// SQL is empty, we don't need to add it to the query
@@ -111,12 +127,12 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, d driver.Driver, m attrs.De
 //
 // Queries are built internally with the help of the QueryCompiler interface, which is responsible for generating the SQL queries for the database.
 type QuerySet struct {
-	queryInfo    *queryInfo
+	queryInfo    *internal.QueryInfo
 	model        attrs.Definer
-	annotations  map[string]VirtualField
+	annotations  map[string]*queryField[any]
 	fields       []FieldInfo
-	where        []Expression
-	having       []Expression
+	where        []expr.Expression
+	having       []expr.Expression
 	joins        []JoinDef
 	groupBy      []FieldInfo
 	orderBy      []OrderBy
@@ -169,7 +185,7 @@ func Objects(model attrs.Definer, database ...string) *QuerySet {
 		return qs.Clone()
 	}
 
-	var queryInfo, err = getBaseQueryInfo(model)
+	var queryInfo, err = internal.GetBaseQueryInfo(model)
 	if err != nil {
 		panic(fmt.Errorf("QuerySet: %w", err))
 	}
@@ -181,9 +197,9 @@ func Objects(model attrs.Definer, database ...string) *QuerySet {
 	var qs = &QuerySet{
 		model:       model,
 		queryInfo:   queryInfo,
-		annotations: make(map[string]VirtualField),
-		where:       make([]Expression, 0),
-		having:      make([]Expression, 0),
+		annotations: make(map[string]*queryField[any]),
+		where:       make([]expr.Expression, 0),
+		having:      make([]expr.Expression, 0),
 		joins:       make([]JoinDef, 0),
 		groupBy:     make([]FieldInfo, 0),
 		orderBy:     make([]OrderBy, 0),
@@ -341,14 +357,14 @@ func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelate
 	infos = make([]FieldInfo, 0, len(qs.fields))
 	var info = FieldInfo{
 		Table: Table{
-			Name: qs.queryInfo.tableName,
+			Name: qs.queryInfo.TableName,
 		},
 		Fields: make([]attrs.Field, 0),
 	}
 
 	if len(fields) == 0 || len(fields) == 1 && fields[0] == "*" {
-		fields = make([]string, 0, len(qs.queryInfo.fields))
-		for _, field := range qs.queryInfo.fields {
+		fields = make([]string, 0, len(qs.queryInfo.Fields))
+		for _, field := range qs.queryInfo.Fields {
 			fields = append(fields, field.Name())
 		}
 	}
@@ -361,7 +377,7 @@ func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelate
 			onlyPrimary = true
 		}
 
-		var current, _, field, chain, aliases, isRelated, err = walkFields(qs.model, field)
+		var current, _, field, chain, aliases, isRelated, err = internal.WalkFields(qs.model, field)
 		if err != nil {
 			panic(err)
 		}
@@ -531,13 +547,13 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 	)
 
 	if len(fields) == 0 {
-		fields = make([]string, 0, len(qs.queryInfo.fields))
-		for _, field := range qs.queryInfo.fields {
+		fields = make([]string, 0, len(qs.queryInfo.Fields))
+		for _, field := range qs.queryInfo.Fields {
 			fields = append(fields, field.Name())
 		}
 	} else if len(fields) > 0 && fields[0] == "*" {
-		var f = make([]string, 0, len(qs.queryInfo.fields)+(len(fields)-1))
-		for _, field := range qs.queryInfo.fields {
+		var f = make([]string, 0, len(qs.queryInfo.Fields)+(len(fields)-1))
+		for _, field := range qs.queryInfo.Fields {
 			f = append(f, field.Name())
 		}
 		fields = append(f, fields[1:]...)
@@ -551,7 +567,7 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 			allFields = true
 		}
 
-		var current, parent, field, chain, aliases, isRelated, err = walkFields(
+		var current, parent, field, chain, aliases, isRelated, err = internal.WalkFields(
 			qs.model, selectedField,
 		)
 		if err != nil {
@@ -559,7 +575,7 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 			if ok {
 				fieldInfos = append(fieldInfos, FieldInfo{
 					Table: Table{
-						Name: qs.queryInfo.tableName,
+						Name: qs.queryInfo.TableName,
 					},
 					Fields: []attrs.Field{field},
 				})
@@ -569,10 +585,7 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 			panic(err)
 		}
 
-		if inj, ok := field.(InjectorField); ok {
-			qs = inj.Inject(qs)
-		}
-
+		// The field might be a relation
 		// The field might be a relation
 		var (
 			rel        attrs.Definer
@@ -585,7 +598,7 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 		// to the join list. We also need to add the parent field to the chain.
 		if (foreignKey != nil || oneToOne != nil || manyToMany != nil) && allFields {
 			chain = append(chain, field.Name())
-			aliases = append(aliases, newJoinAlias(
+			aliases = append(aliases, internal.NewJoinAlias(
 				field, current.FieldDefs().TableName(), chain,
 			))
 			parent = current
@@ -720,7 +733,7 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 //
 // It takes a key and a list of values as arguments and returns a new QuerySet with the filtered results.
 //
-// The key can be a field name (string), an expression (Expression) or a map of field names to values.
+// The key can be a field name (string), an expr.Expression (expr.Expression) or a map of field names to values.
 //
 // By default the `__exact` (=) operator is used, each where clause is separated by `AND`.
 func (qs *QuerySet) Filter(key interface{}, vals ...interface{}) *QuerySet {
@@ -733,7 +746,7 @@ func (qs *QuerySet) Filter(key interface{}, vals ...interface{}) *QuerySet {
 //
 // It takes a key and a list of values as arguments and returns a new QuerySet with the filtered results.
 //
-// The key can be a field name (string), an expression (Expression) or a map of field names to values.
+// The key can be a field name (string), an expr.Expression (expr.Expression) or a map of field names to values.
 func (qs *QuerySet) Having(key interface{}, vals ...interface{}) *QuerySet {
 	var nqs = qs.Clone()
 	nqs.having = append(qs.having, express(key, vals...)...)
@@ -766,17 +779,12 @@ func (qs *QuerySet) OrderBy(fields ...string) *QuerySet {
 			ord = strings.TrimPrefix(ord, "-")
 		}
 
-		var obj, _, field, _, aliases, _, err = walkFields(
+		var obj, _, field, _, aliases, _, err = internal.WalkFields(
 			qs.model, ord,
 		)
 
 		if err != nil {
 			panic(err)
-		}
-
-		var alias string
-		if vF, ok := field.(VirtualField); ok {
-			alias = vF.Alias()
 		}
 
 		var defs = obj.FieldDefs()
@@ -785,6 +793,13 @@ func (qs *QuerySet) OrderBy(fields ...string) *QuerySet {
 			tableAlias = aliases[len(aliases)-1]
 		} else {
 			tableAlias = defs.TableName()
+		}
+
+		var alias string
+		if vF, ok := field.(AliasField); ok {
+			alias = fmt.Sprintf(
+				"%s_%s", tableAlias, vF.Alias(),
+			)
 		}
 
 		nqs.orderBy = append(nqs.orderBy, OrderBy{
@@ -869,14 +884,14 @@ func (qs *QuerySet) ExplicitSave() *QuerySet {
 	return nqs
 }
 
-func (qs *QuerySet) annotate(alias string, expr Expression) {
+func (qs *QuerySet) annotate(alias string, expr expr.Expression) {
 	field := newQueryField[any](alias, expr)
 	qs.annotations[alias] = field
 
 	qs.fields = append(qs.fields, FieldInfo{
 		Model: nil,
 		Table: Table{
-			Name: qs.queryInfo.tableName,
+			Name: qs.queryInfo.TableName,
 		},
 		Fields: []attrs.Field{field},
 	})
@@ -884,37 +899,37 @@ func (qs *QuerySet) annotate(alias string, expr Expression) {
 
 // Annotate is used to add annotations to the results of a query.
 //
-// It takes a string or a map of strings to expressions as arguments and returns a new QuerySet with the annotations.
+// It takes a string or a map of strings to expr.Expressions as arguments and returns a new QuerySet with the annotations.
 //
-// If a string is provided, it is used as the alias for the expression.
+// If a string is provided, it is used as the alias for the expr.Expression.
 //
-// If a map is provided, the keys are used as aliases for the expressions.
-func (qs *QuerySet) Annotate(aliasOrAliasMap interface{}, expr ...Expression) *QuerySet {
+// If a map is provided, the keys are used as aliases for the expr.Expressions.
+func (qs *QuerySet) Annotate(aliasOrAliasMap interface{}, exprs ...expr.Expression) *QuerySet {
 	qs = qs.Clone()
 
 	switch aliasOrAliasMap := aliasOrAliasMap.(type) {
 	case string:
-		if len(expr) == 0 {
-			panic("QuerySet: no expression provided")
+		if len(exprs) == 0 {
+			panic("QuerySet: no expr.Expression provided")
 		}
-		qs.annotate(aliasOrAliasMap, expr[0])
-	case map[string]Expression:
-		if len(expr) > 0 {
-			panic("QuerySet: map and expressions both provided")
+		qs.annotate(aliasOrAliasMap, exprs[0])
+	case map[string]expr.Expression:
+		if len(exprs) > 0 {
+			panic("QuerySet: map and expr.Expressions both provided")
 		}
 		for alias, e := range aliasOrAliasMap {
 			qs.annotate(alias, e)
 		}
 	case map[string]any:
-		if len(expr) > 0 {
-			panic("QuerySet: map and expressions both provided")
+		if len(exprs) > 0 {
+			panic("QuerySet: map and expr.Expressions both provided")
 		}
 		for alias, e := range aliasOrAliasMap {
-			if expr, ok := e.(Expression); ok {
-				qs.annotate(alias, expr)
+			if exprs, ok := e.(expr.Expression); ok {
+				qs.annotate(alias, exprs)
 			} else {
 				panic(fmt.Errorf(
-					"QuerySet: %q is not an expression (%T)", alias, e,
+					"QuerySet: %q is not an expr.Expression (%T)", alias, e,
 				))
 			}
 		}
@@ -967,10 +982,11 @@ func (qs *QuerySet) All() Query[[]*Row] {
 			var list = make([]*Row, len(results))
 
 			for i, row := range results {
-				obj := newObjectFromIface(qs.model)
+				obj := internal.NewObjectFromIface(qs.model)
 				scannables := getScannableFields(qs.fields, obj)
 
 				annotations := make(map[string]any)
+				var annotator, _ = obj.(DataModel)
 
 				for j, field := range scannables {
 					f := field.(attrs.Field)
@@ -981,8 +997,20 @@ func (qs *QuerySet) All() Query[[]*Row] {
 					}
 
 					// If it's a virtual field not in the model, store as annotation
-					if vf, ok := f.(VirtualField); ok {
-						annotations[vf.Alias()] = f.GetValue()
+					if vf, ok := f.(AliasField); ok {
+						var (
+							alias = vf.Alias()
+							val   = vf.GetValue()
+						)
+						if alias == "" {
+							alias = f.Name()
+						}
+
+						annotations[alias] = val
+
+						if annotator != nil {
+							annotator.SetQueryValue(alias, val)
+						}
 					}
 				}
 
@@ -1030,7 +1058,7 @@ func (qs *QuerySet) ValuesList(fields ...string) ValuesListQuery {
 
 			var list = make([][]any, len(results))
 			for i, row := range results {
-				var obj = newObjectFromIface(qs.model)
+				var obj = internal.NewObjectFromIface(qs.model)
 				var fields = getScannableFields(qs.fields, obj)
 				var values = make([]any, len(fields))
 				for j, field := range fields {
@@ -1059,8 +1087,8 @@ func (qs *QuerySet) ValuesList(fields ...string) ValuesListQuery {
 
 // Aggregate is used to perform aggregation on the results of a query.
 //
-// It takes a map of field names to expressions as arguments and returns a Query that can be executed to get the results.
-func (qs *QuerySet) Aggregate(annotations map[string]Expression) Query[map[string]any] {
+// It takes a map of field names to expr.Expressions as arguments and returns a Query that can be executed to get the results.
+func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[string]any] {
 	qs = qs.Clone()
 	qs.fields = make([]FieldInfo, 0, len(annotations))
 
@@ -1068,7 +1096,7 @@ func (qs *QuerySet) Aggregate(annotations map[string]Expression) Query[map[strin
 		qs.fields = append(qs.fields, FieldInfo{
 			Model: nil,
 			Table: Table{
-				Name: qs.queryInfo.tableName,
+				Name: qs.queryInfo.TableName,
 			},
 			Fields: []attrs.Field{newQueryField[any](alias, expr)},
 		})
@@ -1101,7 +1129,7 @@ func (qs *QuerySet) Aggregate(annotations map[string]Expression) Query[map[strin
 				return map[string]any{}, nil
 			}
 
-			scannables := getScannableFields(qs.fields, newObjectFromIface(qs.model))
+			scannables := getScannableFields(qs.fields, internal.NewObjectFromIface(qs.model))
 			row := results[0]
 			out := make(map[string]any)
 
@@ -1125,12 +1153,12 @@ func (qs *QuerySet) Aggregate(annotations map[string]Expression) Query[map[strin
 //
 // It panics if the queryset has no where clause.
 //
-// If no rows are found, it returns queries.ErrNoRows.
+// If no rows are found, it returns queries.query_errors.ErrNoRows.
 //
-// If multiple rows are found, it returns queries.ErrMultipleRows.
+// If multiple rows are found, it returns queries.query_errors.ErrMultipleRows.
 func (qs *QuerySet) Get() Query[*Row] {
 	if len(qs.where) == 0 {
-		panic(ErrNoWhereClause)
+		panic(query_errors.ErrNoWhereClause)
 	}
 
 	qs = qs.Limit(MAX_GET_RESULTS)
@@ -1145,7 +1173,7 @@ func (qs *QuerySet) Get() Query[*Row] {
 			}
 			var resCnt = len(results)
 			if resCnt == 0 {
-				return nil, ErrNoRows
+				return nil, query_errors.ErrNoRows
 			}
 			if resCnt > 1 {
 				var errResCnt string
@@ -1156,7 +1184,7 @@ func (qs *QuerySet) Get() Query[*Row] {
 				}
 
 				return nil, errors.Wrapf(
-					ErrMultipleRows,
+					query_errors.ErrMultipleRows,
 					"multiple rows returned for %T: %s rows",
 					qs.model, errResCnt,
 				)
@@ -1176,7 +1204,7 @@ func (qs *QuerySet) Get() Query[*Row] {
 func (qs *QuerySet) GetOrCreate(value attrs.Definer) (attrs.Definer, error) {
 
 	if len(qs.where) == 0 {
-		panic(ErrNoWhereClause)
+		panic(query_errors.ErrNoWhereClause)
 	}
 
 	// Create a new transaction
@@ -1192,7 +1220,7 @@ func (qs *QuerySet) GetOrCreate(value attrs.Definer) (attrs.Definer, error) {
 	var resultQuery = qs.Get()
 	row, err := resultQuery.Exec()
 	if err != nil {
-		if errors.Is(err, ErrNoRows) {
+		if errors.Is(err, query_errors.ErrNoRows) {
 			goto create
 		} else {
 			return nil, err
@@ -1232,7 +1260,7 @@ func (qs *QuerySet) First() Query[*Row] {
 				return nil, err
 			}
 			if len(results) == 0 {
-				return nil, ErrNoRows
+				return nil, query_errors.ErrNoRows
 			}
 			return results[0], nil
 		},
@@ -1367,7 +1395,7 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 
 		if value == nil && !field.AllowNull() {
 			panic(errors.Wrapf(
-				ErrFieldNull,
+				query_errors.ErrFieldNull,
 				"field %q cannot be null",
 				field.Name(),
 			))
@@ -1393,7 +1421,7 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 		query: resultQuery,
 		exec: func(q Query[[]interface{}]) (attrs.Definer, error) {
 
-			var newObj = newObjectFromIface(qs.model)
+			var newObj = internal.NewObjectFromIface(qs.model)
 			var newDefs = newObj.FieldDefs()
 
 			// Set the old values on the new object
@@ -1452,7 +1480,7 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 
 				if len(scannables) != resLen {
 					return nil, errors.Wrapf(
-						ErrLastInsertId,
+						query_errors.ErrLastInsertId,
 						"expected %d results returned after insert, got %d",
 						len(scannables), len(results),
 					)
@@ -1565,7 +1593,7 @@ func (qs *QuerySet) Update(value attrs.Definer) CountQuery {
 
 		if value == nil && !field.AllowNull() {
 			panic(errors.Wrapf(
-				ErrFieldNull,
+				query_errors.ErrFieldNull,
 				"field %q cannot be null",
 				field.Name(),
 			))
@@ -1648,9 +1676,9 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []any {
 			if _, exists := instances[key]; !exists {
 				var obj attrs.Definer
 				if i == len(info.Chain)-1 {
-					obj = newObjectFromIface(info.Model)
+					obj = internal.NewObjectFromIface(info.Model)
 				} else {
-					obj = newObjectFromIface(field.Rel())
+					obj = internal.NewObjectFromIface(field.Rel())
 				}
 				if err := field.SetValue(obj, true); err != nil {
 					panic(fmt.Errorf("failed to set relation %q: %w", field.Name(), err))

@@ -1,10 +1,12 @@
-package queries
+package expr
 
 import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/Nigel2392/go-django-queries/src/query_errors"
 )
 
 func init() {
@@ -91,7 +93,7 @@ func newLookup(driver driver.Driver, field string, lookup string, value []any) (
 	if !ok {
 		fn, ok = lookups.m[lookup]
 		if !ok {
-			return "", nil, ErrUnsupportedLookup
+			return "", nil, query_errors.ErrUnsupportedLookup
 		}
 	}
 

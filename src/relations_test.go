@@ -1,10 +1,99 @@
 package queries_test
 
 import (
+	"database/sql"
+	"os"
 	"testing"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
+	django "github.com/Nigel2392/go-django/src"
+	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/Nigel2392/go-django/src/core/logger"
 )
+
+const (
+	createAuthor = `CREATE TABLE IF NOT EXISTS author (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	name TEXT
+)`
+	createBook = `CREATE TABLE IF NOT EXISTS book (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	title TEXT,
+	author_id INTEGER,
+	FOREIGN KEY(author_id) REFERENCES author(id)
+)`
+)
+
+func init() {
+	var db, err = sql.Open("sqlite3", "file:relations_memory?mode=memory")
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = db.Exec(createAuthor)
+	if err != nil {
+		panic(err)
+	}
+	_, err = db.Exec(createBook)
+	if err != nil {
+		panic(err)
+	}
+
+	var settings = map[string]interface{}{
+		"relations_db": db,
+	}
+	logger.Setup(&logger.Logger{
+		Level:       logger.DBG,
+		WrapPrefix:  logger.ColoredLogWrapper,
+		OutputDebug: os.Stdout,
+		OutputInfo:  os.Stdout,
+		OutputWarn:  os.Stdout,
+		OutputError: os.Stdout,
+	})
+
+	django.App(django.Configure(settings))
+}
+
+type Author struct {
+	ID   int64
+	Name string
+}
+
+func (a *Author) QuerySetDatabase() string {
+	return "relations_db"
+}
+
+func (a *Author) FieldDefs() attrs.Definitions {
+	return attrs.Define(a,
+		attrs.NewField(a, "ID", &attrs.FieldConfig{
+			Primary: true,
+		}),
+		attrs.NewField(a, "Name", nil),
+	).WithTableName("author")
+}
+
+type Book struct {
+	ID     int64
+	Title  string
+	Author *Author
+}
+
+func (a *Book) QuerySetDatabase() string {
+	return "relations_db"
+}
+
+func (b *Book) FieldDefs() attrs.Definitions {
+	return attrs.Define(b,
+		attrs.NewField(b, "ID", &attrs.FieldConfig{
+			Primary: true,
+		}),
+		attrs.NewField(b, "Title", nil),
+		attrs.NewField(b, "Author", &attrs.FieldConfig{
+			Column:        "author_id",
+			RelForeignKey: &Author{},
+		}),
+	).WithTableName("book")
+}
 
 func TestRelationForeignKey(t *testing.T) {
 	var rel = queries.NewForeignKeyRelation(

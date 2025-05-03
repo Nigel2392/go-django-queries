@@ -1,4 +1,4 @@
-package queries
+package query_errors
 
 import "github.com/Nigel2392/go-django/src/core/errs"
 

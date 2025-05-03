@@ -1,22 +1,24 @@
-package queries
+package fields
 
 import (
 	"database/sql/driver"
 	"strings"
 
+	queries "github.com/Nigel2392/go-django-queries/src"
+	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
-var _ VirtualField = (*ExpressionField[any])(nil)
+var _ queries.VirtualField = (*ExpressionField[any])(nil)
 
 type ExpressionField[T any] struct {
 	*DataModelField[T]
 
 	// expr is the expression used to calculate the field's value
-	expr Expression
+	expr expr.Expression
 }
 
-func NewVirtualField[T any](forModel attrs.Definer, dst any, name string, expr Expression) *ExpressionField[T] {
+func NewVirtualField[T any](forModel attrs.Definer, dst any, name string, expr expr.Expression) *ExpressionField[T] {
 	var f = &ExpressionField[T]{
 		DataModelField: NewDataModelField[T](forModel, dst, name),
 		expr:           expr,

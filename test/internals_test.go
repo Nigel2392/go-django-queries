@@ -2,16 +2,18 @@ package queries_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	_ "unsafe"
 
+	"github.com/Nigel2392/go-django-queries/internal"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
-//go:linkname newObjectFromIface github.com/Nigel2392/go-django-queries/src.newObjectFromIface
+//go:linkname newObjectFromIface github.com/Nigel2392/go-django-queries/internal.NewObjectFromIface
 func newObjectFromIface(obj attrs.Definer) attrs.Definer
 
-//go:linkname walkFields github.com/Nigel2392/go-django-queries/src.walkFields
+//go:linkname walkFields github.com/Nigel2392/go-django-queries/internal.WalkFields
 func walkFields(
 	m attrs.Definer,
 	column string,
@@ -150,13 +152,27 @@ var walkFieldsTests = []walkFieldsTest{
 		},
 	},
 	{
-		name:   "TestNestedCategoriesID",
+		name:   "TestNestedCategoriesParent",
 		model:  &Category{},
-		column: "Parent.Parent.ID",
+		column: "Parent.Parent",
 		expected: walkFieldsExpected{
 			definer:   &Category{},
 			parent:    &Category{},
-			field:     getField(&Category{}, "ID"),
+			field:     getField(&Category{}, "Parent"),
+			chain:     []string{"Parent"},
+			aliases:   []string{"parent_id_categories_0"},
+			isRelated: true,
+			err:       nil,
+		},
+	},
+	{
+		name:   "TestNestedCategoriesName",
+		model:  &Category{},
+		column: "Parent.Parent.Name",
+		expected: walkFieldsExpected{
+			definer:   &Category{},
+			parent:    &Category{},
+			field:     getField(&Category{}, "Name"),
 			chain:     []string{"Parent", "Parent"},
 			aliases:   []string{"parent_id_categories_0", "parent_id_categories_1"},
 			isRelated: true,
@@ -216,6 +232,44 @@ func TestWalkFields(t *testing.T) {
 
 			if err != nil && err.Error() != test.expected.err.Error() {
 				t.Errorf("expected error %v, got %v", test.expected.err.Error(), err.Error())
+			}
+		})
+	}
+}
+
+func TestWalkFieldPaths(t *testing.T) {
+	for _, test := range walkFieldsTests {
+
+		t.Run(test.name, func(t *testing.T) {
+			var meta, err = internal.WalkFieldPath(test.model, test.column)
+			if err != nil {
+				t.Errorf("expected no error, got %v", err)
+			}
+
+			if meta == nil {
+				t.Errorf("expected meta not nil, got nil")
+			}
+
+			if reflect.TypeOf(meta.Last.Object) != reflect.TypeOf(test.expected.definer) {
+				t.Errorf("expected meta.Last.Object %T, got %T", test.expected.definer, meta.Last.Object)
+			}
+
+			if meta.Last.Parent != nil {
+				if reflect.TypeOf(meta.Last.Parent.Object) != reflect.TypeOf(test.expected.parent) {
+					t.Errorf("expected meta.Last.Parent.Object %T, got %T", test.expected.parent, meta.Last.Parent.Object)
+				}
+			}
+
+			if test.expected.parent == nil && meta.Last.Parent != nil {
+				t.Errorf("expected meta.Last.Parent nil, got %T", meta.Last.Parent.Object)
+			}
+
+			if !fieldEquals(meta.Last.Field, test.expected.field) {
+				t.Errorf("expected meta.Last.Field %T.%s, got %T.%s", test.expected.field.Instance(), test.expected.field.Name(), meta.Last.Field.Instance(), meta.Last.Field.Name())
+			}
+
+			if meta.Last.String() != strings.Join(append(test.expected.chain, test.expected.field.Name()), ".") {
+				t.Errorf("expected meta.Last.String() %s, got %s", strings.Join(append(test.expected.chain, test.expected.field.Name()), "."), meta.Last.String())
 			}
 		})
 	}

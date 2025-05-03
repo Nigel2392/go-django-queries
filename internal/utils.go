@@ -1,4 +1,4 @@
-package queries
+package internal
 
 import (
 	"database/sql"
@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/jmoiron/sqlx"
@@ -20,16 +21,13 @@ const (
 	SupportsReturningColumns      SupportsReturning = "columns"
 )
 
-// RegisterDriver registers a driver with the given database name.
-//
-// This is used to determine the database type when using sqlx.
-//
-// If your driver is not one of:
-// - github.com/go-sql-driver/mysql.MySQLDriver
-// - github.com/mattn/go-sqlite3.SQLiteDriver
-// - github.com/jackc/pgx/v5/stdlib.Driver
-//
-// Then it explicitly needs to be registered here.
+var drivers = make(map[reflect.Type]driverData)
+
+type driverData struct {
+	name              string
+	supportsReturning SupportsReturning
+}
+
 func RegisterDriver(driver driver.Driver, database string, supportsReturning ...SupportsReturning) {
 	var s SupportsReturning
 	if len(supportsReturning) > 0 {
@@ -41,14 +39,7 @@ func RegisterDriver(driver driver.Driver, database string, supportsReturning ...
 	}
 }
 
-type driverData struct {
-	name              string
-	supportsReturning SupportsReturning
-}
-
-var drivers = make(map[reflect.Type]driverData)
-
-func sqlxDriverName(db *sql.DB) string {
+func SqlxDriverName(db *sql.DB) string {
 	var driver = reflect.TypeOf(db.Driver())
 	if driver == nil {
 		return ""
@@ -59,7 +50,7 @@ func sqlxDriverName(db *sql.DB) string {
 	return ""
 }
 
-func supportsReturning(db *sql.DB) SupportsReturning {
+func DBSupportsReturning(db *sql.DB) SupportsReturning {
 	var driver = reflect.TypeOf(db.Driver())
 	if driver == nil {
 		return SupportsReturningNone
@@ -78,11 +69,11 @@ func DefinerListToList[T attrs.Definer](list []attrs.Definer) []T {
 	return result
 }
 
-func newDefiner[T attrs.Definer]() T {
-	return newObjectFromIface(*new(T)).(T)
+func NewDefiner[T attrs.Definer]() T {
+	return NewObjectFromIface(*new(T)).(T)
 }
 
-func newObjectFromIface(obj attrs.Definer) attrs.Definer {
+func NewObjectFromIface(obj attrs.Definer) attrs.Definer {
 	var objTyp = reflect.TypeOf(obj)
 	if objTyp.Kind() != reflect.Ptr {
 		panic("newObjectFromIface: objTyp is not a pointer")
@@ -91,7 +82,7 @@ func newObjectFromIface(obj attrs.Definer) attrs.Definer {
 }
 
 // safer alias generator
-func newJoinAlias(field attrs.Field, tableName string, chain []string) string {
+func NewJoinAlias(field attrs.Field, tableName string, chain []string) string {
 	var l = len(chain)
 	return fmt.Sprintf("%s_%s_%d", field.ColumnName(), tableName, l-1)
 	//	if l > 1 {
@@ -99,7 +90,7 @@ func newJoinAlias(field attrs.Field, tableName string, chain []string) string {
 	//return fmt.Sprintf("%s_%s", field.ColumnName(), tableName)
 }
 
-func walkFields(
+func WalkFields(
 	m attrs.Definer,
 	column string,
 ) (
@@ -131,7 +122,7 @@ func walkFields(
 		}
 
 		chain = append(chain, part)
-		alias := newJoinAlias(f, defs.TableName(), chain)
+		alias := NewJoinAlias(f, defs.TableName(), chain)
 		aliases = append(aliases, alias)
 		parent = current
 
@@ -159,55 +150,134 @@ func walkFields(
 	return current, parent, field, chain, aliases, isRelated, nil
 }
 
-type queryInfo struct {
-	db          *sql.DB
-	dbx         *sqlx.DB
-	sqlxDriver  string
-	tableName   string
-	definitions attrs.Definitions
-	primary     attrs.Field
-	fields      []attrs.Field
+type RootFieldMeta struct {
+	Root *FieldMeta
+	Last *FieldMeta
 }
 
-func getBaseQueryInfo(obj attrs.Definer) (*queryInfo, error) {
+type FieldMeta struct {
+	Parent *FieldMeta
+	Child  *FieldMeta
+	Object attrs.Definer
+	Field  attrs.Field
+}
+
+func (m *FieldMeta) String() string {
+	var root = m
+	for root.Parent != nil {
+		root = root.Parent
+	}
+	var b = strings.Builder{}
+	for root != nil {
+		if root.Field != nil {
+			b.WriteString(root.Field.Name())
+		}
+		if root.Child != nil {
+			b.WriteString(".")
+		}
+		root = root.Child
+	}
+	return b.String()
+}
+
+func WalkFieldPath(m attrs.Definer, path string) (*RootFieldMeta, error) {
+	var parts = strings.Split(path, ".")
+	var root = &RootFieldMeta{
+		Root: &FieldMeta{
+			Object: m,
+		},
+	}
+	var meta = root.Root
+	for i, part := range parts {
+		var defs = meta.Object.FieldDefs()
+		var f, ok = defs.Field(part)
+		if !ok {
+			return nil, fmt.Errorf("field %q not found in %T", part, meta.Object)
+		}
+
+		meta.Field = f
+
+		if i == len(parts)-1 {
+			root.Last = meta
+			break
+		}
+
+		var obj attrs.Definer
+		switch {
+		case f.ForeignKey() != nil:
+			obj = f.ForeignKey()
+		case f.OneToOne() != nil:
+			if through := f.OneToOne().Through(); through != nil {
+				obj = through
+			} else {
+				obj = f.OneToOne().Model()
+			}
+		case f.ManyToMany() != nil:
+			obj = f.ManyToMany().Through()
+		default:
+			return nil, fmt.Errorf("field %q is not a relation", part)
+		}
+
+		var child = &FieldMeta{
+			Object: obj,
+			Parent: meta,
+		}
+		meta.Child = child
+		meta = child
+	}
+
+	return root, nil
+}
+
+type QueryInfo struct {
+	DB          *sql.DB
+	DBX         interface{ Rebind(string) string }
+	SqlxDriver  string
+	TableName   string
+	Definitions attrs.Definitions
+	Primary     attrs.Field
+	Fields      []attrs.Field
+}
+
+func GetBaseQueryInfo(obj attrs.Definer) (*QueryInfo, error) {
 	var fieldDefs = obj.FieldDefs()
 	var primary = fieldDefs.Primary()
 	var tableName = fieldDefs.TableName()
 	if tableName == "" {
-		return nil, ErrNoTableName
+		return nil, query_errors.ErrNoTableName
 	}
 
-	return &queryInfo{
-		definitions: fieldDefs,
-		tableName:   tableName,
-		primary:     primary,
-		fields:      fieldDefs.Fields(),
+	return &QueryInfo{
+		Definitions: fieldDefs,
+		TableName:   tableName,
+		Primary:     primary,
+		Fields:      fieldDefs.Fields(),
 	}, nil
 }
 
-func getQueryInfo(obj attrs.Definer, dbKey string) (*queryInfo, error) {
+func GetQueryInfo(obj attrs.Definer, dbKey string) (*QueryInfo, error) {
 	var db = django.ConfigGet[*sql.DB](
 		django.Global.Settings,
 		dbKey,
 	)
 	if db == nil {
-		return nil, ErrNoDatabase
+		return nil, query_errors.ErrNoDatabase
 	}
 
-	var sqlxDriver = sqlxDriverName(db)
+	var sqlxDriver = SqlxDriverName(db)
 	if sqlxDriver == "" {
-		return nil, ErrUnknownDriver
+		return nil, query_errors.ErrUnknownDriver
 	}
 
 	var dbx = sqlx.NewDb(db, sqlxDriver)
 
-	var queryInfo, err = getBaseQueryInfo(obj)
+	var queryInfo, err = GetBaseQueryInfo(obj)
 	if err != nil {
 		return nil, err
 	}
 
-	queryInfo.db = db
-	queryInfo.dbx = dbx
-	queryInfo.sqlxDriver = sqlxDriver
+	queryInfo.DB = db
+	queryInfo.DBX = dbx
+	queryInfo.SqlxDriver = sqlxDriver
 	return queryInfo, nil
 }

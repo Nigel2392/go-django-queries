@@ -6,28 +6,99 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
-	"strings"
 
+	"github.com/Nigel2392/go-django-queries/internal"
+	"github.com/Nigel2392/go-django-queries/src/expr"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+
+	_ "unsafe"
 )
 
-type VirtualField interface {
+type SupportsReturning = internal.SupportsReturning
+
+const (
+	SupportsReturningNone         SupportsReturning = internal.SupportsReturningNone
+	SupportsReturningLastInsertId SupportsReturning = internal.SupportsReturningLastInsertId
+	SupportsReturningColumns      SupportsReturning = internal.SupportsReturningColumns
+)
+
+//go:linkname DBSupportsReturning github.com/Nigel2392/go-django-queries/internal.DBSupportsReturning
+func DBSupportsReturning(db *sql.DB) SupportsReturning
+
+// RegisterDriver registers a driver with the given database name.
+//
+// This is used to determine the database type when using sqlx.
+//
+// If your driver is not one of:
+// - github.com/go-sql-driver/mysql.MySQLDriver
+// - github.com/mattn/go-sqlite3.SQLiteDriver
+// - github.com/jackc/pgx/v5/stdlib.Driver
+//
+// Then it explicitly needs to be registered here.
+//
+//go:linkname RegisterDriver github.com/Nigel2392/go-django-queries/internal.RegisterDriver
+func RegisterDriver(driver driver.Driver, database string, supportsReturning ...SupportsReturning)
+
+type AliasField interface {
 	attrs.Field
 	Alias() string
+}
+
+type VirtualField interface {
+	AliasField
 	SQL(d driver.Driver, m attrs.Definer, quote string) (string, []any)
 }
 
 type InjectorField interface {
 	attrs.Field
-
 	Inject(qs *QuerySet) *QuerySet
+}
+
+type RelatedField interface {
+	attrs.Field
+	// ...
 }
 
 type DataModel interface {
 	HasQueryValue(key string) bool
 	GetQueryValue(key string) (any, bool)
 	SetQueryValue(key string, value any) error
+}
+
+type Model struct {
+	data  map[string]interface{}
+	_defs attrs.Definitions
+}
+
+func (m *Model) Define(def attrs.Definer, definitions attrs.Definitions) attrs.Definitions {
+	if m._defs == nil {
+		if definitions == nil {
+			definitions = def.FieldDefs()
+		}
+		m._defs = definitions
+	}
+	return m._defs
+}
+
+func (m *Model) HasQueryValue(key string) bool {
+	return m.data != nil && m.data[key] != nil
+}
+
+func (m *Model) GetQueryValue(key string) (any, bool) {
+	if m.data == nil {
+		return nil, false
+	}
+	var val, ok = m.data[key]
+	return val, ok
+}
+
+func (m *Model) SetQueryValue(key string, value any) error {
+	if m.data == nil {
+		m.data = make(map[string]interface{})
+	}
+	m.data[key] = value
+	return nil
 }
 
 type QuerySetDefiner interface {
@@ -52,17 +123,6 @@ type Transaction interface {
 	DB
 	Commit() error
 	Rollback() error
-}
-
-type Expression interface {
-	SQL(sb *strings.Builder)
-	Args() []any
-	IsNot() bool
-	Not(b bool) Expression
-	And(...Expression) Expression
-	Or(...Expression) Expression
-	Clone() Expression
-	With(d driver.Driver, model attrs.Definer, quote string) Expression
 }
 
 type Query[T1 any] interface {
@@ -110,8 +170,8 @@ type QueryCompiler interface {
 		ctx context.Context,
 		qs *QuerySet,
 		fields []FieldInfo,
-		where []Expression,
-		having []Expression,
+		where []expr.Expression,
+		having []expr.Expression,
 		joins []JoinDef,
 		groupBy []FieldInfo,
 		orderBy []OrderBy,
@@ -126,7 +186,7 @@ type QueryCompiler interface {
 	BuildCountQuery(
 		ctx context.Context,
 		qs *QuerySet,
-		where []Expression,
+		where []expr.Expression,
 		joins []JoinDef,
 		groupBy []FieldInfo,
 		limit int,
@@ -147,7 +207,7 @@ type QueryCompiler interface {
 		ctx context.Context,
 		qs *QuerySet,
 		fields FieldInfo,
-		where []Expression,
+		where []expr.Expression,
 		joins []JoinDef,
 		groupBy []FieldInfo,
 		values []any,
@@ -157,7 +217,7 @@ type QueryCompiler interface {
 	BuildDeleteQuery(
 		ctx context.Context,
 		qs *QuerySet,
-		where []Expression,
+		where []expr.Expression,
 		joins []JoinDef,
 		groupBy []FieldInfo,
 	) CountQuery

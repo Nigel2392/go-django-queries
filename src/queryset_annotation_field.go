@@ -38,7 +38,7 @@ func (q *queryField[T]) Name() string          { return q.name }
 func (q *queryField[T]) ColumnName() string    { return "" }
 func (q *queryField[T]) Tag(string) string     { return "" }
 func (q *queryField[T]) Type() reflect.Type    { return reflect.TypeOf(*new(T)) }
-func (q *queryField[T]) Attrs() map[string]any { return nil }
+func (q *queryField[T]) Attrs() map[string]any { return map[string]any{} }
 func (q *queryField[T]) IsPrimary() bool       { return false }
 func (q *queryField[T]) AllowNull() bool       { return true }
 func (q *queryField[T]) AllowBlank() bool      { return true }

@@ -346,8 +346,8 @@ func (e *RawExpr) Or(exprs ...Expression) Expression {
 func (e *RawExpr) Clone() Expression {
 	return &RawExpr{
 		Statement: e.Statement,
-		Fields:    e.Fields,
-		Params:    e.Params,
+		Fields:    slices.Clone(e.Fields),
+		Params:    slices.Clone(e.Params),
 		not:       e.not,
 		used:      e.used,
 	}

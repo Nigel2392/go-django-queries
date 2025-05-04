@@ -1,13 +1,39 @@
-package queries
+package internal
 
 import (
 	"fmt"
+	"iter"
 	"reflect"
 	"strings"
 
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/elliotchance/orderedmap/v2"
 )
+
+type RelationType int
+
+const (
+	// OneToMany is a one-to-many relation (foreign key)
+	RelationTypeOneToMany RelationType = iota
+
+	// OneToOne is a one-to-one relation (foreign key or with through)
+	RelationTypeOneToOne
+
+	// ManyToMany is a many-to-many relation (through)
+	RelationTypeManyToMany
+
+	// ManyToOne is a many-to-one relation (foreign key reverse)
+	RelationTypeManyToOne
+)
+
+type CanReverseAlias interface {
+	attrs.Field
+
+	// ReverseAlias returns the reverse alias for this field
+	// This is used to determine the reverse name for the relation
+	// when registering the reverse relation
+	ReverseAlias() string
+}
 
 type RelationTarget interface {
 	Model() attrs.Definer
@@ -20,15 +46,6 @@ type RelationChain interface {
 	RelationTarget
 }
 
-type RelationType int
-
-const (
-	RelationTypeOneToMany RelationType = iota
-	RelationTypeOneToOne
-	RelationTypeManyToMany
-	RelationTypeManyToOne
-)
-
 type Relation interface {
 	// Type returns the type of the relation
 	Type() RelationType
@@ -39,6 +56,29 @@ type Relation interface {
 
 	// Target returns the eventual target model of the relation
 	Target() RelationChain
+}
+
+type ModelMeta interface {
+	// Model returns the model for this meta
+	Model() attrs.Definer
+
+	// Forward returns the forward relations for this model
+	Forward(relField string) (Relation, bool)
+
+	// ForwardMap returns the forward relations map for this model
+	ForwardMap() *orderedmap.OrderedMap[string, Relation]
+
+	// IterForward returns an iterator for the forward relations
+	IterForward() iter.Seq2[string, Relation]
+
+	// Reverse returns the reverse relations for this model
+	Reverse(relField string) (Relation, bool)
+
+	// ReverseMap returns the reverse relations map for this model
+	ReverseMap() *orderedmap.OrderedMap[string, Relation]
+
+	// IterReverse returns an iterator for the reverse relations
+	IterReverse() iter.Seq2[string, Relation]
 }
 
 type relationChain struct {
@@ -89,18 +129,97 @@ func (r *relationMeta) Target() RelationChain {
 	return r.target
 }
 
-type ModelMeta struct {
-	Model   attrs.Definer
-	Forward *orderedmap.OrderedMap[string, Relation] // Forward orderedmap
-	Reverse *orderedmap.OrderedMap[string, Relation] // Forward orderedmap
+type modelMeta struct {
+	model   attrs.Definer
+	forward *orderedmap.OrderedMap[string, Relation] // forward orderedmap
+	reverse *orderedmap.OrderedMap[string, Relation] // forward orderedmap
 }
 
-var modelReg = make(map[reflect.Type]*ModelMeta)
+func (m *modelMeta) Model() attrs.Definer {
+	return m.model
+}
+
+func (m *modelMeta) Forward(relField string) (Relation, bool) {
+	if rel, ok := m.forward.Get(relField); ok {
+		return rel, true
+	}
+	return nil, false
+}
+
+func (m *modelMeta) ForwardMap() *orderedmap.OrderedMap[string, Relation] {
+	return m.forward
+}
+
+func (m *modelMeta) ReverseMap() *orderedmap.OrderedMap[string, Relation] {
+	return m.reverse
+}
+
+func (m *modelMeta) Reverse(relField string) (Relation, bool) {
+	if rel, ok := m.reverse.Get(relField); ok {
+		return rel, true
+	}
+	return nil, false
+}
+
+func (m *modelMeta) iter(mapVal *orderedmap.OrderedMap[string, Relation]) iter.Seq2[string, Relation] {
+	return iter.Seq2[string, Relation](func(yield func(string, Relation) bool) {
+		for front := mapVal.Front(); front != nil; front = front.Next() {
+			if !yield(front.Key, front.Value) {
+				return
+			}
+		}
+	})
+}
+
+func (m *modelMeta) IterForward() iter.Seq2[string, Relation] {
+	return m.iter(m.forward)
+}
+
+func (m *modelMeta) IterReverse() iter.Seq2[string, Relation] {
+	return m.iter(m.reverse)
+}
+
+var modelReg = make(map[reflect.Type]*modelMeta)
+
+func NewReverseAlias(c RelationChain) string {
+	var name = fmt.Sprintf("%TSet", c.Model())
+	var parts = strings.Split(name, ".")
+	if len(parts) > 1 {
+		name = parts[len(parts)-1]
+	}
+	return name
+}
+
+func GetReverseAlias(f attrs.Field, default_ string) string {
+	if f == nil {
+		return default_
+	}
+
+	var alias string
+	if reverseName, ok := f.(CanReverseAlias); ok {
+		alias = reverseName.ReverseAlias()
+	}
+
+	if alias == "" {
+		var atts = f.Attrs()
+		var s, ok = atts[ATTR_REVERSE_ALIAS]
+		if ok {
+			alias = s.(string)
+		}
+	}
+
+	if alias != "" {
+		return alias
+	}
+
+	return default_
+}
 
 func registerReverseRelation(
 	targetModel attrs.Definer,
 	forward RelationChain,
 	relType RelationType,
+	reverseName string,
 ) {
 	//// Step 1: Get final target in the chain (the destination model)
 	//var last = forward
@@ -113,19 +232,14 @@ func registerReverseRelation(
 	// Step 2: Get or init ModelMeta for the target
 	meta, ok := modelReg[targetType]
 	if !ok {
-		meta = &ModelMeta{
-			Model:   targetModel,
-			Forward: orderedmap.NewOrderedMap[string, Relation](),
-			Reverse: orderedmap.NewOrderedMap[string, Relation](),
-		}
+		RegisterModel(targetModel)
+		meta = modelReg[targetType]
 	}
 
 	// Step 3: Determine a reverse name
 	// Prefer something explicit if available (you could add support for a "related_name" tag in field config)
-	var name = fmt.Sprintf("%TSet", forward.Model())
-	var parts = strings.Split(name, ".")
-	if len(parts) > 1 {
-		name = parts[len(parts)-1]
+	if reverseName == "" {
+		reverseName = NewReverseAlias(forward)
 	}
 
 	// Step 4: Build reversed chain
@@ -142,11 +256,11 @@ func registerReverseRelation(
 	}
 
 	// Step 5: Store in reverseRelations
-	if _, ok := meta.Reverse.Get(name); ok {
-		panic(fmt.Errorf("reverse relation %q already registered for %T", name, targetModel))
+	if _, ok := meta.reverse.Get(reverseName); ok {
+		panic(fmt.Errorf("reverse relation %q already registered for %T", reverseName, targetModel))
 	}
 
-	meta.Reverse.Set(name, &relationMeta{
+	meta.reverse.Set(reverseName, &relationMeta{
 		typ:    relType,
 		chain:  reversed,
 		target: current,
@@ -171,10 +285,10 @@ func RegisterModel(model attrs.Definer) {
 		return
 	}
 
-	var meta = &ModelMeta{
-		Model:   model,
-		Forward: orderedmap.NewOrderedMap[string, Relation](),
-		Reverse: orderedmap.NewOrderedMap[string, Relation](),
+	var meta = &modelMeta{
+		model:   model,
+		forward: orderedmap.NewOrderedMap[string, Relation](),
+		reverse: orderedmap.NewOrderedMap[string, Relation](),
 	}
 
 	// set the model in the registry early - reverse relations may need it
@@ -208,16 +322,18 @@ func RegisterModel(model attrs.Definer) {
 				prev:  chain,
 			}
 
-			meta.Forward.Set(field.Name(), &relationMeta{
+			meta.forward.Set(field.Name(), &relationMeta{
 				typ:    RelationTypeOneToMany,
 				chain:  chain,
 				target: chain.next,
 			})
 
+			var reverseAlias = GetReverseAlias(field, "")
 			registerReverseRelation(
 				relDefs.Instance(),
 				chain,
 				RelationTypeManyToOne,
+				reverseAlias,
 			)
 
 		case o2o != nil:
@@ -253,7 +369,7 @@ func RegisterModel(model attrs.Definer) {
 				chain = next
 			}
 
-			meta.Forward.Set(field.Name(), &relationMeta{
+			meta.forward.Set(field.Name(), &relationMeta{
 				typ:    RelationTypeOneToOne,
 				chain:  root,
 				target: chain,
@@ -262,10 +378,12 @@ func RegisterModel(model attrs.Definer) {
 			// This is the actual end target
 			finalTarget := chain.model
 
+			var reverseAlias = GetReverseAlias(field, "")
 			registerReverseRelation(
 				finalTarget,
 				root,
 				RelationTypeOneToOne,
+				reverseAlias,
 			)
 
 		case m2m != nil:
@@ -294,22 +412,24 @@ func RegisterModel(model attrs.Definer) {
 				chain = relChain
 			}
 
-			meta.Forward.Set(field.Name(), &relationMeta{
+			meta.forward.Set(field.Name(), &relationMeta{
 				typ:    RelationTypeManyToMany,
 				chain:  root,
 				target: chain,
 			})
 
+			var reverseAlias = GetReverseAlias(field, "")
 			registerReverseRelation(
 				model,
 				chain,
 				RelationTypeManyToMany,
+				reverseAlias,
 			)
 		}
 	}
 }
 
-func GetModelMeta(model attrs.Definer) *ModelMeta {
+func GetModelMeta(model attrs.Definer) ModelMeta {
 	if meta, ok := modelReg[reflect.TypeOf(model)]; ok {
 		return meta
 	}
@@ -318,10 +438,10 @@ func GetModelMeta(model attrs.Definer) *ModelMeta {
 
 func GetRelationMeta(m attrs.Definer, name string) (Relation, bool) {
 	var meta = GetModelMeta(m)
-	if rel, ok := meta.Forward.Get(name); ok {
+	if rel, ok := meta.Forward(name); ok {
 		return rel, true
 	}
-	if rel, ok := meta.Reverse.Get(name); ok {
+	if rel, ok := meta.Reverse(name); ok {
 		return rel, true
 	}
 	return nil, false

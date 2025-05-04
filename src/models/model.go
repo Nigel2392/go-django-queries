@@ -1,6 +1,7 @@
 package models
 
 import (
+	"github.com/Nigel2392/go-django-queries/internal"
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/fields"
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -35,7 +36,7 @@ type datastore interface {
 
 type Model struct {
 	data  datastore
-	_meta *queries.ModelMeta
+	_meta queries.ModelMeta
 	_defs *attrs.ObjectDefinitions
 }
 
@@ -46,33 +47,31 @@ func (m *Model) Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinit
 	}
 	if m._defs == nil {
 		// var reverseRelations = make([]attrs.Field, 0)
-		for front := m._meta.Reverse.Front(); front != nil; front = front.Next() {
+		for key, value := range m._meta.IterReverse() {
 			var (
-				typ   = front.Value.Type()
-				chain = front.Value.Chain()
-				// target = front.Value.Target()
+				typ   = value.Type()
+				chain = value.Chain()
 			)
 
-			//fmt.Printf("reverse relation (%d %T.%s)", typ, def, front.Key)
-			//
-			//var current = chain
-			//for current != nil {
-			//	fmt.Printf("chain %T.%s", current.Model(), current.Field().ColumnName())
-			//	current = current.To()
-			//	if current != nil {
-			//		fmt.Printf(" -> ")
-			//	}
-			//}
-			//fmt.Printf("\n")
+			var (
+				field         attrs.Field
+				relModelField = chain.Field()
+			)
 
-			var field attrs.Field
+			if relModelField == nil {
+				continue
+			}
+
+			key = internal.GetReverseAlias(relModelField, key)
 			switch typ {
-			case queries.RelationTypeOneToOne:
-				field = fields.NewRelatedField[attrs.Definer](def, m, front.Key, chain.Field().ColumnName(), front.Value)
-			case queries.RelationTypeManyToMany:
-				field = fields.NewRelatedField[[]attrs.Definer](def, m, front.Key, chain.Field().ColumnName(), front.Value)
-			case queries.RelationTypeManyToOne:
-				field = fields.NewRelatedField[[]attrs.Definer](def, m, front.Key, chain.Field().ColumnName(), front.Value)
+			case queries.RelationTypeOneToOne: // OneToOne
+				field = fields.NewRelatedField[attrs.Definer](def, m, key, relModelField.ColumnName(), value)
+			case queries.RelationTypeManyToMany: // ManyToMany
+				field = fields.NewRelatedField[[]attrs.Definer](def, m, key, relModelField.ColumnName(), value)
+			case queries.RelationTypeOneToMany: // OneToMany, ForeignKey
+				field = fields.NewRelatedField[attrs.Definer](def, m, key, relModelField.ColumnName(), value)
+			case queries.RelationTypeManyToOne: // ManyToOne, ForeignKeyReverse
+				field = fields.NewRelatedField[attrs.Definer](def, m, key, relModelField.ColumnName(), value)
 			}
 
 			if field != nil {
@@ -85,7 +84,7 @@ func (m *Model) Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinit
 	return m._defs
 }
 
-func (m *Model) ModelMeta() *queries.ModelMeta {
+func (m *Model) ModelMeta() queries.ModelMeta {
 	if m._meta == nil {
 		m._meta = queries.GetModelMeta(m._defs.Object)
 	}
@@ -97,8 +96,8 @@ func (m *Model) RelatedField(name string) (attrs.Field, bool) {
 		return nil, false
 	}
 	var (
-		_, ok1 = m._meta.Forward.Get(name)
-		_, ok2 = m._meta.Reverse.Get(name)
+		_, ok1 = m._meta.Forward(name)
+		_, ok2 = m._meta.Reverse(name)
 	)
 	if ok1 || ok2 {
 		return m._defs.Field(name)

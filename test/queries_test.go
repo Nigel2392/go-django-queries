@@ -180,10 +180,16 @@ func (m *ObjectWithMultipleRelations) FieldDefs() attrs.Definitions {
 		attrs.NewField(m, "Obj1", &attrs.FieldConfig{
 			RelForeignKey: &User{},
 			Column:        "obj1_id",
+			Attributes: map[string]any{
+				queries.ATTR_REVERSE_ALIAS: "MultiRelationObj1",
+			},
 		}),
 		attrs.NewField(m, "Obj2", &attrs.FieldConfig{
 			RelForeignKey: &User{},
 			Column:        "obj2_id",
+			Attributes: map[string]any{
+				queries.ATTR_REVERSE_ALIAS: "MultiRelationObj2",
+			},
 		}),
 	).WithTableName("object_with_multiple_relations")
 }

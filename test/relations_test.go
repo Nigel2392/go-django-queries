@@ -5,12 +5,14 @@ import (
 	"testing"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
+	"github.com/Nigel2392/go-django-queries/src/models"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
 type relationTestExpected struct {
 	type_ queries.RelationType
 	final reflect.Type
+	chain []string
 }
 
 type relationTest struct {
@@ -53,7 +55,7 @@ func TestRegisterModelRelations(t *testing.T) {
 			meta := queries.GetModelMeta(test.model)
 
 			for field, exp := range test.expectsFwd {
-				rel, ok := meta.Forward.Get(field)
+				rel, ok := meta.Forward(field)
 				if !ok {
 					t.Errorf("expected forward relation for field %q", field)
 					continue
@@ -80,7 +82,7 @@ func TestRegisterModelRelations(t *testing.T) {
 			}
 
 			for field, exp := range test.expectsRev {
-				rel, ok := meta.Reverse.Get(field)
+				rel, ok := meta.Reverse(field)
 				if !ok {
 					t.Errorf("expected reverse relation for field %q", field)
 					continue
@@ -106,15 +108,11 @@ func TestRegisterModelRelations(t *testing.T) {
 				}
 			}
 
-			t.Logf("model %T has %d forward relations and %d reverse relations", test.model, meta.Forward.Len(), meta.Reverse.Len())
-			for head := meta.Forward.Front(); head != nil; head = head.Next() {
-				var rel = head.Value
-				var field = head.Key
+			t.Logf("model %T has %d forward relations and %d reverse relations", test.model, meta.ForwardMap().Len(), meta.ReverseMap().Len())
+			for field, rel := range meta.IterForward() {
 				t.Logf("forward relation %q: %T.%s", field, rel.Chain().Model(), rel.Chain().Field().Name())
 			}
-			for head := meta.Reverse.Front(); head != nil; head = head.Next() {
-				var rel = head.Value
-				var field = head.Key
+			for field, rel := range meta.IterReverse() {
 				t.Logf("reverse relation %q: %T.%s", field, rel.Chain().Model(), rel.Chain().Field().Name())
 			}
 		})
@@ -132,15 +130,11 @@ func TestReverseRelations(t *testing.T) {
 	}
 
 	var meta = queries.GetModelMeta(user)
-	t.Logf("model %T has %d forward relations and %d reverse relations", user, meta.Forward.Len(), meta.Reverse.Len())
-	for head := meta.Forward.Front(); head != nil; head = head.Next() {
-		var rel = head.Value
-		var field = head.Key
+	t.Logf("model %T has %d forward relations and %d reverse relations", user, meta.ForwardMap().Len(), meta.ReverseMap().Len())
+	for field, rel := range meta.IterForward() {
 		t.Logf("forward relation %q: %T.%s", field, rel.Chain().Model(), rel.Chain().Field().Name())
 	}
-	for head := meta.Reverse.Front(); head != nil; head = head.Next() {
-		var rel = head.Value
-		var field = head.Key
+	for field, rel := range meta.IterReverse() {
 		t.Logf("reverse relation %q: %T.%s", field, rel.Chain().Model(), rel.Chain().Field().Name())
 	}
 
@@ -423,4 +417,76 @@ func TestReverseRelationsNested(t *testing.T) {
 		t.Errorf("expected user.todoSet not nil, got nil")
 		return
 	}
+}
+
+type OneToOneWithThrough struct {
+	models.Model
+	ID      int64
+	Name    string
+	Through attrs.Relation
+}
+
+func (t *OneToOneWithThrough) FieldDefs() attrs.Definitions {
+	return t.Model.Define(t,
+		attrs.NewField(t, "ID", &attrs.FieldConfig{
+			Column:  "id",
+			Primary: true,
+		}),
+		attrs.NewField(t, "Name", &attrs.FieldConfig{
+			Column: "name",
+		}),
+		attrs.NewField(t, "Through", &attrs.FieldConfig{
+			Column: "source_id",
+			RelOneToOne: &Related{
+				Object:        &OneToOneWithThrough_Target{},
+				ThroughObject: &OneToOneWithThrough_Through{},
+			},
+		}),
+	).WithTableName("onetoonewiththrough")
+}
+
+type OneToOneWithThrough_Through struct {
+	models.Model
+	ID     int64
+	Source *OneToOneWithThrough
+	Target *OneToOneWithThrough_Target
+}
+
+func (t *OneToOneWithThrough_Through) FieldDefs() attrs.Definitions {
+	return t.Model.Define(t,
+		attrs.NewField(t, "ID", &attrs.FieldConfig{
+			Column:  "id",
+			Primary: true,
+		}),
+		attrs.NewField(t, "Source", &attrs.FieldConfig{
+			Column: "source_id",
+			Null:   false,
+		}),
+		attrs.NewField(t, "Target", &attrs.FieldConfig{
+			Column: "target_id",
+			Null:   false,
+		}),
+	).WithTableName("onetoonewiththrough_through")
+}
+
+type OneToOneWithThrough_Target struct {
+	models.Model
+	ID   int64
+	Name string
+	Age  int
+}
+
+func (t *OneToOneWithThrough_Target) FieldDefs() attrs.Definitions {
+	return t.Model.Define(t,
+		attrs.NewField(t, "ID", &attrs.FieldConfig{
+			Column:  "id",
+			Primary: true,
+		}),
+		attrs.NewField(t, "Name", &attrs.FieldConfig{
+			Column: "name",
+		}),
+		attrs.NewField(t, "Age", &attrs.FieldConfig{
+			Column: "age",
+		}),
+	).WithTableName("onetoonewiththrough_target")
 }

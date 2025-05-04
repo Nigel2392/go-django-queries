@@ -237,8 +237,96 @@ func TestWalkFields(t *testing.T) {
 	}
 }
 
+var walkFieldsTests2 = []walkFieldsTest{
+	{
+		name:   "TestTodoID",
+		model:  &Todo{},
+		column: "ID",
+		expected: walkFieldsExpected{
+			definer: &Todo{},
+			field:   getField(&Todo{}, "ID"),
+			chain:   []string{"ID"},
+		},
+	},
+	{
+		name:   "TestTodoUser",
+		model:  &Todo{},
+		column: "User",
+		expected: walkFieldsExpected{
+			definer:   &Todo{},
+			field:     getField(&Todo{}, "User"),
+			chain:     []string{"User"},
+			isRelated: true,
+		},
+	},
+	{
+		name:   "TestTodoUserWithID",
+		model:  &Todo{},
+		column: "User.ID",
+		expected: walkFieldsExpected{
+			definer:   &User{},
+			parent:    &Todo{},
+			field:     getField(&User{}, "ID"),
+			chain:     []string{"User", "ID"},
+			isRelated: true,
+		},
+	},
+	{
+		name:   "TestObjectWithMultipleRelationsID1",
+		model:  &ObjectWithMultipleRelations{},
+		column: "Obj1.ID",
+		expected: walkFieldsExpected{
+			definer:   &User{},
+			parent:    &ObjectWithMultipleRelations{},
+			field:     getField(&User{}, "ID"),
+			chain:     []string{"Obj1", "ID"},
+			isRelated: true,
+		},
+	},
+	{
+		name:   "TestObjectWithMultipleRelationsID2",
+		model:  &ObjectWithMultipleRelations{},
+		column: "Obj2.ID",
+		expected: walkFieldsExpected{
+			definer:   &User{},
+			parent:    &ObjectWithMultipleRelations{},
+			field:     getField(&User{}, "ID"),
+			chain:     []string{"Obj2", "ID"},
+			isRelated: true,
+		},
+	},
+	{
+		name:   "TestNestedCategoriesParent",
+		model:  &Category{},
+		column: "Parent.Parent",
+		expected: walkFieldsExpected{
+			definer:   &Category{},
+			parent:    &Category{},
+			field:     getField(&Category{}, "Parent"),
+			chain:     []string{"Parent", "Parent"},
+			isRelated: true,
+			err:       nil,
+		},
+	},
+	{
+		name:   "TestNestedCategoriesName",
+		model:  &Category{},
+		column: "Parent.Parent.Name",
+		expected: walkFieldsExpected{
+			definer:   &Category{},
+			parent:    &Category{},
+			field:     getField(&Category{}, "Name"),
+			chain:     []string{"Parent", "Parent", "Name"},
+			isRelated: true,
+			err:       nil,
+		},
+	},
+}
+
 func TestWalkFieldPaths(t *testing.T) {
-	for _, test := range walkFieldsTests {
+	for _, test := range walkFieldsTests2 {
+
+		internal.RegisterModel(test.model)
 
 		t.Run(test.name, func(t *testing.T) {
 			var meta, err = internal.WalkFieldPath(test.model, test.column)
@@ -252,32 +340,49 @@ func TestWalkFieldPaths(t *testing.T) {
 				return
 			}
 
-			if meta.Last == nil || meta.Last.Object == nil {
+			if meta.Last() == nil || meta.Last().Object == nil {
 				t.Errorf("expected meta.Last not nil, got nil")
 				return
 			}
 
-			if reflect.TypeOf(meta.Last.Object) != reflect.TypeOf(test.expected.definer) {
-				t.Errorf("expected meta.Last.Object %T, got %T", test.expected.definer, meta.Last.Object)
+			if reflect.TypeOf(meta.Last().Object) != reflect.TypeOf(test.expected.definer) {
+				t.Errorf("expected meta.Last.Object %T, got %T (%T)", test.expected.definer, meta.Last().Object, meta.First().Object)
 			}
 
-			if meta.Last.Parent != nil {
-				if reflect.TypeOf(meta.Last.Parent.Object) != reflect.TypeOf(test.expected.parent) {
-					t.Errorf("expected meta.Last.Parent.Object %T, got %T", test.expected.parent, meta.Last.Parent.Object)
+			if meta.Last().Parent() != nil {
+				if reflect.TypeOf(meta.Last().Parent().Object) != reflect.TypeOf(test.expected.parent) {
+					t.Errorf("expected meta.Last.Parent.Object %T, got %T", test.expected.parent, meta.Last().Parent().Object)
 				}
 			}
 
-			if test.expected.parent == nil && meta.Last.Parent != nil {
-				t.Errorf("expected meta.Last.Parent nil, got %T", meta.Last.Parent.Object)
+			if test.expected.parent == nil && meta.Last().Parent() != nil {
+				t.Errorf("expected meta.Last.Parent nil, got %T", meta.Last().Parent().Object)
 			}
 
-			if !fieldEquals(meta.Last.Field, test.expected.field) {
-				t.Errorf("expected meta.Last.Field %T.%s, got %T.%s", test.expected.field.Instance(), test.expected.field.Name(), meta.Last.Field.Instance(), meta.Last.Field.Name())
+			if !fieldEquals(meta.Last().Field, test.expected.field) {
+				t.Errorf("expected meta.Last.Field %T.%s, got %T.%s", test.expected.field.Instance(), test.expected.field.Name(), meta.Last().Field.Instance(), meta.Last().Field.Name())
 			}
 
-			if meta.Last.String() != strings.Join(append(test.expected.chain, test.expected.field.Name()), ".") {
-				t.Errorf("expected meta.Last.String() %s, got %s", strings.Join(append(test.expected.chain, test.expected.field.Name()), "."), meta.Last.String())
+			if meta.Last().String() != strings.Join(test.expected.chain, ".") {
+				t.Errorf("expected meta.Last.String() %s, got %s", strings.Join(test.expected.chain, "."), meta.Last().String())
 			}
+
+			if test.expected.isRelated && meta.First().Relation == nil {
+				t.Errorf("expected meta.First.Relation not nil, got nil")
+			}
+
+			var sb = strings.Builder{}
+			for _, current := range meta {
+				if current.Field != nil {
+					sb.WriteString(current.Field.Name())
+				}
+				if current.Child() != nil {
+					sb.WriteString(".")
+				}
+			}
+
+			t.Logf("meta string = %s", sb.String())
+			t.Logf("meta.Last.String() = %s", meta.Last().String())
 		})
 	}
 }

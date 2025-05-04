@@ -28,6 +28,10 @@ type driverData struct {
 	supportsReturning SupportsReturning
 }
 
+const (
+	CACHE_TRAVERSAL_RESULTS = true
+)
+
 func RegisterDriver(driver driver.Driver, database string, supportsReturning ...SupportsReturning) {
 	var s SupportsReturning
 	if len(supportsReturning) > 0 {
@@ -90,6 +94,17 @@ func NewJoinAlias(field attrs.Field, tableName string, chain []string) string {
 	//return fmt.Sprintf("%s_%s", field.ColumnName(), tableName)
 }
 
+type walkFieldsResult struct {
+	definer   attrs.Definer
+	parent    attrs.Definer
+	field     attrs.Field
+	chain     []string
+	aliases   []string
+	isRelated bool
+}
+
+var walkFieldsCache = make(map[string]walkFieldsResult)
+
 func WalkFields(
 	m attrs.Definer,
 	column string,
@@ -102,6 +117,14 @@ func WalkFields(
 	isRelated bool,
 	err error,
 ) {
+
+	var cacheKey = fmt.Sprintf("%T.%s", m, column)
+	if CACHE_TRAVERSAL_RESULTS {
+		if result, ok := walkFieldsCache[cacheKey]; ok {
+			return result.definer, result.parent, result.field, result.chain, result.aliases, result.isRelated, nil
+		}
+	}
+
 	var parts = strings.Split(column, ".")
 	var current = m
 	var field attrs.Field
@@ -147,83 +170,117 @@ func WalkFields(
 		isRelated = true
 	}
 
+	if CACHE_TRAVERSAL_RESULTS {
+		walkFieldsCache[cacheKey] = walkFieldsResult{
+			definer:   current,
+			parent:    parent,
+			field:     field,
+			chain:     chain,
+			aliases:   aliases,
+			isRelated: isRelated,
+		}
+	}
+
 	return current, parent, field, chain, aliases, isRelated, nil
 }
 
-type RootFieldMeta struct {
-	Root *FieldMeta
-	Last *FieldMeta
-}
+type PathMetaChain []*PathMeta
 
-type FieldMeta struct {
-	Parent *FieldMeta
-	Child  *FieldMeta
-	Object attrs.Definer
-	Field  attrs.Field
-}
-
-func (m *FieldMeta) String() string {
-	var root = m
-	for root.Parent != nil {
-		root = root.Parent
+func (c PathMetaChain) First() *PathMeta {
+	if len(c) == 0 {
+		return nil
 	}
-	var b = strings.Builder{}
-	for root != nil {
-		if root.Field != nil {
-			b.WriteString(root.Field.Name())
-		}
-		if root.Child != nil {
-			b.WriteString(".")
-		}
-		root = root.Child
-	}
-	return b.String()
+	return c[0]
 }
 
-func WalkFieldPath(m attrs.Definer, path string) (*RootFieldMeta, error) {
+func (c PathMetaChain) Last() *PathMeta {
+	if len(c) == 0 {
+		return nil
+	}
+	return c[len(c)-1]
+}
+
+type PathMeta struct {
+	idx      int
+	root     PathMetaChain
+	Object   attrs.Definer
+	Field    attrs.Field
+	Relation Relation
+}
+
+func (m *PathMeta) String() string {
+	var sb strings.Builder
+	for i, part := range m.root {
+		if i > 0 {
+			sb.WriteString(".")
+		}
+		sb.WriteString(part.Field.Name())
+	}
+	return sb.String()
+}
+
+func (m *PathMeta) Parent() *PathMeta {
+	if m.idx == 0 {
+		return nil
+	}
+	return m.root[m.idx-1]
+}
+
+func (m *PathMeta) Child() *PathMeta {
+	if m.idx >= len(m.root)-1 {
+		return nil
+	}
+	return m.root[m.idx+1]
+}
+
+func (m *PathMeta) Chain() []*PathMeta {
+	return m.root[:m.idx+1]
+}
+
+var walkFieldPathsCache = make(map[string]PathMetaChain)
+
+func WalkFieldPath(m attrs.Definer, path string) (PathMetaChain, error) {
+	var cacheKey = fmt.Sprintf("%T.%s", m, path)
+	if CACHE_TRAVERSAL_RESULTS {
+		if result, ok := walkFieldPathsCache[cacheKey]; ok {
+			return result, nil
+		}
+	}
+
 	var parts = strings.Split(path, ".")
-	var root = &RootFieldMeta{
-		Root: &FieldMeta{
-			Object: m,
-		},
-	}
-	var meta = root.Root
+	var root = make(PathMetaChain, len(parts))
+	var current = m
 	for i, part := range parts {
+		var meta = &PathMeta{
+			Object: current,
+		}
+
 		var defs = meta.Object.FieldDefs()
 		var f, ok = defs.Field(part)
 		if !ok {
 			return nil, fmt.Errorf("field %q not found in %T", part, meta.Object)
 		}
 
-		meta.Field = f
-
-		if i == len(parts)-1 {
-			root.Last = meta
-			break
-		}
-
-		var obj attrs.Definer
-		switch {
-		case f.ForeignKey() != nil:
-			obj = f.ForeignKey()
-		case f.OneToOne() != nil:
-			if through := f.OneToOne().Through(); through != nil {
-				obj = through
-			} else {
-				obj = f.OneToOne().Model()
-			}
-		case f.ManyToMany() != nil:
-			obj = f.ManyToMany().Through()
-		default:
+		relation, ok := GetRelationMeta(meta.Object, part)
+		if !ok && i != len(parts)-1 {
 			return nil, fmt.Errorf("field %q is not a relation", part)
 		}
 
-		var child = &FieldMeta{
-			Object: obj,
-			Parent: meta,
+		meta.idx = i
+		meta.root = root
+		meta.Field = f
+		meta.Relation = relation
+		root[i] = meta
+
+		if i == len(parts)-1 {
+			break
 		}
-		meta.Child = child
-		meta = child
+
+		current = relation.Target().Model()
+	}
+
+	if CACHE_TRAVERSAL_RESULTS {
+		walkFieldPathsCache[cacheKey] = root
 	}
 
 	return root, nil

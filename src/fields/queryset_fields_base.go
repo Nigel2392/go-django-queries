@@ -132,7 +132,7 @@ func (e *DataModelField[T]) Type() reflect.Type {
 }
 
 func (e *DataModelField[T]) Attrs() map[string]any {
-	return nil
+	return map[string]any{}
 }
 
 func (e *DataModelField[T]) IsPrimary() bool {

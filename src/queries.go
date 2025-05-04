@@ -7,38 +7,10 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/Nigel2392/go-django-queries/internal"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
-
-	_ "unsafe"
 )
-
-type SupportsReturning = internal.SupportsReturning
-
-const (
-	SupportsReturningNone         SupportsReturning = internal.SupportsReturningNone
-	SupportsReturningLastInsertId SupportsReturning = internal.SupportsReturningLastInsertId
-	SupportsReturningColumns      SupportsReturning = internal.SupportsReturningColumns
-)
-
-//go:linkname DBSupportsReturning github.com/Nigel2392/go-django-queries/internal.DBSupportsReturning
-func DBSupportsReturning(db *sql.DB) SupportsReturning
-
-// RegisterDriver registers a driver with the given database name.
-//
-// This is used to determine the database type when using sqlx.
-//
-// If your driver is not one of:
-// - github.com/go-sql-driver/mysql.MySQLDriver
-// - github.com/mattn/go-sqlite3.SQLiteDriver
-// - github.com/jackc/pgx/v5/stdlib.Driver
-//
-// Then it explicitly needs to be registered here.
-//
-//go:linkname RegisterDriver github.com/Nigel2392/go-django-queries/internal.RegisterDriver
-func RegisterDriver(driver driver.Driver, database string, supportsReturning ...SupportsReturning)
 
 type AliasField interface {
 	attrs.Field
@@ -71,11 +43,6 @@ type RelatedField interface {
 	// GetRelatedField returns the related field for the field.
 	// This is used to determine the column name for the field, for example for a through table.
 	GetTargetField() attrs.Field
-
-	ForeignKey() attrs.Definer
-	ManyToOne() attrs.Relation
-	ManyToMany() attrs.Relation
-	OneToOne() attrs.Relation
 }
 
 func ForSelectAll(f attrs.Field) bool {

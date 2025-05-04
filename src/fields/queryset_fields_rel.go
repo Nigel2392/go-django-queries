@@ -1,12 +1,16 @@
 package fields
 
 import (
+	"github.com/Nigel2392/go-django-queries/internal"
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
-var _ queries.ForUseInQueriesField = (*RelationField[any])(nil)
-var _ queries.RelatedField = (*RelationField[any])(nil)
+var (
+	_ queries.ForUseInQueriesField = (*RelationField[any])(nil)
+	_ queries.RelatedField         = (*RelationField[any])(nil)
+	_ internal.CanReverseAlias     = (*RelationField[any])(nil)
+)
 
 type rel struct {
 	model   queries.RelationTarget
@@ -60,6 +64,10 @@ func (r *RelationField[T]) ColumnName() string {
 
 func (r *RelationField[T]) GetTargetField() attrs.Field {
 	return r.rel.Target().Field()
+}
+
+func (r *RelationField[T]) ReverseAlias() string {
+	return r.DataModelField.Name()
 }
 
 func (r *RelationField[T]) Rel() attrs.Definer {

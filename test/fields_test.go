@@ -61,6 +61,10 @@ func init() {
 		panic(err)
 	}
 
+	queries.RegisterModel(&TestStruct{})
+	queries.RegisterModel(&TestStructNoObject{})
+	queries.RegisterModel(&Author{})
+	queries.RegisterModel(&Book{})
 }
 
 type TestStruct struct {

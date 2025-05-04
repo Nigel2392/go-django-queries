@@ -21,10 +21,10 @@ const (
 type RelationType = internal.RelationType
 
 const (
-	RelationTypeOneToMany  = internal.RelationTypeOneToMany
-	RelationTypeOneToOne   = internal.RelationTypeOneToOne
-	RelationTypeManyToMany = internal.RelationTypeManyToMany
-	RelationTypeManyToOne  = internal.RelationTypeManyToOne
+	RelationTypeForeignKeyReverse = internal.RelationTypeForeignKeyReverse
+	RelationTypeOneToOne          = internal.RelationTypeOneToOne
+	RelationTypeManyToMany        = internal.RelationTypeManyToMany
+	RelationTypeForeignKey        = internal.RelationTypeForeignKey
 )
 
 const (

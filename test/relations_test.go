@@ -33,14 +33,35 @@ var tests = []relationTest{
 		model: &Category{},
 		expectsFwd: map[string]relationTestExpected{
 			"Parent": {
-				type_: queries.RelationTypeOneToMany,
+				type_: queries.RelationTypeForeignKey,
 				final: getType(&Category{}),
 			},
 		},
 		expectsRev: map[string]relationTestExpected{
 			"CategorySet": {
-				type_: queries.RelationTypeManyToOne,
+				type_: queries.RelationTypeForeignKeyReverse,
 				final: getType(&Category{}),
+			},
+		},
+	},
+	{
+		name:  "ExpectedReverseRelation",
+		model: &Todo{},
+		expectsFwd: map[string]relationTestExpected{
+			"User": {
+				type_: queries.RelationTypeOneToOne,
+				final: getType(&User{}),
+			},
+		},
+		expectsRev: map[string]relationTestExpected{},
+	},
+	{
+		name:  "ExpectedReverseRelation",
+		model: &User{},
+		expectsRev: map[string]relationTestExpected{
+			"Todo": {
+				type_: queries.RelationTypeOneToOne,
+				final: getType(&Todo{}),
 			},
 		},
 	},
@@ -152,14 +173,14 @@ func TestReverseRelations(t *testing.T) {
 
 	var u = &User{}
 	var defs = u.FieldDefs()
-	var _, ok = defs.Field("TodoSet")
+	var _, ok = defs.Field("Todo")
 	if !ok {
-		t.Errorf("expected field TodoSet, got nil")
+		t.Errorf("expected field Todo, got nil")
 		return
 	}
 
 	var q = queries.Objects(&User{}).
-		Select("ID", "Name", "TodoSet.*").
+		Select("ID", "Name", "Todo.*").
 		Filter("ID", user.ID).
 		First()
 	var dbTodo, err = q.Exec()
@@ -184,8 +205,8 @@ func TestReverseRelations(t *testing.T) {
 		return
 	}
 
-	// TodoSet.*
-	todoSet, ok := dbTodo.Object.(*User).RelatedField("TodoSet")
+	// Todo.*
+	todoSet, ok := dbTodo.Object.(*User).RelatedField("Todo")
 	if !ok {
 		t.Errorf("expected todoSet field, got nil")
 		return
@@ -222,7 +243,7 @@ func TestReverseRelations(t *testing.T) {
 		return
 	}
 
-	// TodoSet.User.*
+	// Todo.User.*
 	if val.User == nil {
 		t.Errorf("expected todoSet User not nil, got nil")
 		return
@@ -263,19 +284,19 @@ func TestReverseRelationsNested(t *testing.T) {
 
 	var u = &User{}
 	var defs = u.FieldDefs()
-	var _, ok = defs.Field("TodoSet")
+	var _, ok = defs.Field("Todo")
 	if !ok {
-		t.Errorf("expected field TodoSet, got nil")
+		t.Errorf("expected field Todo, got nil")
 		return
 	}
 
 	var q = queries.Objects(&User{}).
-		Select("ID", "Name", "TodoSet.*", "TodoSet.User.*", "TodoSet.User.TodoSet.*", "TodoSet.User.TodoSet.User.*").
+		Select("ID", "Name", "Todo.*", "Todo.User.*", "Todo.User.Todo.*", "Todo.User.Todo.User.*").
 		Filter("ID", user.ID).
-		Filter("TodoSet.ID", todo.ID).
-		Filter("TodoSet.User.ID", user.ID).
-		Filter("TodoSet.User.TodoSet.ID", todo.ID).
-		Filter("TodoSet.User.TodoSet.User.ID", user.ID).
+		Filter("Todo.ID", todo.ID).
+		Filter("Todo.User.ID", user.ID).
+		Filter("Todo.User.Todo.ID", todo.ID).
+		Filter("Todo.User.Todo.User.ID", user.ID).
 		First()
 	var dbTodo, err = q.Exec()
 	if err != nil {
@@ -299,8 +320,8 @@ func TestReverseRelationsNested(t *testing.T) {
 		return
 	}
 
-	// TodoSet.*
-	todoSet, ok := dbTodo.Object.(*User).RelatedField("TodoSet")
+	// Todo.*
+	todoSet, ok := dbTodo.Object.(*User).RelatedField("Todo")
 	if !ok {
 		t.Errorf("expected todoSet field, got nil")
 		return
@@ -337,7 +358,7 @@ func TestReverseRelationsNested(t *testing.T) {
 		return
 	}
 
-	// TodoSet.User.*
+	// Todo.User.*
 	if val.User == nil {
 		t.Errorf("expected todoSet User not nil, got nil")
 		return
@@ -353,8 +374,8 @@ func TestReverseRelationsNested(t *testing.T) {
 		return
 	}
 
-	// TodoSet.User.TodoSet.*
-	todoSet, ok = val.User.RelatedField("TodoSet")
+	// Todo.User.Todo.*
+	todoSet, ok = val.User.RelatedField("Todo")
 	if !ok {
 		t.Errorf("expected user.todoSet field, got nil")
 		return
@@ -391,7 +412,7 @@ func TestReverseRelationsNested(t *testing.T) {
 		return
 	}
 
-	// TodoSet.User.TodoSet.User.*
+	// Todo.User.Todo.User.*
 	if val.User == nil {
 		t.Errorf("expected user.todoSet User not nil, got nil")
 		return
@@ -407,7 +428,7 @@ func TestReverseRelationsNested(t *testing.T) {
 		return
 	}
 
-	todoSet, ok = val.User.RelatedField("TodoSet")
+	todoSet, ok = val.User.RelatedField("Todo")
 	if !ok {
 		t.Errorf("expected user.todoSet field, got nil")
 		return

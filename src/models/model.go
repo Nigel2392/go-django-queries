@@ -65,13 +65,13 @@ func (m *Model) Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinit
 			key = internal.GetReverseAlias(relModelField, key)
 			switch typ {
 			case queries.RelationTypeOneToOne: // OneToOne
-				field = fields.NewRelatedField[attrs.Definer](def, m, key, relModelField.ColumnName(), value)
+				field = fields.NewOneToOneField[attrs.Definer](def, m, key, relModelField.ColumnName(), value)
+			case queries.RelationTypeForeignKey: // ForeignKey, ForeignKey
+				field = fields.NewForeignKeyField[attrs.Definer](def, m, key, relModelField.ColumnName(), value)
+			case queries.RelationTypeForeignKeyReverse: // ForeignKeyReverse, ForeignKeyReverse
+				field = fields.NewForeignKeyReverseField[attrs.Definer](def, m, key, relModelField.ColumnName(), value)
 			case queries.RelationTypeManyToMany: // ManyToMany
-				field = fields.NewRelatedField[[]attrs.Definer](def, m, key, relModelField.ColumnName(), value)
-			case queries.RelationTypeOneToMany: // OneToMany, ForeignKey
-				field = fields.NewRelatedField[attrs.Definer](def, m, key, relModelField.ColumnName(), value)
-			case queries.RelationTypeManyToOne: // ManyToOne, ForeignKeyReverse
-				field = fields.NewRelatedField[attrs.Definer](def, m, key, relModelField.ColumnName(), value)
+				field = fields.NewManyToManyField[attrs.Definer](def, m, key, relModelField.ColumnName(), value)
 			}
 
 			if field != nil {

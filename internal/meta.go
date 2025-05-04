@@ -13,8 +13,8 @@ import (
 type RelationType int
 
 const (
-	// OneToMany is a one-to-many relation (foreign key)
-	RelationTypeOneToMany RelationType = iota
+	// ForeignKey is a one-to-many relation (foreign key)
+	RelationTypeForeignKey RelationType = iota
 
 	// OneToOne is a one-to-one relation (foreign key or with through)
 	RelationTypeOneToOne
@@ -22,8 +22,8 @@ const (
 	// ManyToMany is a many-to-many relation (through)
 	RelationTypeManyToMany
 
-	// ManyToOne is a many-to-one relation (foreign key reverse)
-	RelationTypeManyToOne
+	// ForeignKeyReverse is a many-to-one relation (foreign key reverse)
+	RelationTypeForeignKeyReverse
 )
 
 type CanReverseAlias interface {
@@ -181,8 +181,16 @@ func (m *modelMeta) IterReverse() iter.Seq2[string, Relation] {
 
 var modelReg = make(map[reflect.Type]*modelMeta)
 
-func NewReverseAlias(c RelationChain) string {
-	var name = fmt.Sprintf("%TSet", c.Model())
+func NewReverseAlias(typ RelationType, c RelationChain) string {
+	var name string
+	switch typ {
+	case RelationTypeForeignKey, RelationTypeOneToOne:
+		name = fmt.Sprintf("%T", c.Model())
+	case RelationTypeForeignKeyReverse, RelationTypeManyToMany:
+		name = fmt.Sprintf("%TSet", c.Model())
+	default:
+		panic(fmt.Errorf("unknown relation type %d", typ))
+	}
 	var parts = strings.Split(name, ".")
 	if len(parts) > 1 {
 		name = parts[len(parts)-1]
@@ -239,7 +247,7 @@ func registerReverseRelation(
 	// Step 3: Determine a reverse name
 	// Prefer something explicit if available (you could add support for a "related_name" tag in field config)
 	if reverseName == "" {
-		reverseName = NewReverseAlias(forward)
+		reverseName = NewReverseAlias(relType, forward)
 	}
 
 	// Step 4: Build reversed chain
@@ -286,7 +294,7 @@ func RegisterModel(model attrs.Definer) {
 	}
 
 	var meta = &modelMeta{
-		model:   model,
+		model:   reflect.New(t.Elem()).Interface().(attrs.Definer),
 		forward: orderedmap.NewOrderedMap[string, Relation](),
 		reverse: orderedmap.NewOrderedMap[string, Relation](),
 	}
@@ -295,7 +303,7 @@ func RegisterModel(model attrs.Definer) {
 	// if the model is self-referential (e.g. a tree structure)
 	modelReg[t] = meta
 
-	var defs = model.FieldDefs()
+	var defs = reflect.New(t.Elem()).Interface().(attrs.Definer).FieldDefs()
 	if defs == nil {
 		panic(fmt.Errorf("model %T has no field definitions", model))
 	}
@@ -323,7 +331,7 @@ func RegisterModel(model attrs.Definer) {
 			}
 
 			meta.forward.Set(field.Name(), &relationMeta{
-				typ:    RelationTypeOneToMany,
+				typ:    RelationTypeForeignKey,
 				chain:  chain,
 				target: chain.next,
 			})
@@ -332,7 +340,7 @@ func RegisterModel(model attrs.Definer) {
 			registerReverseRelation(
 				relDefs.Instance(),
 				chain,
-				RelationTypeManyToOne,
+				RelationTypeForeignKeyReverse,
 				reverseAlias,
 			)
 
@@ -437,7 +445,13 @@ func GetModelMeta(model attrs.Definer) ModelMeta {
 }
 
 func GetRelationMeta(m attrs.Definer, name string) (Relation, bool) {
-	var meta = GetModelMeta(m)
+	var (
+		meta ModelMeta
+		ok   bool
+	)
+	if meta, ok = modelReg[reflect.TypeOf(m)]; !ok {
+		return nil, false
+	}
 	if rel, ok := meta.Forward(name); ok {
 		return rel, true
 	}

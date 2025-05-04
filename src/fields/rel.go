@@ -72,23 +72,23 @@ func (r *RelationField[T]) ReverseAlias() string {
 
 func (r *RelationField[T]) Rel() attrs.Definer {
 	var (
-		fk  = r.ForeignKey()
+		m2o = r.ForeignKey()
+		o2m = r.ForeignKeyReverse()
 		m2m = r.ManyToMany()
 		oto = r.OneToOne()
-		m2o = r.ManyToOne()
 	)
-	if fk != nil {
-		return fk
+	if m2o != nil {
+		return m2o
 	}
 	if m2m != nil {
 		return m2m.Through()
 	}
-	if m2o != nil {
-		var through = m2o.Through()
+	if o2m != nil {
+		var through = o2m.Through()
 		if through != nil {
 			return through
 		}
-		return m2o.Model()
+		return o2m.Model()
 	}
 	if oto != nil {
 		var through = oto.Through()
@@ -101,14 +101,14 @@ func (r *RelationField[T]) Rel() attrs.Definer {
 }
 
 func (r *RelationField[T]) ForeignKey() attrs.Definer {
-	if r.rel.Type() == queries.RelationTypeOneToMany {
+	if r.rel.Type() == queries.RelationTypeForeignKey {
 		return r.rel.Target().Model()
 	}
 	return nil
 }
 
-func (e *RelationField[T]) ManyToOne() attrs.Relation {
-	if e.rel.Type() == queries.RelationTypeOneToMany {
+func (e *RelationField[T]) ForeignKeyReverse() attrs.Relation {
+	if e.rel.Type() == queries.RelationTypeForeignKeyReverse {
 		var relTarget = e.rel.Target()
 		return &rel{
 			model:   relTarget,

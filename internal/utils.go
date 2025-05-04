@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
@@ -201,11 +202,13 @@ func (c PathMetaChain) Last() *PathMeta {
 }
 
 type PathMeta struct {
-	idx      int
-	root     PathMetaChain
-	Object   attrs.Definer
-	Field    attrs.Field
-	Relation Relation
+	idx         int
+	root        PathMetaChain
+	Object      attrs.Definer
+	Definitions attrs.Definitions
+	Field       attrs.Field
+	Relation    Relation
+	TableAlias  string
 }
 
 func (m *PathMeta) String() string {
@@ -217,6 +220,18 @@ func (m *PathMeta) String() string {
 		sb.WriteString(part.Field.Name())
 	}
 	return sb.String()
+}
+
+func pathMetaTableAlias(m *PathMeta) string {
+	if len(m.root) == 1 {
+		return m.Definitions.TableName()
+	}
+	var c = m.CutAt()
+	var s = make([]string, len(c))
+	for i, part := range c {
+		s[i] = part.Field.Name()
+	}
+	return NewJoinAlias(m.Field, m.Definitions.TableName(), s)
 }
 
 func (m *PathMeta) Parent() *PathMeta {
@@ -233,8 +248,8 @@ func (m *PathMeta) Child() *PathMeta {
 	return m.root[m.idx+1]
 }
 
-func (m *PathMeta) Chain() []*PathMeta {
-	return m.root[:m.idx+1]
+func (m *PathMeta) CutAt() []*PathMeta {
+	return slices.Clone(m.root)[:m.idx+1]
 }
 
 var walkFieldPathsCache = make(map[string]PathMetaChain)
@@ -251,11 +266,12 @@ func WalkFieldPath(m attrs.Definer, path string) (PathMetaChain, error) {
 	var root = make(PathMetaChain, len(parts))
 	var current = m
 	for i, part := range parts {
+		var defs = current.FieldDefs()
 		var meta = &PathMeta{
-			Object: current,
+			Object:      current,
+			Definitions: defs,
 		}
 
-		var defs = meta.Object.FieldDefs()
 		var f, ok = defs.Field(part)
 		if !ok {
 			return nil, fmt.Errorf("field %q not found in %T", part, meta.Object)
@@ -263,14 +279,17 @@ func WalkFieldPath(m attrs.Definer, path string) (PathMetaChain, error) {
 
 		relation, ok := GetRelationMeta(meta.Object, part)
 		if !ok && i != len(parts)-1 {
-			return nil, fmt.Errorf("field %q is not a relation", part)
+			return nil, fmt.Errorf("field %q is not a relation in %T", part, meta.Object)
 		}
 
 		meta.idx = i
 		meta.root = root
 		meta.Field = f
 		meta.Relation = relation
+
 		root[i] = meta
+
+		meta.TableAlias = pathMetaTableAlias(meta)
 
 		if i == len(parts)-1 {
 			break

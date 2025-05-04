@@ -132,6 +132,7 @@ func (r *Related) Through() attrs.Definer {
 }
 
 type Todo struct {
+	models.Model
 	ID          int
 	Title       string
 	Description string
@@ -140,7 +141,8 @@ type Todo struct {
 }
 
 func (m *Todo) FieldDefs() attrs.Definitions {
-	return attrs.Define(m,
+	return m.Model.Define(m,
+
 		attrs.NewField(m, "ID", &attrs.FieldConfig{
 			Column:   "id", // can be inferred, but explicitly set for clarity
 			Primary:  true,
@@ -252,6 +254,10 @@ func init() {
 
 	queries.RegisterModel(&User{})
 	queries.RegisterModel(&Todo{})
+	queries.RegisterModel(&Profile{})
+	queries.RegisterModel(&Image{})
+	queries.RegisterModel(&ObjectWithMultipleRelations{})
+	queries.RegisterModel(&Category{})
 
 	logger.Setup(&logger.Logger{
 		Level:       logger.DBG,

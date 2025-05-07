@@ -30,7 +30,7 @@ type driverData struct {
 }
 
 const (
-	CACHE_TRAVERSAL_RESULTS = true
+	CACHE_TRAVERSAL_RESULTS = false
 )
 
 func RegisterDriver(driver driver.Driver, database string, supportsReturning ...SupportsReturning) {
@@ -88,6 +88,9 @@ func NewObjectFromIface(obj attrs.Definer) attrs.Definer {
 
 // safer alias generator
 func NewJoinAlias(field attrs.Field, tableName string, chain []string) string {
+	if field == nil {
+		return tableName
+	}
 	var l = len(chain)
 	return fmt.Sprintf("%s_%s_%d", field.ColumnName(), tableName, l-1)
 	//	if l > 1 {
@@ -150,24 +153,16 @@ func WalkFields(
 		aliases = append(aliases, alias)
 		parent = current
 
-		switch {
-		case f.ForeignKey() != nil:
-			current = f.ForeignKey()
-		case f.OneToOne() != nil:
-			if through := f.OneToOne().Through(); through != nil {
-				current = through
-			} else {
-				current = f.OneToOne().Model()
-			}
-		case f.ManyToMany() != nil:
-			current = f.ManyToMany().Through()
-		default:
+		var rel = f.Rel()
+		if rel == nil {
 			return nil, nil, nil, nil, nil, false, fmt.Errorf("field %q is not a relation", part)
 		}
 
+		current = rel.Model()
 		if current == nil {
 			return nil, nil, nil, nil, nil, false, fmt.Errorf("field %q has no related model", part)
 		}
+
 		isRelated = true
 	}
 
@@ -207,13 +202,13 @@ type PathMeta struct {
 	Object      attrs.Definer
 	Definitions attrs.Definitions
 	Field       attrs.Field
-	Relation    Relation
+	Relation    attrs.Relation
 	TableAlias  string
 }
 
 func (m *PathMeta) String() string {
 	var sb strings.Builder
-	for i, part := range m.root {
+	for i, part := range m.root[:m.idx+1] {
 		if i > 0 {
 			sb.WriteString(".")
 		}
@@ -231,7 +226,13 @@ func pathMetaTableAlias(m *PathMeta) string {
 	for i, part := range c {
 		s[i] = part.Field.Name()
 	}
-	return NewJoinAlias(m.Field, m.Definitions.TableName(), s)
+
+	var field attrs.Field
+	if m.idx > 0 {
+		field = m.root[m.idx-1].Field
+	}
+
+	return NewJoinAlias(field, m.Definitions.TableName(), s)
 }
 
 func (m *PathMeta) Parent() *PathMeta {
@@ -277,7 +278,7 @@ func WalkFieldPath(m attrs.Definer, path string) (PathMetaChain, error) {
 			return nil, fmt.Errorf("field %q not found in %T", part, meta.Object)
 		}
 
-		relation, ok := GetRelationMeta(meta.Object, part)
+		relation, ok := attrs.GetRelationMeta(meta.Object, part)
 		if !ok && i != len(parts)-1 {
 			return nil, fmt.Errorf("field %q is not a relation in %T", part, meta.Object)
 		}
@@ -295,7 +296,12 @@ func WalkFieldPath(m attrs.Definer, path string) (PathMetaChain, error) {
 			break
 		}
 
-		current = relation.Target().Model()
+		// This is required to avoid FieldNotFound errors - some objects might cache
+		// their field definitions, meaning any dynamic changes to the field will not be reflected
+		// in the field definitions. This is a workaround to avoid that issue.
+		var newTyp = reflect.TypeOf(relation.Model())
+		var newObj = reflect.New(newTyp.Elem())
+		current = newObj.Interface().(attrs.Definer)
 	}
 
 	if CACHE_TRAVERSAL_RESULTS {

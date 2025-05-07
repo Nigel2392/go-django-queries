@@ -1,0 +1,329 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"reflect"
+	"strings"
+
+	"github.com/Nigel2392/go-django-queries/src/migrator"
+	pg_stdlib "github.com/jackc/pgx/v5/stdlib"
+)
+
+var _ migrator.SchemaEditor = &PostgresSchemaEditor{}
+
+const (
+	createTableMigrations = `CREATE TABLE IF NOT EXISTS migrations (
+		id SERIAL PRIMARY KEY,
+		app_name TEXT NOT NULL,
+		model_name TEXT NOT NULL,
+		migration_name TEXT NOT NULL,
+		created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(app_name, model_name, migration_name)
+	);`
+	insertTableMigrations = `INSERT INTO migrations (app_name, model_name, migration_name) VALUES ($1, $2, $3);`
+	deleteTableMigrations = `DELETE FROM migrations WHERE app_name = $1 AND model_name = $2 AND migration_name = $3;`
+	selectTableMigrations = `SELECT COUNT(*) FROM migrations WHERE app_name = $1 AND model_name = $2 AND migration_name = $3;`
+)
+
+type PostgresSchemaEditor struct {
+	db *sql.DB
+}
+
+func NewPostgresSchemaEditor(db *sql.DB) *PostgresSchemaEditor {
+	return &PostgresSchemaEditor{db: db}
+}
+
+func (m *PostgresSchemaEditor) Setup() error {
+	_, err := m.db.Exec(createTableMigrations)
+	return err
+}
+
+func (m *PostgresSchemaEditor) StoreMigration(appName string, modelName string, migrationName string) error {
+	_, err := m.db.Exec(insertTableMigrations, appName, modelName, migrationName)
+	return err
+}
+
+func (m *PostgresSchemaEditor) HasMigration(appName string, modelName string, migrationName string) (bool, error) {
+	var count int
+	err := m.db.QueryRow(selectTableMigrations, appName, modelName, migrationName).Scan(&count)
+	return count > 0, err
+}
+
+func (m *PostgresSchemaEditor) RemoveMigration(appName string, modelName string, migrationName string) error {
+	_, err := m.db.Exec(deleteTableMigrations, appName, modelName, migrationName)
+	return err
+}
+
+func (m *PostgresSchemaEditor) Execute(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return m.db.ExecContext(ctx, query, args...)
+}
+
+func (m *PostgresSchemaEditor) CreateTable(table migrator.Table) error {
+	var w strings.Builder
+	w.WriteString(`CREATE TABLE "`)
+	w.WriteString(table.TableName())
+	w.WriteString(`" (`)
+
+	var written bool
+	var cols = table.Columns()
+	for _, col := range cols {
+		if !col.UseInDB {
+			continue
+		}
+		if written {
+			w.WriteString(", ")
+		}
+		m.WriteColumn(&w, *col)
+		written = true
+	}
+
+	w.WriteString(");")
+
+	_, err := m.db.Exec(w.String())
+	return err
+}
+
+func (m *PostgresSchemaEditor) DropTable(table migrator.Table) error {
+	var w strings.Builder
+	w.WriteString(`DROP TABLE IF EXISTS "`)
+	w.WriteString(table.TableName())
+	w.WriteString(`" CASCADE;`)
+	_, err := m.db.Exec(w.String())
+	return err
+}
+
+func (m *PostgresSchemaEditor) RenameTable(table migrator.Table, newName string) error {
+	var w strings.Builder
+	w.WriteString(`ALTER TABLE "`)
+	w.WriteString(table.TableName())
+	w.WriteString(`" RENAME TO "`)
+	w.WriteString(newName)
+	w.WriteString(`";`)
+	_, err := m.db.Exec(w.String())
+	return err
+}
+
+func (m *PostgresSchemaEditor) AddIndex(table migrator.Table, index migrator.Index) error {
+	var w strings.Builder
+	if index.Unique {
+		w.WriteString(`CREATE UNIQUE INDEX "`)
+	} else {
+		w.WriteString(`CREATE INDEX "`)
+	}
+	w.WriteString(index.Name)
+	w.WriteString(`" ON "`)
+	w.WriteString(table.TableName())
+	w.WriteString(`" (`)
+	for i, col := range index.Columns {
+		if i > 0 {
+			w.WriteString(", ")
+		}
+		w.WriteString(`"`)
+		w.WriteString(col)
+		w.WriteString(`"`)
+	}
+	w.WriteString(");")
+
+	_, err := m.db.Exec(w.String())
+	return err
+}
+
+func (m *PostgresSchemaEditor) DropIndex(table migrator.Table, index migrator.Index) error {
+	var w strings.Builder
+	w.WriteString(`DROP INDEX IF EXISTS "`)
+	w.WriteString(index.Name)
+	w.WriteString(`";`)
+	_, err := m.db.Exec(w.String())
+	return err
+}
+
+func (m *PostgresSchemaEditor) RenameIndex(table migrator.Table, oldName string, newName string) error {
+	var w strings.Builder
+	w.WriteString(`ALTER INDEX "`)
+	w.WriteString(oldName)
+	w.WriteString(`" RENAME TO "`)
+	w.WriteString(newName)
+	w.WriteString(`";`)
+	_, err := m.db.Exec(w.String())
+	return err
+}
+
+func (m *PostgresSchemaEditor) AddField(table migrator.Table, col migrator.Column) error {
+	var w strings.Builder
+	w.WriteString(`ALTER TABLE "`)
+	w.WriteString(table.TableName())
+	w.WriteString(`" ADD COLUMN `)
+	m.WriteColumn(&w, col)
+	w.WriteString(";")
+	_, err := m.db.Exec(w.String())
+	return err
+}
+
+func (m *PostgresSchemaEditor) RemoveField(table migrator.Table, col migrator.Column) error {
+	var w strings.Builder
+	w.WriteString(`ALTER TABLE "`)
+	w.WriteString(table.TableName())
+	w.WriteString(`" DROP COLUMN IF EXISTS "`)
+	w.WriteString(col.Field.ColumnName())
+	w.WriteString(`" CASCADE;`)
+	_, err := m.db.Exec(w.String())
+	return err
+}
+
+func (m *PostgresSchemaEditor) AlterField(table migrator.Table, oldCol migrator.Column, newCol migrator.Column) error {
+	var (
+		w         strings.Builder
+		tableName = table.TableName()
+		colName   = oldCol.Field.ColumnName()
+	)
+
+	w.WriteString(`ALTER TABLE "`)
+	w.WriteString(tableName)
+	w.WriteString(`"`)
+
+	// Alter column type
+
+	var (
+		aTyp = migrator.GetFieldType(&pg_stdlib.Driver{}, oldCol.Field)
+		bTyp = migrator.GetFieldType(&pg_stdlib.Driver{}, newCol.Field)
+	)
+
+	if aTyp != bTyp {
+		w.WriteString(` ALTER COLUMN "`)
+		w.WriteString(colName)
+		w.WriteString(`" TYPE `)
+		w.WriteString(bTyp)
+		w.WriteString(`,`)
+	}
+
+	// Alter NULL / NOT NULL
+	if oldCol.Nullable != newCol.Nullable {
+		w.WriteString(` ALTER COLUMN "`)
+		w.WriteString(colName)
+		if newCol.Nullable {
+			w.WriteString(`" DROP NOT NULL,`)
+		} else {
+			w.WriteString(`" SET NOT NULL,`)
+		}
+	}
+
+	// Alter default
+	var oldDefault = oldCol.Default
+	var newDefault = newCol.Default
+	if !migrator.EqualDefaultValue(oldDefault, newDefault) {
+		w.WriteString(` ALTER COLUMN "`)
+		w.WriteString(colName)
+		if newDefault == nil {
+			w.WriteString(`" DROP DEFAULT,`)
+		} else {
+			w.WriteString(`" SET DEFAULT `)
+			var rv = reflect.ValueOf(newDefault)
+			if rv.Kind() == reflect.Ptr {
+				if !rv.IsValid() || rv.IsNil() {
+					w.WriteString(`NULL`)
+					w.WriteString(`,`)
+					return nil
+				}
+				rv = rv.Elem()
+			}
+
+			switch rv.Kind() {
+			case reflect.String:
+				w.WriteString(fmt.Sprintf("'%s'", rv.String()))
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				w.WriteString(fmt.Sprintf("%d", rv.Int()))
+			case reflect.Float32, reflect.Float64:
+				w.WriteString(fmt.Sprintf("%f", rv.Float()))
+			case reflect.Bool:
+				if rv.Bool() {
+					w.WriteString("TRUE")
+				} else {
+					w.WriteString("FALSE")
+				}
+			case reflect.Slice, reflect.Array:
+				if rv.IsNil() {
+					w.WriteString(`NULL`)
+					w.WriteString(`,`)
+					return nil
+				}
+				if rv.Type().Elem().Kind() == reflect.Uint8 {
+					w.WriteString(`'`)
+					w.Write(rv.Bytes())
+					w.WriteString(`'`)
+				} else {
+					return fmt.Errorf("unsupported default type %T", rv.Interface())
+				}
+			default:
+				return fmt.Errorf("unsupported default type %T", newDefault)
+			}
+			w.WriteString(`,`)
+		}
+	}
+
+	// Trim trailing comma
+	sql := strings.TrimSuffix(w.String(), ",")
+
+	// Execute ALTER TABLE ... for collected changes
+	if _, err := m.db.Exec(sql); err != nil {
+		return fmt.Errorf("alter field failed: %w\nquery: %s", err, sql)
+	}
+
+	return nil
+}
+
+func (m *PostgresSchemaEditor) WriteColumn(w *strings.Builder, col migrator.Column) {
+	w.WriteString(`"`)
+	w.WriteString(col.Field.ColumnName())
+	w.WriteString(`" `)
+	w.WriteString(migrator.GetFieldType(&pg_stdlib.Driver{}, col.Field))
+	if !col.Nullable {
+		w.WriteString(" NOT NULL")
+	}
+	if col.Unique {
+		w.WriteString(" UNIQUE")
+	}
+	if col.Default != nil {
+		w.WriteString(" DEFAULT ")
+		switch v := col.Default.(type) {
+		case string:
+			w.WriteString(fmt.Sprintf("'%s'", v))
+		case int, int8, int16, int32, int64,
+			uint, uint8, uint16, uint32, uint64:
+			w.WriteString(fmt.Sprintf("%d", v))
+		case float32, float64:
+			w.WriteString(fmt.Sprintf("%f", v))
+		case bool:
+			if v {
+				w.WriteString("TRUE")
+			} else {
+				w.WriteString("FALSE")
+			}
+		default:
+			panic(fmt.Errorf("unsupported default type: %T", v))
+		}
+	}
+	if col.Rel != nil {
+		// handle foreign keys
+		var relField = col.Rel.Field()
+		if relField == nil {
+			relField = col.Rel.Model().FieldDefs().Primary()
+		}
+		if relField == nil {
+			panic(fmt.Errorf("missing foreign key target for column %q", col.Name))
+		}
+		w.WriteString(fmt.Sprintf(` REFERENCES "%s"("%s")`,
+			col.Rel.Model().FieldDefs().TableName(),
+			relField.ColumnName(),
+		))
+		if col.Rel.OnDelete != 0 {
+			w.WriteString(" ON DELETE ")
+			w.WriteString(col.Rel.OnDelete.String())
+		}
+		if col.Rel.OnUpdate != 0 {
+			w.WriteString(" ON UPDATE ")
+			w.WriteString(col.Rel.OnUpdate.String())
+		}
+	}
+}

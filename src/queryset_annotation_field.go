@@ -56,10 +56,7 @@ func (q *queryField[T]) Value() (driver.Value, error) { return q.value, nil }
 func (q *queryField[T]) Scan(v any) error             { return q.SetValue(v, false) }
 func (q *queryField[T]) GetDefault() any              { return nil }
 func (q *queryField[T]) Instance() attrs.Definer      { return nil }
-func (q *queryField[T]) Rel() attrs.Definer           { return nil }
-func (q *queryField[T]) ForeignKey() attrs.Definer    { return nil }
-func (q *queryField[T]) ManyToMany() attrs.Relation   { return nil }
-func (q *queryField[T]) OneToOne() attrs.Relation     { return nil }
+func (q *queryField[T]) Rel() attrs.Relation          { return nil }
 func (q *queryField[T]) FormField() fields.Field      { return nil }
 func (q *queryField[T]) Validate() error              { return nil }
 func (q *queryField[T]) Label() string                { return q.name }

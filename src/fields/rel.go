@@ -1,43 +1,80 @@
 package fields
 
 import (
-	"github.com/Nigel2392/go-django-queries/internal"
+	"fmt"
+
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
 var (
 	_ queries.ForUseInQueriesField = (*RelationField[any])(nil)
-	_ queries.RelatedField         = (*RelationField[any])(nil)
-	_ internal.CanReverseAlias     = (*RelationField[any])(nil)
+	_ attrs.CanRelatedName         = (*RelationField[any])(nil)
 )
-
-type rel struct {
-	model   queries.RelationTarget
-	through queries.RelationTarget
-}
-
-func (r *rel) Model() attrs.Definer {
-	if r.model == nil {
-		return nil
-	}
-	return r.model.Model()
-}
-
-func (r *rel) Through() attrs.Definer {
-	if r.through == nil {
-		return nil
-	}
-	return r.through.Model()
-}
 
 type RelationField[T any] struct {
 	*DataModelField[T]
-	rel queries.Relation
-	col string
+	rel  attrs.Relation
+	name string
+	col  string
 }
 
-func NewRelatedField[T any](forModel attrs.Definer, dst any, reverseName string, columnName string, rel queries.Relation) *RelationField[T] {
+type typedRelation struct {
+	attrs.Relation
+	typ attrs.RelationType
+}
+
+func (r *typedRelation) Type() attrs.RelationType {
+	return r.typ
+}
+
+type wrappedRelation struct {
+	attrs.Relation
+	from attrs.RelationTarget
+}
+
+func (r *wrappedRelation) From() attrs.RelationTarget {
+	if r.from == nil {
+		return r.Relation.From()
+	}
+	return r.from
+}
+
+type relationTarget struct {
+	model    attrs.Definer
+	field    attrs.Field
+	fieldStr string
+	prev     attrs.RelationTarget
+}
+
+func (r *relationTarget) From() attrs.RelationTarget {
+	return r.prev
+}
+
+func (r *relationTarget) Model() attrs.Definer {
+	return r.model
+}
+
+func (r *relationTarget) Field() attrs.Field {
+	if r.field != nil {
+		return r.field
+	}
+
+	var defs = r.model.FieldDefs()
+	if r.fieldStr != "" {
+		var ok bool
+		r.field, ok = defs.Field(r.fieldStr)
+		if !ok {
+			panic(fmt.Errorf("field %q not found in model %T", r.fieldStr, r.model))
+		}
+	} else {
+		r.field = defs.Primary()
+	}
+
+	return r.field
+}
+
+func NewRelatedField[T any](forModel attrs.Definer, dst any, name string, reverseName string, columnName string, rel attrs.Relation) *RelationField[T] {
 	//var (
 	//	inst = field.Instance()
 	//	defs = inst.FieldDefs()
@@ -46,98 +83,50 @@ func NewRelatedField[T any](forModel attrs.Definer, dst any, reverseName string,
 	return &RelationField[T]{
 		DataModelField: NewDataModelField[T](forModel, dst, reverseName),
 		col:            columnName,
+		name:           name,
 		rel:            rel,
 	}
+}
+
+func (m *RelationField[T]) Name() string {
+	return m.name
 }
 
 func (m *RelationField[T]) ForSelectAll() bool {
 	return false
 }
 
-func (r *RelationField[T]) Relation() queries.Relation {
-	return r.rel
-}
-
 func (r *RelationField[T]) ColumnName() string {
+	if r.col == "" {
+		var from = r.rel.From()
+		if from != nil {
+			return from.Field().ColumnName()
+		}
+	}
 	return r.col
 }
 
 func (r *RelationField[T]) GetTargetField() attrs.Field {
-	return r.rel.Target().Field()
+	var targetField = r.rel.Field()
+	if targetField == nil {
+		var defs = r.rel.Model().FieldDefs()
+		return defs.Primary()
+	}
+	return targetField
 }
 
-func (r *RelationField[T]) ReverseAlias() string {
+func (r *RelationField[T]) RelatedName() string {
 	return r.DataModelField.Name()
 }
 
-func (r *RelationField[T]) Rel() attrs.Definer {
-	var (
-		m2o = r.ForeignKey()
-		o2m = r.ForeignKeyReverse()
-		m2m = r.ManyToMany()
-		oto = r.OneToOne()
-	)
-	if m2o != nil {
-		return m2o
+func (r *RelationField[T]) Rel() attrs.Relation {
+	return &wrappedRelation{
+		Relation: r.rel,
+		from: &relationTarget{
+			model: r.Instance(),
+			field: r,
+		},
 	}
-	if m2m != nil {
-		return m2m.Through()
-	}
-	if o2m != nil {
-		var through = o2m.Through()
-		if through != nil {
-			return through
-		}
-		return o2m.Model()
-	}
-	if oto != nil {
-		var through = oto.Through()
-		if through != nil {
-			return through
-		}
-		return oto.Model()
-	}
-	return nil
-}
-
-func (r *RelationField[T]) ForeignKey() attrs.Definer {
-	if r.rel.Type() == queries.RelationTypeForeignKey {
-		return r.rel.Target().Model()
-	}
-	return nil
-}
-
-func (e *RelationField[T]) ForeignKeyReverse() attrs.Relation {
-	if e.rel.Type() == queries.RelationTypeForeignKeyReverse {
-		var relTarget = e.rel.Target()
-		return &rel{
-			model:   relTarget,
-			through: relTarget.From(),
-		}
-	}
-	return nil
-}
-
-func (e *RelationField[T]) ManyToMany() attrs.Relation {
-	if e.rel.Type() == queries.RelationTypeManyToMany {
-		var relTarget = e.rel.Target()
-		return &rel{
-			model:   relTarget,
-			through: relTarget.From(),
-		}
-	}
-	return nil
-}
-
-func (e *RelationField[T]) OneToOne() attrs.Relation {
-	if e.rel.Type() == queries.RelationTypeOneToOne {
-		var relTarget = e.rel.Target()
-		return &rel{
-			model:   relTarget,
-			through: relTarget.From(),
-		}
-	}
-	return nil
 }
 
 func (r *RelationField[T]) Inject(qs *queries.QuerySet) *queries.QuerySet {

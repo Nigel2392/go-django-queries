@@ -38,9 +38,6 @@ type ForUseInQueriesField interface {
 type RelatedField interface {
 	attrs.Field
 
-	Relation() Relation
-
-	// GetRelatedField returns the related field for the field.
 	// This is used to determine the column name for the field, for example for a through table.
 	GetTargetField() attrs.Field
 }

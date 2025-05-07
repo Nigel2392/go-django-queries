@@ -61,10 +61,10 @@ func init() {
 		panic(err)
 	}
 
-	queries.RegisterModel(&TestStruct{})
-	queries.RegisterModel(&TestStructNoObject{})
-	queries.RegisterModel(&Author{})
-	queries.RegisterModel(&Book{})
+	attrs.RegisterModel(&TestStruct{})
+	attrs.RegisterModel(&TestStructNoObject{})
+	attrs.RegisterModel(&Author{})
+	attrs.RegisterModel(&Book{})
 }
 
 type TestStruct struct {
@@ -613,7 +613,7 @@ func (b *Book) FieldDefs() attrs.Definitions {
 		attrs.NewField(b, "Title", nil),
 		attrs.NewField(b, "Author", &attrs.FieldConfig{
 			Column:        "author_id",
-			RelForeignKey: &Author{},
+			RelForeignKey: attrs.Relate(&Author{}, "", nil),
 		}),
 	).WithTableName("book")
 }

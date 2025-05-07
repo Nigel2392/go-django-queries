@@ -1,7 +1,6 @@
 package fields
 
 import (
-	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
@@ -9,14 +8,18 @@ type ForeignKeyField[T any] struct {
 	*RelationField[T]
 }
 
-func NewForeignKeyField[T any](forModel attrs.Definer, dst any, reverseName string, columnName string, rel queries.Relation) *ForeignKeyField[T] {
+func NewForeignKeyField[T any](forModel attrs.Definer, dst any, name string, reverseName string, columnName string, rel attrs.Relation) *ForeignKeyField[T] {
 	var f = &ForeignKeyField[T]{
 		RelationField: NewRelatedField[T](
 			forModel,
 			dst,
+			name,
 			reverseName,
 			columnName,
-			rel,
+			&typedRelation{
+				Relation: rel,
+				typ:      attrs.RelManyToOne,
+			},
 		),
 	}
 	return f

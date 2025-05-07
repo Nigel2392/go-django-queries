@@ -5,12 +5,11 @@ import (
 	"testing"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
-	"github.com/Nigel2392/go-django-queries/src/models"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
 type relationTestExpected struct {
-	type_ queries.RelationType
+	type_ attrs.RelationType
 	final reflect.Type
 	chain []string
 }
@@ -33,13 +32,13 @@ var tests = []relationTest{
 		model: &Category{},
 		expectsFwd: map[string]relationTestExpected{
 			"Parent": {
-				type_: queries.RelationTypeForeignKey,
+				type_: attrs.RelManyToOne,
 				final: getType(&Category{}),
 			},
 		},
 		expectsRev: map[string]relationTestExpected{
 			"CategorySet": {
-				type_: queries.RelationTypeForeignKeyReverse,
+				type_: attrs.RelOneToMany,
 				final: getType(&Category{}),
 			},
 		},
@@ -49,7 +48,7 @@ var tests = []relationTest{
 		model: &Todo{},
 		expectsFwd: map[string]relationTestExpected{
 			"User": {
-				type_: queries.RelationTypeOneToOne,
+				type_: attrs.RelOneToOne,
 				final: getType(&User{}),
 			},
 		},
@@ -60,7 +59,7 @@ var tests = []relationTest{
 		model: &User{},
 		expectsRev: map[string]relationTestExpected{
 			"Todo": {
-				type_: queries.RelationTypeOneToOne,
+				type_: attrs.RelOneToOne,
 				final: getType(&Todo{}),
 			},
 		},
@@ -72,8 +71,8 @@ func TestRegisterModelRelations(t *testing.T) {
 	for _, test := range tests {
 		test.fieldDefs = test.model.FieldDefs()
 		t.Run(test.name, func(t *testing.T) {
-			queries.RegisterModel(test.model)
-			meta := queries.GetModelMeta(test.model)
+			attrs.RegisterModel(test.model)
+			meta := attrs.GetModelMeta(test.model)
 
 			for field, exp := range test.expectsFwd {
 				rel, ok := meta.Forward(field)
@@ -92,13 +91,8 @@ func TestRegisterModelRelations(t *testing.T) {
 					t.Errorf("expected forward relation type %v for %q, got %v", exp.type_, field, rel.Type())
 				}
 
-				last := rel.Chain()
-				for last.To() != nil {
-					last = last.To()
-				}
-
-				if reflect.TypeOf(last.Model()) != exp.final {
-					t.Errorf("expected final model type %v for %q, got %v", exp.final, field, reflect.TypeOf(last.Model()))
+				if reflect.TypeOf(rel.Model()) != exp.final {
+					t.Errorf("expected final model type %v for %q, got %v", exp.final, field, reflect.TypeOf(rel.Model()))
 				}
 			}
 
@@ -119,22 +113,42 @@ func TestRegisterModelRelations(t *testing.T) {
 					continue
 				}
 
-				last := rel.Chain()
-				for last.To() != nil {
-					last = last.To()
-				}
-
-				if reflect.TypeOf(last.Model()) != exp.final {
-					t.Errorf("expected final model type %v for %q, got %v", exp.final, field, reflect.TypeOf(last.Model()))
+				if reflect.TypeOf(rel.Model()) != exp.final {
+					t.Errorf("expected final model type %v for %q, got %v", exp.final, field, reflect.TypeOf(rel.Model()))
 				}
 			}
 
 			t.Logf("model %T has %d forward relations and %d reverse relations", test.model, meta.ForwardMap().Len(), meta.ReverseMap().Len())
-			for field, rel := range meta.IterForward() {
-				t.Logf("forward relation %q: %T.%s", field, rel.Chain().Model(), rel.Chain().Field().Name())
+			for head := meta.ForwardMap().Front(); head != nil; head = head.Next() {
+				field := head.Key
+				rel := head.Value
+				if rel == nil {
+					t.Errorf("expected forward relation %q, got nil", field)
+					continue
+				}
+				model := rel.Model()
+				f := rel.Field()
+				if f == nil {
+					t.Errorf("expected forward relation %q, got nil", field)
+					continue
+				}
+				t.Logf("forward relation %q: %T.%s", field, model, f.Name())
 			}
-			for field, rel := range meta.IterReverse() {
-				t.Logf("reverse relation %q: %T.%s", field, rel.Chain().Model(), rel.Chain().Field().Name())
+			for head := meta.ReverseMap().Front(); head != nil; head = head.Next() {
+				field := head.Key
+				rel := head.Value
+				if rel == nil {
+					t.Errorf("expected reverse relation %q, got nil", field)
+					continue
+				}
+				model := rel.Model()
+				f := rel.Field()
+				if f == nil {
+					t.Errorf("expected reverse relation %q, got nil", field)
+					continue
+				}
+
+				t.Logf("reverse relation %q: %T.%s", field, model, f.Name())
 			}
 		})
 	}
@@ -150,13 +164,17 @@ func TestReverseRelations(t *testing.T) {
 		return
 	}
 
-	var meta = queries.GetModelMeta(user)
+	var meta = attrs.GetModelMeta(user)
 	t.Logf("model %T has %d forward relations and %d reverse relations", user, meta.ForwardMap().Len(), meta.ReverseMap().Len())
-	for field, rel := range meta.IterForward() {
-		t.Logf("forward relation %q: %T.%s", field, rel.Chain().Model(), rel.Chain().Field().Name())
+	for head := meta.ForwardMap().Front(); head != nil; head = head.Next() {
+		field := head.Key
+		rel := head.Value
+		t.Logf("forward relation %q: %T.%s", field, rel.Model(), rel.Field().Name())
 	}
-	for field, rel := range meta.IterReverse() {
-		t.Logf("reverse relation %q: %T.%s", field, rel.Chain().Model(), rel.Chain().Field().Name())
+	for head := meta.ReverseMap().Front(); head != nil; head = head.Next() {
+		field := head.Key
+		rel := head.Value
+		t.Logf("reverse relation %q: %T.%s", field, rel.Model(), rel.Field().Name())
 	}
 
 	var todo = &Todo{
@@ -439,75 +457,251 @@ func TestReverseRelationsNested(t *testing.T) {
 		return
 	}
 }
+func TestOneToOneWithThrough(t *testing.T) {
+	// Create the target
+	target := &OneToOneWithThrough_Target{
+		Name: "Target Name",
+		Age:  42,
+	}
+	if err := queries.CreateObject(target); err != nil {
+		t.Fatalf("failed to create target: %v", err)
+	}
 
-type OneToOneWithThrough struct {
-	models.Model
-	ID      int64
-	Name    string
-	Through attrs.Relation
+	// Create the main object
+	main := &OneToOneWithThrough{
+		Title: "Main Title",
+	}
+	if err := queries.CreateObject(main); err != nil {
+		t.Fatalf("failed to create main: %v", err)
+	}
+
+	// Create the through relation manually
+	through := &OneToOneWithThrough_Through{
+		SourceModel: main,
+		TargetModel: target,
+	}
+	if err := queries.CreateObject(through); err != nil {
+		t.Fatalf("failed to create through: %v", err)
+	}
+
+	// Query and include the through-relation
+	var q = queries.Objects(&OneToOneWithThrough{}).
+		Select("ID", "Title", "Target.*").
+		Filter("ID", main.ID).
+		First()
+
+	result, err := q.Exec()
+	if err != nil {
+		t.Fatalf("query failed: %v (%s)", err, q.SQL())
+	}
+	if result == nil {
+		t.Fatalf("expected result, got nil")
+	}
+
+	obj := result.Object.(*OneToOneWithThrough)
+	if obj.Title != main.Title {
+		t.Errorf("expected title %q, got %q", main.Title, obj.Title)
+	}
+
+	if obj.Through == nil {
+		t.Fatalf("expected Through field not nil")
+	}
+
+	var targetVal = obj.Through
+	if targetVal.ID != target.ID {
+		t.Errorf("expected target ID %d, got %d", target.ID, targetVal.ID)
+	}
+	if targetVal.Name != target.Name {
+		t.Errorf("expected target Name %q, got %q", target.Name, targetVal.Name)
+	}
+	if targetVal.Age != target.Age {
+		t.Errorf("expected target Age %d, got %d", target.Age, targetVal.Age)
+	}
 }
 
-func (t *OneToOneWithThrough) FieldDefs() attrs.Definitions {
-	return t.Model.Define(t,
-		attrs.NewField(t, "ID", &attrs.FieldConfig{
-			Column:  "id",
-			Primary: true,
-		}),
-		attrs.NewField(t, "Name", &attrs.FieldConfig{
-			Column: "name",
-		}),
-		attrs.NewField(t, "Through", &attrs.FieldConfig{
-			Column: "source_id",
-			RelOneToOne: &Related{
-				Object:        &OneToOneWithThrough_Target{},
-				ThroughObject: &OneToOneWithThrough_Through{},
-			},
-		}),
-	).WithTableName("onetoonewiththrough")
+func TestOneToOneWithThroughReverse(t *testing.T) {
+	target := &OneToOneWithThrough_Target{
+		Name: "ReverseTarget",
+		Age:  30,
+	}
+	if err := queries.CreateObject(target); err != nil {
+		t.Fatalf("failed to create target: %v", err)
+	}
+
+	main := &OneToOneWithThrough{
+		Title: "ReverseMain",
+	}
+	if err := queries.CreateObject(main); err != nil {
+		t.Fatalf("failed to create main: %v", err)
+	}
+
+	through := &OneToOneWithThrough_Through{
+		SourceModel: main,
+		TargetModel: target,
+	}
+	if err := queries.CreateObject(through); err != nil {
+		t.Fatalf("failed to create through: %v", err)
+	}
+
+	// Now test reverse relation (Target → Main)
+	result, err := queries.Objects(&OneToOneWithThrough_Target{}).
+		Select("ID", "Name", "TargetReverse.*"). // TargetReverse is the reverse field name
+		Filter("ID", target.ID).
+		First().
+		Exec()
+	if err != nil {
+		t.Fatalf("query failed: %v", err)
+	}
+
+	obj := result.Object.(*OneToOneWithThrough_Target)
+	if obj.Name != target.Name {
+		t.Errorf("expected name %q, got %q", target.Name, obj.Name)
+	}
+
+	reverseVal, ok := obj.RelatedField("TargetReverse")
+	if !ok || reverseVal == nil {
+		t.Fatalf("expected reverse field, got nil")
+	}
+
+	source := reverseVal.GetValue().(*OneToOneWithThrough)
+	if source == nil {
+		t.Fatalf("expected source, got nil")
+	}
+
+	if source.ID != main.ID {
+		t.Errorf("expected reverse ID %d, got %d", main.ID, source.ID)
+	}
+	if source.Title != main.Title {
+		t.Errorf("expected reverse title %q, got %q", main.Title, source.Title)
+	}
 }
 
-type OneToOneWithThrough_Through struct {
-	models.Model
-	ID     int64
-	Source *OneToOneWithThrough
-	Target *OneToOneWithThrough_Target
+func TestOneToOneWithThroughReverseIntoForward(t *testing.T) {
+	target := &OneToOneWithThrough_Target{
+		Name: "ReverseTarget",
+		Age:  30,
+	}
+	if err := queries.CreateObject(target); err != nil {
+		t.Fatalf("failed to create target: %v", err)
+	}
+
+	user := &User{
+		Name: "TestOneToOneWithThroughReverseIntoForward",
+	}
+	if err := queries.CreateObject(user); err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	main := &OneToOneWithThrough{
+		Title: "ReverseMain",
+		User:  user,
+	}
+	if err := queries.CreateObject(main); err != nil {
+		t.Fatalf("failed to create main: %v", err)
+	}
+
+	through := &OneToOneWithThrough_Through{
+		SourceModel: main,
+		TargetModel: target,
+	}
+	if err := queries.CreateObject(through); err != nil {
+		t.Fatalf("failed to create through: %v", err)
+	}
+
+	// Now test reverse relation (Target → Main)
+	result, err := queries.Objects(&OneToOneWithThrough_Target{}).
+		Select("ID", "Name", "TargetReverse.*", "TargetReverse.User.*"). // TargetReverse is the reverse field name
+		Filter("ID", target.ID).
+		First().
+		Exec()
+	if err != nil {
+		t.Fatalf("query failed: %v", err)
+	}
+
+	obj := result.Object.(*OneToOneWithThrough_Target)
+	if obj.Name != target.Name {
+		t.Errorf("expected name %q, got %q", target.Name, obj.Name)
+	}
+
+	reverseVal, ok := obj.RelatedField("TargetReverse")
+	if !ok || reverseVal == nil {
+		t.Fatalf("expected reverse field, got nil")
+	}
+
+	source := reverseVal.GetValue().(*OneToOneWithThrough)
+	if source == nil {
+		t.Fatalf("expected source, got nil")
+	}
+
+	if source.ID != main.ID {
+		t.Errorf("expected reverse ID %d, got %d", main.ID, source.ID)
+	}
+	if source.Title != main.Title {
+		t.Errorf("expected reverse title %q, got %q", main.Title, source.Title)
+	}
+	if source.User == nil {
+		t.Fatalf("expected source user, got nil")
+	}
+
+	if source.User.ID != user.ID {
+		t.Errorf("expected source user ID %d, got %d", user.ID, source.User.ID)
+	}
+
+	if source.User.Name != user.Name {
+		t.Errorf("expected source user name %q, got %q", user.Name, source.User.Name)
+	}
 }
 
-func (t *OneToOneWithThrough_Through) FieldDefs() attrs.Definitions {
-	return t.Model.Define(t,
-		attrs.NewField(t, "ID", &attrs.FieldConfig{
-			Column:  "id",
-			Primary: true,
-		}),
-		attrs.NewField(t, "Source", &attrs.FieldConfig{
-			Column: "source_id",
-			Null:   false,
-		}),
-		attrs.NewField(t, "Target", &attrs.FieldConfig{
-			Column: "target_id",
-			Null:   false,
-		}),
-	).WithTableName("onetoonewiththrough_through")
-}
-
-type OneToOneWithThrough_Target struct {
-	models.Model
-	ID   int64
-	Name string
-	Age  int
-}
-
-func (t *OneToOneWithThrough_Target) FieldDefs() attrs.Definitions {
-	return t.Model.Define(t,
-		attrs.NewField(t, "ID", &attrs.FieldConfig{
-			Column:  "id",
-			Primary: true,
-		}),
-		attrs.NewField(t, "Name", &attrs.FieldConfig{
-			Column: "name",
-		}),
-		attrs.NewField(t, "Age", &attrs.FieldConfig{
-			Column: "age",
-		}),
-	).WithTableName("onetoonewiththrough_target")
-}
+//
+//func TestOneToOneWithThroughNested(t *testing.T) {
+//	target := &OneToOneWithThrough_Target{
+//		Name: "NestedTarget",
+//		Age:  25,
+//	}
+//	if err := queries.CreateObject(target); err != nil {
+//		t.Fatalf("create target: %v", err)
+//	}
+//
+//	main := &OneToOneWithThrough{
+//		Title: "NestedMain",
+//	}
+//	if err := queries.CreateObject(main); err != nil {
+//		t.Fatalf("create main: %v", err)
+//	}
+//
+//	through := &OneToOneWithThrough_Through{
+//		SourceModel: main,
+//		TargetModel: target,
+//	}
+//	if err := queries.CreateObject(through); err != nil {
+//		t.Fatalf("create through: %v", err)
+//	}
+//
+//	// Nested: Target → Reverse → Target
+//	result, err := queries.Objects(&OneToOneWithThrough_Target{}).
+//		Select("ID", "Name", "TargetReverse.*", "TargetReverse.Target.*").
+//		Filter("ID", target.ID).
+//		First().
+//		Exec()
+//
+//	if err != nil {
+//		t.Fatalf("nested query failed: %v", err)
+//	}
+//
+//	obj := result.Object.(*OneToOneWithThrough_Target)
+//
+//	reverse, ok := obj.RelatedField("TargetReverse")
+//	if !ok || reverse == nil {
+//		t.Fatalf("expected Reverse relation")
+//	}
+//	mainObj := reverse.GetValue().(*OneToOneWithThrough)
+//	if mainObj == nil {
+//		t.Fatalf("expected main from reverse")
+//	}
+//
+//	relatedTarget := mainObj.Through
+//	if relatedTarget == nil || relatedTarget.ID != target.ID {
+//		t.Errorf("expected reloaded target ID %d, got %v", target.ID, relatedTarget)
+//	}
+//}
+//

@@ -125,6 +125,7 @@ type QuerySetInternals struct {
 	Offset      int
 	ForUpdate   bool
 	Distinct    bool
+	joins       map[string]struct{}
 }
 
 // QuerySet is a struct that represents a query set in the database.
@@ -451,22 +452,24 @@ func (qs *QuerySet) attrFields(obj attrs.Definer) []attrs.Field {
 	return fields
 }
 
-func addJoinForFK(qs *QuerySet, foreignKey attrs.Definer, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) (*FieldInfo, []JoinDef) {
-	var defs = foreignKey.FieldDefs()
-	var tableName = defs.TableName()
-	var relField attrs.Field
-
-	if relFieldGetter, ok := field.(RelatedField); ok {
-		relField = relFieldGetter.GetTargetField()
-	} else {
-		relField = defs.Primary()
-	}
+func addJoinForFK(qs *QuerySet, foreignKey attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]FieldInfo, []JoinDef) {
+	var target = foreignKey.Model()
+	var relField = foreignKey.Field()
+	// var relField attrs.Field
+	var targetDefs = target.FieldDefs()
+	var targetTable = targetDefs.TableName()
+	// if relFieldGetter, ok := field.(RelatedField); ok {
+	// relField = relFieldGetter.GetTargetField()
+	// } else {
+	// if relField == nil {
+	// relField = targetDefs.Primary()
+	// }
 
 	var front, back = qs.compiler.Quote()
 
 	var (
 		condA_Alias = parentDefs.TableName()
-		condB_Alias = tableName
+		condB_Alias = targetTable
 	)
 
 	if len(aliases) == 1 {
@@ -489,7 +492,7 @@ func addJoinForFK(qs *QuerySet, foreignKey attrs.Definer, parentDefs attrs.Defin
 
 	var includedFields []attrs.Field
 	if all {
-		var fields = defs.Fields()
+		var fields = targetDefs.Fields()
 		includedFields = make([]attrs.Field, 0, len(fields))
 		for _, f := range fields {
 			if !ForSelectAll(f) {
@@ -501,27 +504,27 @@ func addJoinForFK(qs *QuerySet, foreignKey attrs.Definer, parentDefs attrs.Defin
 		includedFields = []attrs.Field{field}
 	}
 
-	var info = &FieldInfo{
+	var info = FieldInfo{
 		SourceField: field,
 		Table: Table{
-			Name:  tableName,
+			Name:  targetTable,
 			Alias: aliases[len(aliases)-1],
 		},
-		Model:  foreignKey,
+		Model:  target,
 		Fields: includedFields,
 		Chain:  chain,
 	}
 
 	var key = fmt.Sprintf("%s.%s", condA, condB)
 	if _, ok := joinM[key]; ok {
-		return info, nil
+		return []FieldInfo{info}, nil
 	}
 
 	joinM[key] = true
 	var join = JoinDef{
 		TypeJoin: "LEFT JOIN",
 		Table: Table{
-			Name:  tableName,
+			Name:  targetTable,
 			Alias: aliases[len(aliases)-1],
 		},
 		ConditionA: condA,
@@ -529,18 +532,106 @@ func addJoinForFK(qs *QuerySet, foreignKey attrs.Definer, parentDefs attrs.Defin
 		ConditionB: condB,
 	}
 
-	return info, []JoinDef{join}
+	return []FieldInfo{info}, []JoinDef{join}
 }
 
-func addJoinForM2M(qs *QuerySet, manyToMany attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) (*FieldInfo, []JoinDef) {
-	// TBA
-	return nil, nil
+func addJoinForM2M(qs *QuerySet, manyToMany attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]FieldInfo, []JoinDef) {
+	var through = manyToMany.Through()
+
+	// through model info
+	var throughModel = through.Model()
+	var throughDefs = throughModel.FieldDefs()
+	var throughTable = throughDefs.TableName()
+
+	sourceField, _ := throughDefs.Field(through.SourceField())
+	targetField, _ := throughDefs.Field(through.TargetField())
+
+	var target = manyToMany.Model()
+	var targetDefs = target.FieldDefs()
+	var targetTable = targetDefs.TableName()
+
+	front, back := qs.compiler.Quote()
+	alias := aliases[len(aliases)-1]
+	aliasThrough := fmt.Sprintf("%s_through", alias)
+
+	// JOIN through table
+	join1 := JoinDef{
+		TypeJoin: "LEFT JOIN",
+		Table: Table{
+			Name:  throughTable,
+			Alias: aliasThrough,
+		},
+		ConditionA: fmt.Sprintf(
+			"%s%s%s.%s%s%s",
+			front, parentDefs.TableName(), back,
+			front, parentField.ColumnName(), back,
+		),
+		Logic: "=",
+		ConditionB: fmt.Sprintf(
+			"%s%s%s.%s%s%s",
+			front, aliasThrough, back,
+			front, sourceField.ColumnName(), back,
+		),
+	}
+
+	// JOIN target table
+	join2 := JoinDef{
+		TypeJoin: "LEFT JOIN",
+		Table: Table{
+			Name:  targetTable,
+			Alias: alias,
+		},
+		ConditionA: fmt.Sprintf(
+			"%s%s%s.%s%s%s",
+			front, aliasThrough, back,
+			front, targetField.ColumnName(), back,
+		),
+		Logic: "=",
+		ConditionB: fmt.Sprintf(
+			"%s%s%s.%s%s%s",
+			front, alias, back,
+			front, targetDefs.Primary().ColumnName(), back,
+		),
+	}
+
+	// Prevent duplicate joins
+	joins := make([]JoinDef, 0, 2)
+	if _, ok := joinM[join1.ConditionA+"."+join1.ConditionB]; !ok {
+		joins = append(joins, join1)
+		joinM[join1.ConditionA+"."+join1.ConditionB] = true
+	}
+	if _, ok := joinM[join2.ConditionA+"."+join2.ConditionB]; !ok {
+		joins = append(joins, join2)
+		joinM[join2.ConditionA+"."+join2.ConditionB] = true
+	}
+
+	includedFields := []attrs.Field{field}
+	if all {
+		includedFields = nil
+		for _, f := range targetDefs.Fields() {
+			if ForSelectAll(f) {
+				includedFields = append(includedFields, f)
+			}
+		}
+	}
+
+	return []FieldInfo{{
+		SourceField: field,
+		Model:       target,
+		Table: Table{
+			Name:  targetTable,
+			Alias: alias,
+		},
+		Fields: includedFields,
+		Chain:  chain,
+	}}, joins
+
 }
 
-func addJoinForO2O(qs *QuerySet, oneToOne attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) (*FieldInfo, []JoinDef) {
+func addJoinForO2O(qs *QuerySet, oneToOne attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]FieldInfo, []JoinDef) {
 	var through = oneToOne.Through()
 	if through == nil {
-		return addJoinForFK(qs, oneToOne.Model(), parentDefs, parentField, field, chain, aliases, all, joinM)
+		return addJoinForFK(qs, oneToOne, parentDefs, parentField, field, chain, aliases, all, joinM)
 	}
 	return addJoinForM2M(qs, oneToOne, parentDefs, parentField, field, chain, aliases, all, joinM)
 }
@@ -619,34 +710,17 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 		//}
 
 		// The field might be a relation
-		var (
-			rel        attrs.Definer
-			foreignKey = field.ForeignKey()
-			oneToOne   = field.OneToOne()
-			manyToMany = field.ManyToMany()
-		)
+		var rel = field.Rel()
 
 		// If all fields of the relation are requested, we need to add the relation
 		// to the join list. We also need to add the parent field to the chain.
-		if (foreignKey != nil || oneToOne != nil || manyToMany != nil) && allFields {
+		if (rel != nil) && allFields {
 			chain = append(chain, field.Name())
 			aliases = append(aliases, internal.NewJoinAlias(
 				field, current.FieldDefs().TableName(), chain,
 			))
 			parent = current
 			isRelated = true
-
-			switch {
-			case foreignKey != nil:
-				rel = foreignKey
-			case oneToOne != nil:
-				rel = oneToOne.Through()
-				if rel == nil {
-					rel = oneToOne.Model()
-				}
-			case manyToMany != nil:
-				rel = manyToMany.Through()
-			}
 		}
 
 		var defs = current.FieldDefs()
@@ -654,8 +728,8 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 		if len(chain) > 0 && isRelated {
 
 			var (
-				info *FieldInfo
-				join []JoinDef
+				infos []FieldInfo
+				join  []JoinDef
 			)
 
 			/*
@@ -721,24 +795,24 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 			}
 
 			if rel == nil {
-				foreignKey = parentField.ForeignKey()
-				oneToOne = parentField.OneToOne()
-				manyToMany = parentField.ManyToMany()
+				rel = parentField.Rel()
 			}
 
-			switch {
-			case foreignKey != nil:
-				info, join = addJoinForFK(qs, foreignKey, parentDefs, parentField, field, chain, aliases, allFields, joinM)
-			case oneToOne != nil:
-				info, join = addJoinForO2O(qs, oneToOne, parentDefs, parentField, field, chain, aliases, allFields, joinM)
-			case manyToMany != nil:
-				info, join = addJoinForM2M(qs, manyToMany, parentDefs, parentField, field, chain, aliases, allFields, joinM)
+			switch rel.Type() {
+			case attrs.RelManyToOne:
+				infos, join = addJoinForFK(qs, rel, parentDefs, parentField, field, chain, aliases, allFields, joinM)
+			case attrs.RelOneToOne:
+				infos, join = addJoinForO2O(qs, rel, parentDefs, parentField, field, chain, aliases, allFields, joinM)
+			case attrs.RelManyToMany:
+				infos, join = addJoinForM2M(qs, rel, parentDefs, parentField, field, chain, aliases, allFields, joinM)
+			case attrs.RelOneToMany:
+
 			default:
 				panic(fmt.Errorf("field %q is not a relation", field.Name()))
 			}
 
-			if info != nil {
-				fieldInfos = append(fieldInfos, *info)
+			if len(infos) > 0 {
+				fieldInfos = append(fieldInfos, infos...)
 				joins = append(joins, join...)
 			}
 
@@ -1735,7 +1809,7 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []any {
 				if i == len(info.Chain)-1 {
 					obj = internal.NewObjectFromIface(info.Model)
 				} else {
-					obj = internal.NewObjectFromIface(field.Rel())
+					obj = internal.NewObjectFromIface(field.Rel().Model())
 				}
 				if err := field.SetValue(obj, true); err != nil {
 					panic(fmt.Errorf("failed to set relation %q: %w", field.Name(), err))

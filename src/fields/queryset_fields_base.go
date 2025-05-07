@@ -291,19 +291,7 @@ func (e *DataModelField[T]) Instance() attrs.Definer {
 	return e.Model
 }
 
-func (e *DataModelField[T]) Rel() attrs.Definer {
-	return nil
-}
-
-func (e *DataModelField[T]) ForeignKey() attrs.Definer {
-	return nil
-}
-
-func (e *DataModelField[T]) ManyToMany() attrs.Relation {
-	return nil
-}
-
-func (e *DataModelField[T]) OneToOne() attrs.Relation {
+func (e *DataModelField[T]) Rel() attrs.Relation {
 	return nil
 }
 

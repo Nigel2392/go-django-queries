@@ -10,6 +10,7 @@ import (
 
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/expr"
+	"github.com/Nigel2392/go-django-queries/src/fields"
 	"github.com/Nigel2392/go-django-queries/src/models"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	django "github.com/Nigel2392/go-django/src"
@@ -57,6 +58,27 @@ const (
 	done BOOLEAN,
 	user_id INTEGER REFERENCES users(id)
 )`
+	createTableOneToOneWithThrough = `CREATE TABLE onetoonewiththrough (
+    id INTEGER PRIMARY KEY,
+    title TEXT,
+	user_id INTEGER
+    -- through relation is virtual, not stored here
+)`
+
+	createTableOneToOneWithThrough_target = `CREATE TABLE onetoonewiththrough_target (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    age INTEGER
+)`
+
+	createTableOneToOneWithThrough_through = `CREATE TABLE onetoonewiththrough_through (
+    id INTEGER PRIMARY KEY,
+    source_id INTEGER NOT NULL,
+    target_id INTEGER NOT NULL,
+    FOREIGN KEY(source_id) REFERENCES onetoonewiththrough(id),
+    FOREIGN KEY(target_id) REFERENCES onetoonewiththrough_target(id)
+)`
+
 	selectTodo = `SELECT id, title, description, done, user_id FROM todos WHERE id = ?`
 )
 
@@ -91,7 +113,7 @@ func (m *Profile) FieldDefs() attrs.Definitions {
 		attrs.NewField(m, "Name", &attrs.FieldConfig{}),
 		attrs.NewField(m, "Email", &attrs.FieldConfig{}),
 		attrs.NewField(m, "Image", &attrs.FieldConfig{
-			RelForeignKey: &Image{},
+			RelForeignKey: attrs.Relate(&Image{}, "", nil),
 			Column:        "image_id",
 		}),
 	).WithTableName("profiles")
@@ -112,7 +134,7 @@ func (m *User) FieldDefs() attrs.Definitions {
 		}),
 		attrs.NewField(m, "Name", &attrs.FieldConfig{}),
 		attrs.NewField(m, "Profile", &attrs.FieldConfig{
-			RelForeignKey: &Profile{},
+			RelForeignKey: attrs.Relate(&Profile{}, "", nil),
 			Column:        "profile_id",
 		}),
 	).WithTableName("users")
@@ -159,10 +181,8 @@ func (m *Todo) FieldDefs() attrs.Definitions {
 		}),
 		attrs.NewField(m, "Done", &attrs.FieldConfig{}),
 		attrs.NewField(m, "User", &attrs.FieldConfig{
-			Column: "user_id",
-			RelOneToOne: &Related{
-				Object: &User{},
-			},
+			Column:      "user_id",
+			RelOneToOne: attrs.Relate(&User{}, "", nil),
 		}),
 	).WithTableName("todos")
 }
@@ -180,17 +200,17 @@ func (m *ObjectWithMultipleRelations) FieldDefs() attrs.Definitions {
 			ReadOnly: true,
 		}),
 		attrs.NewField(m, "Obj1", &attrs.FieldConfig{
-			RelForeignKey: &User{},
+			RelForeignKey: attrs.Relate(&User{}, "", nil),
 			Column:        "obj1_id",
 			Attributes: map[string]any{
-				queries.ATTR_REVERSE_ALIAS: "MultiRelationObj1",
+				attrs.AttrReverseAliasKey: "MultiRelationObj1",
 			},
 		}),
 		attrs.NewField(m, "Obj2", &attrs.FieldConfig{
-			RelForeignKey: &User{},
+			RelForeignKey: attrs.Relate(&User{}, "", nil),
 			Column:        "obj2_id",
 			Attributes: map[string]any{
-				queries.ATTR_REVERSE_ALIAS: "MultiRelationObj2",
+				attrs.AttrReverseAliasKey: "MultiRelationObj2",
 			},
 		}),
 	).WithTableName("object_with_multiple_relations")
@@ -212,9 +232,87 @@ func (m *Category) FieldDefs() attrs.Definitions {
 		attrs.NewField(m, "Name", &attrs.FieldConfig{}),
 		attrs.NewField(m, "Parent", &attrs.FieldConfig{
 			Column:        "parent_id",
-			RelForeignKey: &Category{},
+			RelForeignKey: attrs.Relate(&Category{}, "", nil),
 		}),
 	).WithTableName("categories")
+}
+
+type OneToOneWithThrough struct {
+	models.Model
+	ID      int64
+	Title   string
+	Through *OneToOneWithThrough_Target
+	User    *User
+}
+
+func (t *OneToOneWithThrough) FieldDefs() attrs.Definitions {
+	return t.Model.Define(t,
+		attrs.NewField(t, "ID", &attrs.FieldConfig{
+			Column:  "id",
+			Primary: true,
+		}),
+		attrs.NewField(t, "Title", &attrs.FieldConfig{
+			Column: "title",
+		}),
+		fields.NewOneToOneField[*OneToOneWithThrough_Target](t, &t.Through, "Target", "TargetReverse", "id", attrs.Relate(
+			&OneToOneWithThrough_Target{},
+			"", &attrs.ThroughModel{
+				This:   &OneToOneWithThrough_Through{},
+				Source: "SourceModel",
+				Target: "TargetModel",
+			},
+		)),
+		attrs.NewField(t, "User", &attrs.FieldConfig{
+			Column:        "user_id",
+			RelForeignKey: attrs.Relate(&User{}, "", nil),
+		}),
+	).WithTableName("onetoonewiththrough")
+}
+
+type OneToOneWithThrough_Through struct {
+	models.Model
+	ID          int64
+	SourceModel *OneToOneWithThrough
+	TargetModel *OneToOneWithThrough_Target
+}
+
+func (t *OneToOneWithThrough_Through) FieldDefs() attrs.Definitions {
+	return t.Model.Define(t,
+		attrs.NewField(t, "ID", &attrs.FieldConfig{
+			Column:  "id",
+			Primary: true,
+		}),
+		attrs.NewField(t, "SourceModel", &attrs.FieldConfig{
+			Column: "source_id",
+			Null:   false,
+		}),
+		attrs.NewField(t, "TargetModel", &attrs.FieldConfig{
+			Column: "target_id",
+			Null:   false,
+		}),
+	).WithTableName("onetoonewiththrough_through")
+}
+
+type OneToOneWithThrough_Target struct {
+	models.Model
+	ID   int64
+	Name string
+	Age  int
+}
+
+func (t *OneToOneWithThrough_Target) FieldDefs() attrs.Definitions {
+	return t.Model.Define(t,
+		attrs.NewField(t, "ID", &attrs.FieldConfig{
+			Column:  "id",
+			Primary: true,
+		}),
+		attrs.NewField(t, "Name", &attrs.FieldConfig{
+			Column: "name",
+		}),
+		attrs.NewField(t, "Age", &attrs.FieldConfig{
+			Column: "age",
+		}),
+	).WithTableName("onetoonewiththrough_target")
 }
 
 func init() {
@@ -252,12 +350,27 @@ func init() {
 		panic(fmt.Sprint("failed to create table todos ", err))
 	}
 
-	queries.RegisterModel(&User{})
-	queries.RegisterModel(&Todo{})
-	queries.RegisterModel(&Profile{})
-	queries.RegisterModel(&Image{})
-	queries.RegisterModel(&ObjectWithMultipleRelations{})
-	queries.RegisterModel(&Category{})
+	if _, err = db.Exec(createTableOneToOneWithThrough); err != nil {
+		panic(fmt.Sprint("failed to create table onetoonewiththrough ", err))
+	}
+
+	if _, err = db.Exec(createTableOneToOneWithThrough_target); err != nil {
+		panic(fmt.Sprint("failed to create table onetoonewiththrough_target ", err))
+	}
+
+	if _, err = db.Exec(createTableOneToOneWithThrough_through); err != nil {
+		panic(fmt.Sprint("failed to create table onetoonewiththrough_through ", err))
+	}
+
+	attrs.RegisterModel(&User{})
+	attrs.RegisterModel(&Todo{})
+	attrs.RegisterModel(&Profile{})
+	attrs.RegisterModel(&Image{})
+	attrs.RegisterModel(&ObjectWithMultipleRelations{})
+	attrs.RegisterModel(&Category{})
+	attrs.RegisterModel(&OneToOneWithThrough{})
+	attrs.RegisterModel(&OneToOneWithThrough_Through{})
+	attrs.RegisterModel(&OneToOneWithThrough_Target{})
 
 	logger.Setup(&logger.Logger{
 		Level:       logger.DBG,

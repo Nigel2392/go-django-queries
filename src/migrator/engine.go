@@ -390,7 +390,7 @@ func (m *MigrationEngine) makeMigrationDiff(migration *MigrationFile, last *Migr
 		//		err, "failed to remove column %q from table %q", col.Name, table.TableName(),
 		//	)
 		//}
-		migration.addAction(ActionRemoveField, nil, unchanged(&col), nil)
+		migration.addAction(ActionRemoveField, nil, changed(&col, nil), nil)
 		m.Log(ActionRemoveField, migration, unchanged(table), changed(&col, nil), nil)
 		shouldMigrate = true
 	}

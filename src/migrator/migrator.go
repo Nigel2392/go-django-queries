@@ -25,6 +25,10 @@ type CanSQL[T any] interface {
 	SQL(T) (string, []any)
 }
 
+type CanModelMigrate interface {
+	CanMigrate() bool
+}
+
 type SchemaEditor interface {
 	Setup() error
 	StoreMigration(appName string, modelName string, migrationName string) error
@@ -57,13 +61,20 @@ type Table interface {
 	Indexes() []Index
 }
 
+// Embed this struct in your model to prevent it from being migrated.
+type CantMigrate struct{}
+
+func (c *CantMigrate) CanMigrate() bool {
+	return false
+}
+
 func CanMigrate(obj attrs.Definer) bool {
 	var meta = attrs.GetModelMeta(obj)
 	if meta == nil {
 		return false
 	}
 
-	if canMigrator, ok := obj.(interface{ CanMigrate() bool }); ok {
+	if canMigrator, ok := obj.(CanModelMigrate); ok {
 		return canMigrator.CanMigrate()
 	}
 

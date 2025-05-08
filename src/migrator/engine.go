@@ -379,6 +379,11 @@ func (m *MigrationEngine) MakeMigrations() error {
 		)
 
 		for _, model := range def.Models() {
+
+			if !CanMigrate(model) {
+				continue
+			}
+
 			var cType = contenttypes.NewContentType(model)
 			var modelName = cType.Model()
 
@@ -732,8 +737,12 @@ func (e *MigrationEngine) ReadMigrations() ([]*MigrationFile, error) {
 	os.MkdirAll(e.Path, 0755)
 
 	var directories, err = os.ReadDir(e.Path)
-	if err != nil {
-		return nil, err
+	if err != nil && os.IsNotExist(err) {
+		return []*MigrationFile{}, nil
+	} else if err != nil {
+		return nil, errors.Wrapf(
+			err, "failed to read migration directory %q", e.Path,
+		)
 	}
 
 	if _, err = os.Stat(e.Path); err != nil && os.IsNotExist(err) {

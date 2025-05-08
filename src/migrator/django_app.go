@@ -8,6 +8,10 @@ import (
 	"github.com/Nigel2392/go-django/src/core/command"
 )
 
+const (
+	DEFAULT_MIGRATION_DIR = "./migrations"
+)
+
 type MigratorAppConfig struct {
 	*apps.DBRequiredAppConfig
 	MigrationDir string
@@ -20,14 +24,14 @@ var app = &MigratorAppConfig{
 
 func NewAppConfig() *MigratorAppConfig {
 
-	var migrationDir, ok = django.ConfigGetOK(
+	app.MigrationDir, _ = django.ConfigGetOK(
 		django.Global.Settings,
 		APPVAR_MIGRATION_DIR,
-		"./migrations",
+		DEFAULT_MIGRATION_DIR,
 	)
 
-	if ok && migrationDir != "" {
-		app.MigrationDir = migrationDir
+	if app.MigrationDir == "" {
+		app.MigrationDir = DEFAULT_MIGRATION_DIR
 	}
 
 	app.Init = func(settings django.Settings, db *sql.DB) error {

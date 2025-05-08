@@ -303,8 +303,6 @@ func (m *MigrationEngine) NeedsToMigrate() ([]*contenttypes.BaseContentType[attr
 		return nil, errors.Wrap(err, "failed to setup schema editor")
 	}
 
-	os.MkdirAll(m.Path, 0755)
-
 	var migrations, err = m.ReadMigrations()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read migrations")
@@ -358,8 +356,6 @@ func (m *MigrationEngine) MakeMigrations() error {
 	if err := m.SchemaEditor.Setup(); err != nil {
 		return errors.Wrap(err, "failed to setup schema editor")
 	}
-
-	os.MkdirAll(m.Path, 0755)
 
 	var migrations, err = m.ReadMigrations()
 	if err != nil {
@@ -733,6 +729,7 @@ func (e *MigrationEngine) WriteMigration(migration *MigrationFile) error {
 //
 // These migration files are used to apply the migrations to the database.
 func (e *MigrationEngine) ReadMigrations() ([]*MigrationFile, error) {
+	os.MkdirAll(e.Path, 0755)
 
 	var directories, err = os.ReadDir(e.Path)
 	if err != nil {

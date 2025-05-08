@@ -3,4 +3,4 @@
 
 package queries
 
-var QUERYSET_USE_CACHE_DEFAULT = true
+const QUERYSET_USE_CACHE_DEFAULT = true

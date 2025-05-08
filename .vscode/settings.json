@@ -1,3 +1,4 @@
 {
-    "workbench.colorTheme": "Seti Monokai: Original"
+    "workbench.colorTheme": "Seti Monokai: Original"//,
+    //"go.buildTags": "race"
 }

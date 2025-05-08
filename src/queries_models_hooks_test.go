@@ -12,7 +12,6 @@ import (
 	"github.com/Nigel2392/go-django/src/models"
 	"github.com/pkg/errors"
 
-	_ "github.com/Nigel2392/go-django-queries/src"
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 )

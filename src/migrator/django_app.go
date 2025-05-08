@@ -23,10 +23,10 @@ func NewAppConfig() *MigratorAppConfig {
 	var migrationDir, ok = django.ConfigGetOK(
 		django.Global.Settings,
 		APPVAR_MIGRATION_DIR,
-		"migrations",
+		"./migrations",
 	)
 
-	if ok {
+	if ok && migrationDir != "" {
 		app.MigrationDir = migrationDir
 	}
 

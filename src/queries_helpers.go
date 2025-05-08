@@ -16,40 +16,46 @@ import (
 // CT_GetObject retrieves an object from the database by its identifier.
 //
 // This is a function with the CT_ prefix to indicate that it is a function to be used in a `contenttypes.ContentTypeDefinition` context.
-func CT_GetObject[T attrs.Definer](identifier any) (interface{}, error) {
-	var obj, err = GetObject[T](identifier)
-	return obj, err
+func CT_GetObject(obj attrs.Definer) func(identifier any) (interface{}, error) {
+	return func(identifier any) (interface{}, error) {
+		var obj, err = GetObject(obj, identifier)
+		return obj, err
+	}
 }
 
 // CT_ListObjects lists objects from the database.
 //
 // This is a function with the CT_ prefix to indicate that it is a function to be used in a `contenttypes.ContentTypeDefinition` context.
-func CT_ListObjects[T attrs.Definer](amount, offset uint) ([]interface{}, error) {
-	var results, err = ListObjects[T](uint64(offset), uint64(amount))
-	if err != nil {
-		return nil, err
+func CT_ListObjects(obj attrs.Definer) func(offset, limit uint) ([]interface{}, error) {
+	return func(amount, offset uint) ([]interface{}, error) {
+		var results, err = ListObjects[attrs.Definer](obj, uint64(offset), uint64(amount))
+		if err != nil {
+			return nil, err
+		}
+		return attrs.InterfaceList(results), nil
 	}
-	return attrs.InterfaceList(results), nil
 }
 
 // CT_ListObjectsByIDs lists objects from the database by their IDs.
 //
 // This is a function with the CT_ prefix to indicate that it is a function to be used in a `contenttypes.ContentTypeDefinition` context.
-func CT_ListObjectsByIDs[T attrs.Definer](i []interface{}) ([]interface{}, error) {
-	var results, err = ListObjectsByIDs[T](0, 1000, i)
-	if err != nil {
-		return nil, err
+func CT_ListObjectsByIDs(obj attrs.Definer) func(i []interface{}) ([]interface{}, error) {
+	return func(ids []interface{}) ([]interface{}, error) {
+		var results, err = ListObjectsByIDs[attrs.Definer, any](obj, 0, 1000, ids)
+		if err != nil {
+			return nil, err
+		}
+		return attrs.InterfaceList(results), nil
 	}
-	return attrs.InterfaceList(results), nil
 }
 
 // ListObjectsByIDs lists objects from the database by their IDs.
 //
 // It takes an offset, limit, and a slice of IDs as parameters and returns a slice of objects of type T.
-func ListObjectsByIDs[T attrs.Definer, T2 any](offset, limit uint64, ids []T2) ([]T, error) {
+func ListObjectsByIDs[T attrs.Definer, T2 any](object T, offset, limit uint64, ids []T2) ([]T, error) {
 
 	var (
-		obj          = internal.NewDefiner[T]()
+		obj          = internal.NewObjectFromIface(object).(T)
 		definitions  = obj.FieldDefs()
 		primaryField = definitions.Primary()
 	)
@@ -78,8 +84,8 @@ func ListObjectsByIDs[T attrs.Definer, T2 any](offset, limit uint64, ids []T2) (
 // ListObjects lists objects from the database.
 //
 // It takes an offset and a limit as parameters and returns a slice of objects of type T.
-func ListObjects[T attrs.Definer](offset, limit uint64, ordering ...string) ([]T, error) {
-	var obj = internal.NewDefiner[T]()
+func ListObjects[T attrs.Definer](object T, offset, limit uint64, ordering ...string) ([]T, error) {
+	var obj = internal.NewObjectFromIface(object).(T)
 	var d, err = Objects(obj).
 		OrderBy(ordering...).
 		Limit(int(limit)).
@@ -103,8 +109,8 @@ func ListObjects[T attrs.Definer](offset, limit uint64, ordering ...string) ([]T
 // It takes an identifier as a parameter and returns the object of type T.
 //
 // The identifier can be any type, but it is expected to be the primary key of the object.
-func GetObject[T attrs.Definer](identifier any) (T, error) {
-	var obj = internal.NewDefiner[T]()
+func GetObject[T attrs.Definer](object T, identifier any) (T, error) {
+	var obj = internal.NewObjectFromIface(object).(T)
 	var (
 		defs         = obj.FieldDefs()
 		primaryField = defs.Primary()

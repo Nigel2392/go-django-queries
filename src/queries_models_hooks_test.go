@@ -8,6 +8,7 @@ import (
 
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/Nigel2392/go-django/src/core/contenttypes"
 	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/Nigel2392/go-django/src/models"
 	"github.com/pkg/errors"
@@ -181,5 +182,85 @@ func TestModelsDelete(t *testing.T) {
 	if !errors.Is(err, query_errors.ErrNoRows) {
 		t.Fatalf("expected no rows error, got: %v", err)
 	}
+}
 
+// TestContentTypesDefinitions tests the content types definitions for the User model.
+//
+// These content type definitions are not defined anywhere by the developer - they are
+// automatically registered in queries_init.go
+func TestContentTypesDefinitions(t *testing.T) {
+	var users = []*User{
+		{Name: "John Doe", Email: "test@example.com1", Age: 30},
+		{Name: "Jane Doe", Email: "test@example.com2", Age: 25},
+		{Name: "Jim Doe", Email: "test@example.com3", Age: 35},
+		{Name: "Jack Doe", Email: "test@example.com4", Age: 40},
+	}
+
+	for _, user := range users {
+		var saved, err = models.SaveModel(context.Background(), user)
+		if err != nil {
+			t.Fatalf("failed to save model: %v", err)
+		}
+
+		if !saved {
+			t.Fatalf("model not saved")
+		}
+	}
+
+	var cTypeDef = contenttypes.DefinitionForObject(&User{})
+	if cTypeDef == nil {
+		t.Fatalf("failed to get content type definition")
+	}
+
+	t.Run("TestInstance", func(t *testing.T) {
+		var objectByID, err = cTypeDef.Instance(users[2].ID)
+		if err != nil {
+			t.Fatalf("failed to get object by ID: %v", err)
+		}
+
+		if objectByID == nil {
+			t.Fatalf("object by ID is nil")
+		}
+
+		if *(objectByID.(*User)) != *users[2] {
+			t.Fatalf("object by ID does not match")
+		}
+	})
+
+	t.Run("TestInstancesByIDs", func(t *testing.T) {
+		// Test InstancesByIDs method
+		var ids = []any{users[1].ID, users[2].ID}
+		objectsByID, err := cTypeDef.InstancesByIDs(ids)
+		if err != nil {
+			t.Fatalf("failed to get objects by IDs: %v", err)
+		}
+
+		if len(objectsByID) != len(ids) {
+			t.Fatalf("expected %d objects, got %d", len(ids), len(objectsByID))
+		}
+
+		for i, _ := range ids {
+			if *(objectsByID[i].(*User)) != *users[i+1] {
+				t.Fatalf("object by ID does not match")
+			}
+		}
+	})
+
+	t.Run("TestInstances", func(t *testing.T) {
+		// Test Instances method
+		instances, err := cTypeDef.Instances(3, 0)
+		if err != nil {
+			t.Fatalf("failed to get instances: %v", err)
+		}
+
+		if len(instances) != 3 {
+			t.Fatalf("expected 3 instances, got %d", len(instances))
+		}
+
+		for i, _ := range instances {
+			if *(instances[i].(*User)) != *users[i] {
+				t.Fatalf("instance does not match")
+			}
+		}
+	})
 }

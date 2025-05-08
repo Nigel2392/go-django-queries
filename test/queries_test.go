@@ -457,7 +457,7 @@ func TestTodoGet(t *testing.T) {
 		django.APPVAR_DATABASE,
 	)
 
-	var todo, err = queries.GetObject[*Todo](1)
+	var todo, err = queries.GetObject[*Todo](&Todo{}, 1)
 	if err != nil {
 		t.Fatalf("Failed to get todo: %v", err)
 	}
@@ -481,7 +481,7 @@ func TestTodoList(t *testing.T) {
 		django.APPVAR_DATABASE,
 	)
 
-	var todos, err = queries.ListObjects[*Todo](0, 1000, "-ID")
+	var todos, err = queries.ListObjects[*Todo](&Todo{}, 0, 1000, "-ID")
 	if err != nil {
 		t.Fatalf("Failed to list todos: %v", err)
 	}
@@ -513,7 +513,7 @@ func TestListTodoByIDs(t *testing.T) {
 	)
 
 	var ids = []int{1, 2}
-	var todos, err = queries.ListObjectsByIDs[*Todo](0, 1000, ids)
+	var todos, err = queries.ListObjectsByIDs[*Todo](&Todo{}, 0, 1000, ids)
 	if err != nil {
 		t.Fatalf("Failed to get todos by IDs: %v", err)
 	}
@@ -1179,7 +1179,7 @@ func TestQueryUpdate(t *testing.T) {
 		t.Fatalf("Expected 1 todo to be updated, got %d", updated)
 	}
 
-	dbTodo1, err := queries.GetObject[*Todo](todo1.ID)
+	dbTodo1, err := queries.GetObject[*Todo](&Todo{}, todo1.ID)
 	if err != nil {
 		t.Fatalf("Failed to get todo: %v", err)
 	}
@@ -1208,7 +1208,7 @@ func TestQueryUpdate(t *testing.T) {
 		t.Fatalf("Expected todo user ID %d, got %d", user.ID, dbTodo1.User.ID)
 	}
 
-	dbTodo2, err := queries.GetObject[*Todo](todo2.ID)
+	dbTodo2, err := queries.GetObject[*Todo](&Todo{}, todo2.ID)
 	if err != nil {
 		t.Fatalf("Failed to get todo: %v", err)
 	}

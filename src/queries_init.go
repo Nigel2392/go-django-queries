@@ -103,22 +103,22 @@ var _, _ = attrs.OnBeforeModelRegister.Listen(func(s signals.Signal[attrs.Define
 	if def == nil {
 		def = &contenttypes.ContentTypeDefinition{
 			ContentObject:     d,
-			GetInstance:       CT_GetObject[attrs.Definer],
-			GetInstances:      CT_ListObjects[attrs.Definer],
-			GetInstancesByIDs: CT_ListObjectsByIDs[attrs.Definer],
+			GetInstance:       CT_GetObject(d),
+			GetInstances:      CT_ListObjects(d),
+			GetInstancesByIDs: CT_ListObjectsByIDs(d),
 		}
 		registerCType = true
 	} else {
 		if def.GetInstance == nil {
-			def.GetInstance = CT_GetObject[attrs.Definer]
+			def.GetInstance = CT_GetObject(d)
 			changeCType = true
 		}
 		if def.GetInstances == nil {
-			def.GetInstances = CT_ListObjects[attrs.Definer]
+			def.GetInstances = CT_ListObjects(d)
 			changeCType = true
 		}
 		if def.GetInstancesByIDs == nil {
-			def.GetInstancesByIDs = CT_ListObjectsByIDs[attrs.Definer]
+			def.GetInstancesByIDs = CT_ListObjectsByIDs(d)
 			changeCType = true
 		}
 	}

@@ -7,13 +7,6 @@ import (
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
-const (
-	AttrDBTypeKey   = "migrator.db_type"
-	AttrUseInDBKey  = "migrator.use_in_db"
-	AttrOnDeleteKey = "migrator.on_delete"
-	AttrOnUpdateKey = "migrator.on_update"
-)
-
 var (
 	drivers_to_kinds = make(map[reflect.Type]map[reflect.Kind]func(f attrs.Field) string)
 	drivers_to_types = make(map[reflect.Type]map[reflect.Type]func(f attrs.Field) string)

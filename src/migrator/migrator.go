@@ -7,6 +7,17 @@ import (
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
+const (
+	// Keys for attrs.Field
+	AttrDBTypeKey   = "migrator.db_type"
+	AttrUseInDBKey  = "migrator.use_in_db"
+	AttrOnDeleteKey = "migrator.on_delete"
+	AttrOnUpdateKey = "migrator.on_update"
+
+	// Keys for attrs.ModelMeta
+	MetaAllowMigrateKey = "migrator.allow_migrate"
+)
+
 type CanSQL[T any] interface {
 	SQL(T) (string, []any)
 }
@@ -41,4 +52,30 @@ type Table interface {
 	Columns() []*Column
 	Comment() string
 	Indexes() []Index
+}
+
+func CanMigrate(obj attrs.Definer) bool {
+	var meta = attrs.GetModelMeta(obj)
+	if meta == nil {
+		return false
+	}
+
+	if canMigrator, ok := obj.(interface{ CanMigrate() bool }); ok {
+		return canMigrator.CanMigrate()
+	}
+
+	var canMigrate, ok = meta.Storage(MetaAllowMigrateKey)
+	if !ok {
+		return true
+	}
+
+	switch canMigrate := canMigrate.(type) {
+	case bool:
+		return canMigrate
+	case int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64,
+		float32, float64:
+		return (!EqualDefaultValue(0, canMigrate)) // if canMigrate != 0
+	}
+	return false
 }

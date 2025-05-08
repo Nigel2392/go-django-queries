@@ -163,6 +163,12 @@ func EqualDefaultValue(a, b any) bool {
 		return true
 	}
 
+	if cDefault.IsValid() && otherDefault.IsValid() {
+		if otherDefault.Type() != cDefault.Type() && otherDefault.Type().ConvertibleTo(cDefault.Type()) {
+			otherDefault = otherDefault.Convert(cDefault.Type())
+		}
+	}
+
 	if cDefault.Kind() != reflect.Ptr && cDefault.IsZero() != otherDefault.IsZero() ||
 		cDefault.Kind() == reflect.Ptr && cDefault.IsNil() != otherDefault.IsNil() {
 		return false
@@ -182,10 +188,8 @@ var registeredModels = orderedmap.NewOrderedMap[string, *contenttypes.BaseConten
 func Register(obj attrs.Definer) {
 	var cType = contenttypes.NewContentType(obj)
 
-	if contenttypes.DefinitionForType(cType.TypeName()) == nil {
-		contenttypes.Register(&contenttypes.ContentTypeDefinition{
-			ContentObject: obj,
-		})
+	if !CanMigrate(obj) {
+		return
 	}
 
 	registeredModels.Set(cType.TypeName(), cType)

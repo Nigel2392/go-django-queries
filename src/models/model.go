@@ -41,9 +41,11 @@ type Model struct {
 
 func (m *Model) Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinitions {
 	attrs.RegisterModel(def)
+
 	if m._meta == nil {
 		m._meta = attrs.GetModelMeta(def)
 	}
+
 	if m._defs == nil {
 		// var reverseRelations = make([]attrs.Field, 0)
 		for head := m._meta.ReverseMap().Front(); head != nil; head = head.Next() {

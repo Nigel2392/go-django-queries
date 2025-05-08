@@ -5,14 +5,16 @@ import (
 	"path/filepath"
 	"testing"
 
+	_ "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	testsql "github.com/Nigel2392/go-django-queries/src/migrator/sql/test_sql"
+	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
 func init() {
-	migrator.Register(&testsql.User{})
-	migrator.Register(&testsql.Todo{})
-	migrator.Register(&testsql.Profile{})
+	attrs.RegisterModel(&testsql.User{})
+	attrs.RegisterModel(&testsql.Todo{})
+	attrs.RegisterModel(&testsql.Profile{})
 }
 
 func TestMigrator(t *testing.T) {

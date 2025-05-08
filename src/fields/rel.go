@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
+	"github.com/Nigel2392/go-django-queries/src/migrator"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
@@ -113,6 +114,21 @@ func (r *RelationField[T]) GetTargetField() attrs.Field {
 		return defs.Primary()
 	}
 	return targetField
+}
+
+func (r *RelationField[T]) IsReverse() bool {
+	var targetField = r.GetTargetField()
+	if targetField == nil || targetField.IsPrimary() {
+		return false
+	}
+	return true
+}
+
+func (r *RelationField[T]) Attributes() map[string]any {
+	var atts = make(map[string]any)
+	atts[attrs.AttrNameKey] = r.Name()
+	atts[migrator.AttrUseInDBKey] = r.rel.Through() == nil && !r.IsReverse()
+	return atts
 }
 
 func (r *RelationField[T]) RelatedName() string {

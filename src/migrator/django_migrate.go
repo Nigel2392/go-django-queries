@@ -7,8 +7,8 @@ import (
 )
 
 var commandMigrate = &command.Cmd[any]{
-	ID:   "makemigrations",
-	Desc: "Create new database migrations to be applied with `migrate`",
+	ID:   "migrate",
+	Desc: "Apply database migrations created with `makemigrations`",
 	FlagFunc: func(m command.Manager, stored *any, f *flag.FlagSet) error {
 		return nil
 	},

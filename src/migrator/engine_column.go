@@ -1,6 +1,9 @@
 package migrator
 
 import (
+	"encoding/json"
+	"reflect"
+
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
@@ -21,6 +24,34 @@ type Column struct {
 	Default      interface{}        `json:"default,omitempty"`
 	ReverseAlias string             `json:"reverse_alias,omitempty"`
 	Rel          *MigrationRelation `json:"relation,omitempty"`
+}
+
+func jsonCompare(a, b interface{}) (bool, error) {
+
+	var (
+		aBytes, bBytes []byte
+		err            error
+	)
+	if aBytes, err = json.Marshal(a); err != nil {
+		return false, err
+	}
+	if bBytes, err = json.Marshal(b); err != nil {
+		return false, err
+	}
+	var (
+		aFace = new(interface{})
+		bFace = new(interface{})
+	)
+	if err = json.Unmarshal(aBytes, aFace); err != nil {
+		return false, err
+	}
+	if err = json.Unmarshal(bBytes, bFace); err != nil {
+		return false, err
+	}
+	if reflect.DeepEqual(aFace, bFace) {
+		return true, nil
+	}
+	return false, nil
 }
 
 func (c *Column) Equals(other *Column) bool {
@@ -61,9 +92,17 @@ func (c *Column) Equals(other *Column) bool {
 		return false
 	}
 
-	if !EqualDefaultValue(c.Default, other.Default) {
+	if equal, err := jsonCompare(c.Default, other.Default); err != nil {
+		if !EqualDefaultValue(c.Default, other.Default) {
+			return false
+		}
+	} else if !equal {
 		return false
 	}
+
+	//if !EqualDefaultValue(c.Default, other.Default) {
+	//	return false
+	//}
 
 	if c.ReverseAlias != other.ReverseAlias {
 		return false

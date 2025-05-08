@@ -138,6 +138,7 @@ var (
 )
 
 func EqualDefaultValue(a, b any) bool {
+
 	var cDefault = reflect.ValueOf(a)
 	var otherDefault = reflect.ValueOf(b)
 	if cDefault.IsValid() != otherDefault.IsValid() {
@@ -163,6 +164,10 @@ func EqualDefaultValue(a, b any) bool {
 		}
 
 		return true
+	}
+
+	if cDefault.Type() == timeTyp && otherDefault.Type() == timeTyp {
+		return cDefault.Interface().(time.Time).Equal(otherDefault.Interface().(time.Time))
 	}
 
 	if cDefault.IsValid() && otherDefault.IsValid() {

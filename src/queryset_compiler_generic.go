@@ -32,7 +32,7 @@ func NewGenericQueryBuilder(model attrs.Definer, db string) QueryCompiler {
 	switch internal.SqlxDriverName(q.DB) {
 	case "mysql":
 		quote = "`"
-	case "postgres":
+	case "postgres", "pgx":
 		quote = "\""
 	case "sqlite3":
 		quote = "`"

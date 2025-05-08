@@ -10,6 +10,7 @@ func init() {
 	RegisterDriver(&mysql.MySQLDriver{}, "mysql", SupportsReturningLastInsertId)
 	RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", SupportsReturningColumns)
 	RegisterDriver(&pg_stdlib.Driver{}, "postgres", SupportsReturningColumns)
+	RegisterDriver(&pg_stdlib.Driver{}, "pgx", SupportsReturningColumns)
 
 	RegisterCompiler(&mysql.MySQLDriver{}, NewGenericQueryBuilder)
 	RegisterCompiler(&sqlite3.SQLiteDriver{}, NewGenericQueryBuilder)

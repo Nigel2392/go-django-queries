@@ -125,7 +125,6 @@ type QuerySetInternals struct {
 	Offset      int
 	ForUpdate   bool
 	Distinct    bool
-	joins       map[string]struct{}
 }
 
 // QuerySet is a struct that represents a query set in the database.

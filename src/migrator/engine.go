@@ -737,6 +737,8 @@ func (e *MigrationEngine) ReadMigrations() ([]*MigrationFile, error) {
 	}
 
 	if _, err = os.Stat(e.Path); err != nil && os.IsNotExist(err) {
+		return []*MigrationFile{}, nil
+	} else if err != nil {
 		return nil, errors.Wrapf(
 			err, "failed to read migration directory %q", e.Path,
 		)

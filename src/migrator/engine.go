@@ -11,6 +11,7 @@ import (
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/core/contenttypes"
+	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/pkg/errors"
 )
@@ -219,6 +220,11 @@ func (m *MigrationEngine) Migrate() error {
 		unappliedMigrations = append(unappliedMigrations, migration)
 	}
 
+	if len(unappliedMigrations) == 0 {
+		logger.Info("No new migrations to apply, did you forget to call MakeMigrations?")
+		return nil
+	}
+
 	m.Migrations = make(map[string]map[string][]*MigrationFile)
 	m.dependencies = make(map[string]map[string][]*MigrationFile)
 	for _, migration := range migrations {
@@ -363,8 +369,9 @@ func (m *MigrationEngine) MakeMigrations() error {
 	}
 
 	var (
-		migrationList = make([]*MigrationFile, 0)
-		dependencies  = make(map[string]map[string]*MigrationFile)
+		migrationList   = make([]*MigrationFile, 0)
+		dependencies    = make(map[string]map[string]*MigrationFile)
+		migrationsFound = false
 	)
 	for head := m.apps.Front(); head != nil; head = head.Next() {
 		var (
@@ -398,7 +405,14 @@ func (m *MigrationEngine) MakeMigrations() error {
 				continue
 			}
 
+			migrationsFound = true
+
 			mig.Name = generateMigrationFileName(mig)
+
+			logger.Debugf(
+				"Creating migration file %q for model \"%s.%s\"",
+				mig.FileName(), mig.AppName, mig.ModelName,
+			)
 
 			m.storeDependency(mig)
 
@@ -408,6 +422,11 @@ func (m *MigrationEngine) MakeMigrations() error {
 			}
 			dependencies[mig.AppName][mig.ModelName] = mig
 		}
+	}
+
+	if !migrationsFound {
+		logger.Warn("No migrations to apply, no changes were detected.")
+		return nil
 	}
 
 	// Check for dependencies and write migration files
@@ -425,6 +444,11 @@ func (m *MigrationEngine) MakeMigrations() error {
 				if !ok {
 					continue
 				}
+
+				logger.Debugf(
+					"Adding dependency \"%s/%s\" to migration \"%s/%s\"",
+					depMig.ModelName, depMig.FileName(), mig.ModelName, mig.FileName(),
+				)
 
 				mig.addDependency(relAppName, relModel, depMig.FileName())
 			}

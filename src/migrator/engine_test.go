@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	_ "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
@@ -397,4 +398,17 @@ func TestMigrator(t *testing.T) {
 			t.Fatalf("expected last action to be RemoveField, got %s", latestMigrationUser.Actions[len(latestMigrationUser.Actions)-1].ActionType)
 		}
 	})
+}
+
+func TestEqualDefaultTime(t *testing.T) {
+	var a, b = time.Time{}, time.Time{}
+	var aPtr, bPtr = &a, &b
+
+	if !migrator.EqualDefaultValue(a, b) {
+		t.Errorf("expected %v == %v", a, b)
+	}
+
+	if !migrator.EqualDefaultValue(aPtr, bPtr) {
+		t.Errorf("expected %v == %v", aPtr, bPtr)
+	}
 }

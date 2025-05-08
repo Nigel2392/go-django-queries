@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -132,6 +133,10 @@ func generateMigrationFileName(mig *MigrationFile) string {
 	return sb.String()
 }
 
+var (
+	timeTyp = reflect.TypeOf(time.Time{})
+)
+
 func EqualDefaultValue(a, b any) bool {
 	var cDefault = reflect.ValueOf(a)
 	var otherDefault = reflect.ValueOf(b)
@@ -141,13 +146,13 @@ func EqualDefaultValue(a, b any) bool {
 			bIsZero bool
 		)
 
-		if cDefault.IsValid() && cDefault.Kind() == reflect.Ptr && cDefault.IsNil() ||
+		if cDefault.IsValid() && cDefault.Kind() == reflect.Ptr && (cDefault.IsNil() || cDefault.Elem().IsZero()) ||
 			cDefault.IsValid() && cDefault.Kind() != reflect.Ptr && cDefault.IsZero() ||
 			!cDefault.IsValid() {
 			aIsZero = true
 		}
 
-		if otherDefault.IsValid() && otherDefault.Kind() == reflect.Ptr && otherDefault.IsNil() ||
+		if otherDefault.IsValid() && otherDefault.Kind() == reflect.Ptr && (otherDefault.IsNil() || otherDefault.Elem().IsZero()) ||
 			otherDefault.IsValid() && otherDefault.Kind() != reflect.Ptr && otherDefault.IsZero() ||
 			!otherDefault.IsValid() {
 			bIsZero = true
@@ -167,7 +172,7 @@ func EqualDefaultValue(a, b any) bool {
 	}
 
 	if cDefault.Kind() != reflect.Ptr && cDefault.IsZero() != otherDefault.IsZero() ||
-		cDefault.Kind() == reflect.Ptr && cDefault.IsNil() != otherDefault.IsNil() {
+		cDefault.Kind() == reflect.Ptr && (cDefault.IsNil() != otherDefault.IsNil() || cDefault.Elem().IsZero() != otherDefault.Elem().IsZero()) {
 		return false
 	} else if cDefault.Kind() != reflect.Ptr && !cDefault.IsZero() ||
 		cDefault.Kind() == reflect.Ptr && !cDefault.IsNil() {

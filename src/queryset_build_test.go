@@ -1,5 +1,5 @@
-//go:build race
-// +build race
+//go:build testing
+// +build testing
 
 package queries
 

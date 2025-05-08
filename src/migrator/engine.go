@@ -8,8 +8,10 @@ import (
 	"slices"
 	"strings"
 
+	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/core/contenttypes"
+	"github.com/elliotchance/orderedmap/v2"
 	"github.com/pkg/errors"
 )
 
@@ -138,20 +140,38 @@ type MigrationEngine struct {
 	// This is used to keep track of the migrations that have been applied and ensure that they are not applied again.
 	Migrations map[string]map[string][]*MigrationFile
 
-	// migrations is a map of migration files used for dependency resolution.
-	//
-	// This is used to ensure that the migrations are applied in the correct order.
-	migrations map[string]map[string][]*MigrationFile
-
 	// MigrationLog is the migration log used to log the actions taken by the migration engine.
 	//
 	// This is used to log the actions taken by the migration engine for debugging and auditing purposes.
 	MigrationLog MigrationLog
+
+	// dependencies is a map of migration files used for dependency resolution.
+	//
+	// This is used to ensure that the migrations are applied in the correct order.
+	dependencies map[string]map[string][]*MigrationFile
+
+	// apps is an ordered map of applications used for dependency resolution and migrations.
+	//
+	// The apps contain a slice of models that are used to generate the migration files.
+	apps *orderedmap.OrderedMap[string, django.AppConfig]
 }
 
-func NewMigrationEngine(path string) *MigrationEngine {
+func NewMigrationEngine(path string, schemaEditor SchemaEditor, apps ...string) *MigrationEngine {
+	var appMap = orderedmap.NewOrderedMap[string, django.AppConfig]()
+
+	if len(apps) == 0 {
+		appMap = django.Global.Apps
+	} else {
+		for _, app := range apps {
+			var appConfig = django.GetApp[django.AppConfig](app)
+			appMap.Set(app, appConfig)
+		}
+	}
+
 	return &MigrationEngine{
-		Path: path,
+		Path:         path,
+		SchemaEditor: schemaEditor,
+		apps:         appMap,
 	}
 }
 
@@ -168,8 +188,8 @@ func (m *MigrationEngine) Log(action ActionType, file *MigrationFile, table *Cha
 	m.MigrationLog.Log(action, file, table, column, index)
 }
 
-// GetLastAppliedMigration returns the last applied migration for the given app and model.
-func (m *MigrationEngine) GetLastAppliedMigration(appName, modelName string) *MigrationFile {
+// GetLastMigration returns the last applied migration for the given app and model.
+func (m *MigrationEngine) GetLastMigration(appName, modelName string) *MigrationFile {
 	return latestFromMap(m.Migrations, appName, modelName)
 }
 
@@ -179,7 +199,7 @@ func (m *MigrationEngine) Migrate() error {
 		return errors.Wrap(err, "failed to setup schema editor")
 	}
 
-	var migrations, err = ReadMigrations(m.Path)
+	var migrations, err = m.ReadMigrations()
 	if err != nil {
 		return errors.Wrap(err, "failed to read migrations")
 	}
@@ -206,7 +226,7 @@ func (m *MigrationEngine) Migrate() error {
 	}
 
 	m.Migrations = make(map[string]map[string][]*MigrationFile)
-	m.migrations = make(map[string]map[string][]*MigrationFile)
+	m.dependencies = make(map[string]map[string][]*MigrationFile)
 	for _, migration := range migrations {
 		m.storeMigration(migration)
 	}
@@ -285,45 +305,48 @@ func (m *MigrationEngine) NeedsToMigrate() ([]*contenttypes.BaseContentType[attr
 
 	os.MkdirAll(m.Path, 0755)
 
-	var migrations, err = ReadMigrations(m.Path)
+	var migrations, err = m.ReadMigrations()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read migrations")
 	}
 
 	m.Migrations = make(map[string]map[string][]*MigrationFile)
-	m.migrations = make(map[string]map[string][]*MigrationFile)
+	m.dependencies = make(map[string]map[string][]*MigrationFile)
 	for _, migration := range migrations {
 		m.storeMigration(migration)
 	}
 
 	var needsToMigrate = make([]*contenttypes.BaseContentType[attrs.Definer], 0)
-	for head := registeredModels.Front(); head != nil; head = head.Next() {
+	for head := m.apps.Front(); head != nil; head = head.Next() {
 		var (
-			modelName = head.Key
-			def       = head.Value
-			appLabel  = def.AppLabel()
-			model     = def.Model()
+			def     = head.Value
+			appName = head.Key
 		)
 
-		// Build current table state
-		var currTable = NewModelTable(def.New())
+		for _, model := range def.Models() {
+			var cType = contenttypes.NewContentType(model)
+			var modelName = cType.Model()
 
-		// Compare to last migration
-		var mig, err = m.NewMigration(appLabel, model, currTable, def)
-		if err != nil {
-			return nil, fmt.Errorf("MakeMigrations: failed to generate migration for %s: %w", modelName, err)
-		}
+			// Build current table state
+			var currTable = NewModelTable(cType.New())
 
-		var last = m.GetLastAppliedMigration(
-			mig.AppName, mig.ModelName,
-		)
-		var newMigrationNeeded bool = true
-		newMigrationNeeded = m.makeMigrationDiff(
-			mig, last, mig.Table,
-		)
+			// Compare to last migration
+			var mig, err = m.NewMigration(appName, modelName, currTable, cType)
+			if err != nil {
+				return nil, fmt.Errorf("MakeMigrations: failed to generate migration for %s: %w", modelName, err)
+			}
 
-		if newMigrationNeeded {
-			needsToMigrate = append(needsToMigrate, mig.ContentType)
+			var last = m.GetLastMigration(
+				mig.AppName, mig.ModelName,
+			)
+			var newMigrationNeeded bool = true
+			newMigrationNeeded = m.makeMigrationDiff(
+				mig, last, mig.Table,
+			)
+
+			if newMigrationNeeded {
+				needsToMigrate = append(needsToMigrate, cType)
+			}
 		}
 	}
 
@@ -338,13 +361,13 @@ func (m *MigrationEngine) MakeMigrations() error {
 
 	os.MkdirAll(m.Path, 0755)
 
-	var migrations, err = ReadMigrations(m.Path)
+	var migrations, err = m.ReadMigrations()
 	if err != nil {
 		return errors.Wrap(err, "failed to read migrations")
 	}
 
 	m.Migrations = make(map[string]map[string][]*MigrationFile)
-	m.migrations = make(map[string]map[string][]*MigrationFile)
+	m.dependencies = make(map[string]map[string][]*MigrationFile)
 	for _, migration := range migrations {
 		m.storeMigration(migration)
 	}
@@ -353,38 +376,43 @@ func (m *MigrationEngine) MakeMigrations() error {
 		migrationList = make([]*MigrationFile, 0)
 		dependencies  = make(map[string]map[string]*MigrationFile)
 	)
-	for head := registeredModels.Front(); head != nil; head = head.Next() {
+	for head := m.apps.Front(); head != nil; head = head.Next() {
 		var (
-			modelName = head.Key
-			def       = head.Value
+			def     = head.Value
+			appName = head.Key
 		)
 
-		var appLabel = def.AppLabel()
-		var model = def.Model()
+		for _, model := range def.Models() {
+			var cType = contenttypes.NewContentType(model)
+			var modelName = cType.Model()
 
-		// Build current table state
-		var currTable = NewModelTable(def.New())
+			var appLabel = appName
+			var model = modelName
 
-		// Compare to last migration
-		var mig, err = m.NewMigration(appLabel, model, currTable, def)
-		if err != nil {
-			return fmt.Errorf("MakeMigrations: failed to generate migration for %s: %w", modelName, err)
+			// Build current table state
+			var currTable = NewModelTable(cType.New())
+
+			// Compare to last migration
+			var mig, err = m.NewMigration(appLabel, model, currTable, cType)
+			if err != nil {
+				return fmt.Errorf("MakeMigrations: failed to generate migration for %s: %w", modelName, err)
+			}
+
+			var last = m.GetLastMigration(mig.AppName, mig.ModelName)
+			if !m.makeMigrationDiff(mig, last, mig.Table) {
+				continue
+			}
+
+			mig.Name = generateMigrationFileName(mig)
+
+			m.storeDependency(mig)
+
+			migrationList = append(migrationList, mig)
+			if dependencies[mig.AppName] == nil {
+				dependencies[mig.AppName] = make(map[string]*MigrationFile)
+			}
+			dependencies[mig.AppName][mig.ModelName] = mig
 		}
-
-		var last = m.GetLastAppliedMigration(mig.AppName, mig.ModelName)
-		if !m.makeMigrationDiff(mig, last, mig.Table) {
-			continue
-		}
-
-		mig.Name = generateMigrationFileName(mig)
-
-		m.storeDependency(mig)
-
-		migrationList = append(migrationList, mig)
-		if dependencies[mig.AppName] == nil {
-			dependencies[mig.AppName] = make(map[string]*MigrationFile)
-		}
-		dependencies[mig.AppName][mig.ModelName] = mig
 	}
 
 	// Check for dependencies and write migration files
@@ -394,20 +422,21 @@ func (m *MigrationEngine) MakeMigrations() error {
 		for _, col := range mig.Table.Columns() {
 			if col.Rel != nil {
 				var (
-					relApp     = col.Rel.TargetModel.AppLabel()
+					relApp     = getModelApp(col.Rel.TargetModel.New())
+					relAppName = relApp.Name()
 					relModel   = col.Rel.TargetModel.Model()
-					depMig, ok = dependencies[relApp][relModel]
+					depMig, ok = dependencies[relAppName][relModel]
 				)
 				if !ok {
 					continue
 				}
 
-				mig.addDependency(relApp, relModel, depMig.FileName())
+				mig.addDependency(relAppName, relModel, depMig.FileName())
 			}
 		}
 
 		// Write the migration file
-		if err := WriteMigration(m.Path, mig); err != nil {
+		if err := m.WriteMigration(mig); err != nil {
 			return err
 		}
 	}
@@ -574,7 +603,7 @@ func (m *MigrationEngine) makeMigrationDiff(migration *MigrationFile, last *Migr
 
 func (e *MigrationEngine) NewMigration(appName, modelName string, newTable *ModelTable, def *contenttypes.BaseContentType[attrs.Definer]) (*MigrationFile, error) {
 	// load latest applied migration if it exists
-	var last = e.GetLastAppliedMigration(appName, modelName)
+	var last = e.GetLastMigration(appName, modelName)
 
 	// Get last order
 	var nextOrder = 1
@@ -601,11 +630,11 @@ func (e *MigrationEngine) NewMigration(appName, modelName string, newTable *Mode
 // this is used to keep track of the dependencies between migration files
 // so that they can be applied in the correct order
 func (m *MigrationEngine) storeDependency(mig *MigrationFile) {
-	if m.migrations == nil {
-		m.migrations = make(map[string]map[string][]*MigrationFile)
+	if m.dependencies == nil {
+		m.dependencies = make(map[string]map[string][]*MigrationFile)
 	}
 
-	storeInMap(m.migrations, mig)
+	storeInMap(m.dependencies, mig)
 }
 
 // storeMigration stores the migration file in the migration map.
@@ -677,8 +706,8 @@ func indexesEqual(a, b Index) bool {
 // WriteMigration writes the migration file to the specified path.
 //
 // The migration file is used to apply the migrations to the database.
-func WriteMigration(path string, migration *MigrationFile) error {
-	var filePath = filepath.Join(path, migration.AppName, migration.ModelName, migration.FileName())
+func (e *MigrationEngine) WriteMigration(migration *MigrationFile) error {
+	var filePath = filepath.Join(e.Path, migration.AppName, migration.ModelName, migration.FileName())
 
 	if _, err := os.Stat(filePath); err == nil {
 		return fmt.Errorf("migration file %q already exists", filePath)
@@ -703,16 +732,16 @@ func WriteMigration(path string, migration *MigrationFile) error {
 // ReadMigrations reads the migration files from the specified path and returns a list of migration files.
 //
 // These migration files are used to apply the migrations to the database.
-func ReadMigrations(path string) ([]*MigrationFile, error) {
+func (e *MigrationEngine) ReadMigrations() ([]*MigrationFile, error) {
 
-	var directories, err = os.ReadDir(path)
+	var directories, err = os.ReadDir(e.Path)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err = os.Stat(path); err != nil && os.IsNotExist(err) {
+	if _, err = os.Stat(e.Path); err != nil && os.IsNotExist(err) {
 		return nil, errors.Wrapf(
-			err, "failed to read migration directory %q", path,
+			err, "failed to read migration directory %q", e.Path,
 		)
 	}
 
@@ -723,7 +752,7 @@ func ReadMigrations(path string) ([]*MigrationFile, error) {
 		}
 
 		var workingPath = filepath.Join(
-			path, appMigrationDir.Name(),
+			e.Path, appMigrationDir.Name(),
 		)
 
 		if _, err = os.Stat(workingPath); err != nil && os.IsNotExist(err) {
@@ -740,6 +769,10 @@ func ReadMigrations(path string) ([]*MigrationFile, error) {
 			return nil, errors.Wrapf(
 				err, "failed to read migration directory %q", workingPath,
 			)
+		}
+
+		if _, ok := e.apps.Get(appMigrationDir.Name()); !ok {
+			panic(fmt.Sprintf("app %q not found in migration engines' apps list", appMigrationDir.Name()))
 		}
 
 		for _, modelMigrationDir := range files {

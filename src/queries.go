@@ -8,11 +8,15 @@ import (
 	"reflect"
 
 	"github.com/Nigel2392/go-django-queries/src/expr"
-	"github.com/Nigel2392/go-django-queries/src/migrator"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/core/contenttypes"
 	"github.com/Nigel2392/go-signals"
+
+	// Register all schema editors for the migrator package.
+	_ "github.com/Nigel2392/go-django-queries/src/migrator/sql/mysql"
+	_ "github.com/Nigel2392/go-django-queries/src/migrator/sql/postgres"
+	_ "github.com/Nigel2392/go-django-queries/src/migrator/sql/sqlite"
 )
 
 type AliasField interface {
@@ -260,10 +264,5 @@ var _, _ = attrs.OnBeforeModelRegister.Listen(func(s signals.Signal[attrs.Define
 		contenttypes.Register(def)
 	}
 
-	return nil
-})
-
-var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.Definer], d attrs.Definer) error {
-	migrator.Register(d)
 	return nil
 })

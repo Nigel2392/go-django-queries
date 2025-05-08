@@ -6,9 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/Nigel2392/go-django/src/core/contenttypes"
-	"github.com/elliotchance/orderedmap/v2"
 	"github.com/pkg/errors"
 )
 
@@ -180,17 +177,4 @@ func EqualDefaultValue(a, b any) bool {
 	}
 
 	return true
-}
-
-// var registeredModels = make(map[string]*contenttypes.BaseContentType[attrs.Definer])
-var registeredModels = orderedmap.NewOrderedMap[string, *contenttypes.BaseContentType[attrs.Definer]]()
-
-func Register(obj attrs.Definer) {
-	var cType = contenttypes.NewContentType(obj)
-
-	if !CanMigrate(obj) {
-		return
-	}
-
-	registeredModels.Set(cType.TypeName(), cType)
 }

@@ -39,6 +39,30 @@ func (m *User) FieldDefs() attrs.Definitions {
 	return fieldDefs
 }
 
+type Profile struct {
+	ID        int64  `attrs:"primary"`
+	User      *User  `attrs:"o2o=test_sql.User;column=user_id"`
+	Image     string `attrs:"-"`
+	Biography string `attrs:"-"`
+	Website   string `attrs:"-"`
+}
+
+func (m *Profile) FieldDefs() attrs.Definitions {
+	var fieldDefs = attrs.AutoDefinitions(m)
+	var fields = fieldDefs.Fields()
+	if ExtendedDefinitions {
+		fields = append(fields, attrs.NewField(m, "Biography", &attrs.FieldConfig{}))
+		fields = append(fields, attrs.NewField(m, "Website", &attrs.FieldConfig{}))
+	}
+	if ExtendedDefinitionsProfile {
+		fields = append(fields, attrs.NewField(m, "Image", &attrs.FieldConfig{}))
+	}
+	if ExtendedDefinitions || ExtendedDefinitionsProfile {
+		fieldDefs = attrs.Define(m, fields...)
+	}
+	return fieldDefs
+}
+
 type Todo struct {
 	ID          int64     `attrs:"primary"`
 	Title       string    `attrs:"max_length=255"`
@@ -63,28 +87,45 @@ func (m *Todo) FieldDefs() attrs.Definitions {
 		fieldDefs = attrs.Define(m, fields...)
 	}
 	return fieldDefs
-
 }
 
-type Profile struct {
-	ID        int64  `attrs:"primary"`
-	User      *User  `attrs:"o2o=test_sql.User;column=user_id"`
-	Image     string `attrs:"-"`
-	Biography string `attrs:"-"`
-	Website   string `attrs:"-"`
+type BlogPost struct {
+	ID        int64     `attrs:"primary"`
+	Title     string    `attrs:"max_length=255"`
+	Body      string    `attrs:"max_length=255"`
+	Author    *User     `attrs:"fk=test_sql.User;column=author_id"`
+	Published bool      `attrs:"-"`
+	CreatedAt time.Time `attrs:"-"`
+	UpdatedAt time.Time `attrs:"-"`
 }
 
-func (m *Profile) FieldDefs() attrs.Definitions {
+func (m *BlogPost) FieldDefs() attrs.Definitions {
 	var fieldDefs = attrs.AutoDefinitions(m)
-	var fields = fieldDefs.Fields()
 	if ExtendedDefinitions {
-		fields = append(fields, attrs.NewField(m, "Biography", &attrs.FieldConfig{}))
-		fields = append(fields, attrs.NewField(m, "Website", &attrs.FieldConfig{}))
+		var fields = fieldDefs.Fields()
+		fields = append(fields, attrs.NewField(m, "Published", &attrs.FieldConfig{}))
+		fields = append(fields, attrs.NewField(m, "CreatedAt", &attrs.FieldConfig{}))
+		fields = append(fields, attrs.NewField(m, "UpdatedAt", &attrs.FieldConfig{}))
+		fieldDefs = attrs.Define(m, fields...)
 	}
-	if ExtendedDefinitionsProfile {
-		fields = append(fields, attrs.NewField(m, "Image", &attrs.FieldConfig{}))
-	}
-	if ExtendedDefinitions || ExtendedDefinitionsProfile {
+	return fieldDefs
+}
+
+type BlogComment struct {
+	ID        int64     `attrs:"primary"`
+	Body      string    `attrs:"max_length=255"`
+	Author    *User     `attrs:"fk=test_sql.User;column=author_id"`
+	Post      *BlogPost `attrs:"fk=test_sql.BlogPost;column=post_id"`
+	CreatedAt time.Time `attrs:"-"`
+	UpdatedAt time.Time `attrs:"-"`
+}
+
+func (m *BlogComment) FieldDefs() attrs.Definitions {
+	var fieldDefs = attrs.AutoDefinitions(m)
+	if ExtendedDefinitions {
+		var fields = fieldDefs.Fields()
+		fields = append(fields, attrs.NewField(m, "CreatedAt", &attrs.FieldConfig{}))
+		fields = append(fields, attrs.NewField(m, "UpdatedAt", &attrs.FieldConfig{}))
 		fieldDefs = attrs.Define(m, fields...)
 	}
 	return fieldDefs

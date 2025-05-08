@@ -8,10 +8,24 @@ import (
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/src/migrator"
+	django "github.com/Nigel2392/go-django/src"
 	"github.com/go-sql-driver/mysql"
 )
 
 var _ migrator.SchemaEditor = &MySQLSchemaEditor{}
+
+func init() {
+	migrator.RegisterSchemaEditor(&mysql.MySQLDriver{}, func() (migrator.SchemaEditor, error) {
+		var db, ok = django.ConfigGetOK[*sql.DB](
+			django.Global.Settings,
+			django.APPVAR_DATABASE,
+		)
+		if !ok {
+			return nil, fmt.Errorf("migrator: mysql: no database connection found")
+		}
+		return NewMySQLSchemaEditor(db), nil
+	})
+}
 
 const (
 	createTableMigrations = `CREATE TABLE IF NOT EXISTS migrations (

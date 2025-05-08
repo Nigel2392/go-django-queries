@@ -16,6 +16,9 @@ const (
 
 	// Keys for attrs.ModelMeta
 	MetaAllowMigrateKey = "migrator.allow_migrate"
+
+	// The directory where the migration files are stored
+	APPVAR_MIGRATION_DIR = "migrator.migration_dir"
 )
 
 type CanSQL[T any] interface {

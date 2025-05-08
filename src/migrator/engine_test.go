@@ -8,6 +8,7 @@ import (
 	_ "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	testsql "github.com/Nigel2392/go-django-queries/src/migrator/sql/test_sql"
+	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
@@ -20,11 +21,25 @@ func init() {
 func TestMigrator(t *testing.T) {
 
 	var (
+		_ = django.App(
+			django.Configure(make(map[string]interface{})),
+			django.Apps(
+				testsql.NewAuthAppConfig,
+				testsql.NewTodoAppConfig,
+				testsql.NewBlogAppConfig,
+			),
+			django.Flag(
+				django.FlagSkipCmds,
+			),
+		).Initialize()
 		// db, _ = sql.Open("sqlite3", "file:./migrator_test.db")
 		// tmpDir = t.TempDir()
 		tmpDir = "./migrations"
-		engine = migrator.NewMigrationEngine(tmpDir)
 		editor = testsql.NewTestMigrationEngine(t)
+		engine = migrator.NewMigrationEngine(
+			tmpDir,
+			editor,
+		)
 		// editor = sqlite.NewSQLiteSchemaEditor(db)
 	)
 	engine.SchemaEditor = editor
@@ -59,11 +74,27 @@ func TestMigrator(t *testing.T) {
 	}
 
 	// Verify stored migrations
-	if len(engine.Migrations["test_sql"]) == 0 {
+	if len(engine.Migrations["auth"]) == 0 {
+		t.Fatalf("expected engine to track stored migrations for app 'test_sql' %v", engine.Migrations)
+	}
+	if len(engine.Migrations["todo"]) == 0 {
+		t.Fatalf("expected engine to track stored migrations for app 'test_sql' %v", engine.Migrations)
+	}
+	if len(engine.Migrations["blog"]) == 0 {
 		t.Fatalf("expected engine to track stored migrations for app 'test_sql' %v", engine.Migrations)
 	}
 
-	for model, migs := range engine.Migrations["test_sql"] {
+	for model, migs := range engine.Migrations["auth"] {
+		if len(migs) == 0 {
+			t.Errorf("expected at least one migration stored for model %q", model)
+		}
+	}
+	for model, migs := range engine.Migrations["todo"] {
+		if len(migs) == 0 {
+			t.Errorf("expected at least one migration stored for model %q", model)
+		}
+	}
+	for model, migs := range engine.Migrations["blog"] {
 		if len(migs) == 0 {
 			t.Errorf("expected at least one migration stored for model %q", model)
 		}
@@ -93,8 +124,8 @@ func TestMigrator(t *testing.T) {
 			t.Fatalf("NeedsToMigrate failed: %v", err)
 		}
 
-		if len(needsToMigrate) != 3 {
-			t.Fatalf("expected 3 migrations, got %d", len(needsToMigrate))
+		if len(needsToMigrate) != 5 {
+			t.Fatalf("expected 5 migrations, got %d", len(needsToMigrate))
 		}
 
 		if err := engine.MakeMigrations(); err != nil {
@@ -126,30 +157,32 @@ func TestMigrator(t *testing.T) {
 
 		// Verify stored migrations
 		var (
-			latestMigrationProfile = engine.Migrations["test_sql"]["Profile"][len(engine.Migrations["test_sql"]["Profile"])-1]
-			latestMigrationTodo    = engine.Migrations["test_sql"]["Todo"][len(engine.Migrations["test_sql"]["Todo"])-1]
-			latestMigrationUser    = engine.Migrations["test_sql"]["User"][len(engine.Migrations["test_sql"]["User"])-1]
+			latestMigrationProfile = engine.Migrations["auth"]["Profile"][len(engine.Migrations["auth"]["Profile"])-1]
+			latestMigrationTodo    = engine.Migrations["todo"]["Todo"][len(engine.Migrations["todo"]["Todo"])-1]
+			latestMigrationUser    = engine.Migrations["auth"]["User"][len(engine.Migrations["auth"]["User"])-1]
 		)
 
 		// Verify stored migrations
-		if len(engine.Migrations["test_sql"]) == 0 {
-			t.Fatalf("expected engine to track stored migrations for app 'test_sql' %v", engine.Migrations)
+		if len(engine.Migrations["auth"]) != 2 {
+			t.Fatalf("expected 2 migrations, got %d", len(engine.Migrations["auth"]))
+		}
+		if len(engine.Migrations["todo"]) != 1 {
+			t.Fatalf("expected 1 migrations, got %d", len(engine.Migrations["todo"]))
+		}
+		if len(engine.Migrations["blog"]) != 2 {
+			t.Fatalf("expected 2 migrations, got %d", len(engine.Migrations["blog"]))
 		}
 
-		if len(engine.Migrations["test_sql"]) != 3 {
-			t.Fatalf("expected 3 migrations, got %d", len(engine.Migrations["test_sql"]))
+		if len(engine.Migrations["auth"]["Profile"]) != 2 {
+			t.Fatalf("expected 2 migrations for Profile, got %d", len(engine.Migrations["auth"]["Profile"]))
 		}
 
-		if len(engine.Migrations["test_sql"]["Profile"]) != 2 {
-			t.Fatalf("expected 2 migrations for Profile, got %d", len(engine.Migrations["test_sql"]["Profile"]))
+		if len(engine.Migrations["todo"]["Todo"]) != 2 {
+			t.Fatalf("expected 2 migration for Todo, got %d", len(engine.Migrations["todo"]["Todo"]))
 		}
 
-		if len(engine.Migrations["test_sql"]["Todo"]) != 2 {
-			t.Fatalf("expected 2 migration for Todo, got %d", len(engine.Migrations["test_sql"]["Todo"]))
-		}
-
-		if len(engine.Migrations["test_sql"]["User"]) != 2 {
-			t.Fatalf("expected 2 migration for User, got %d", len(engine.Migrations["test_sql"]["User"]))
+		if len(engine.Migrations["auth"]["User"]) != 2 {
+			t.Fatalf("expected 2 migration for User, got %d", len(engine.Migrations["auth"]["User"]))
 		}
 
 		if len(latestMigrationProfile.Dependencies) != 1 {
@@ -185,8 +218,8 @@ func TestMigrator(t *testing.T) {
 			t.Fatalf("NeedsToMigrate failed: %v", err)
 		}
 
-		if len(needsToMigrate) != 3 {
-			t.Fatalf("expected 3 migrations, got %d", len(needsToMigrate))
+		if len(needsToMigrate) != 5 {
+			t.Fatalf("expected 5 migrations, got %d", len(needsToMigrate))
 		}
 
 		if err := engine.MakeMigrations(); err != nil {
@@ -217,30 +250,32 @@ func TestMigrator(t *testing.T) {
 		}
 
 		var (
-			latestMigrationProfile = engine.Migrations["test_sql"]["Profile"][len(engine.Migrations["test_sql"]["Profile"])-1]
-			latestMigrationTodo    = engine.Migrations["test_sql"]["Todo"][len(engine.Migrations["test_sql"]["Todo"])-1]
-			latestMigrationUser    = engine.Migrations["test_sql"]["User"][len(engine.Migrations["test_sql"]["User"])-1]
+			latestMigrationProfile = engine.Migrations["auth"]["Profile"][len(engine.Migrations["auth"]["Profile"])-1]
+			latestMigrationTodo    = engine.Migrations["todo"]["Todo"][len(engine.Migrations["todo"]["Todo"])-1]
+			latestMigrationUser    = engine.Migrations["auth"]["User"][len(engine.Migrations["auth"]["User"])-1]
 		)
 
 		// Verify stored migrations
-		if len(engine.Migrations["test_sql"]) == 0 {
-			t.Fatalf("expected engine to track stored migrations for app 'test_sql' %v", engine.Migrations)
+		if len(engine.Migrations["auth"]) != 2 {
+			t.Fatalf("expected 2 migrations for 'auth', got %d", len(engine.Migrations["auth"]))
+		}
+		if len(engine.Migrations["todo"]) != 1 {
+			t.Fatalf("expected 1 migrations for 'todo', got %d", len(engine.Migrations["todo"]))
+		}
+		if len(engine.Migrations["blog"]) != 2 {
+			t.Fatalf("expected 2 migrations for 'blog', got %d", len(engine.Migrations["blog"]))
 		}
 
-		if len(engine.Migrations["test_sql"]) != 3 {
-			t.Fatalf("expected 3 migrations, got %d", len(engine.Migrations["test_sql"]))
+		if len(engine.Migrations["auth"]["Profile"]) != 3 {
+			t.Fatalf("expected 3 migrations for Profile, got %d", len(engine.Migrations["auth"]["Profile"]))
 		}
 
-		if len(engine.Migrations["test_sql"]["Profile"]) != 3 {
-			t.Fatalf("expected 3 migrations for Profile, got %d", len(engine.Migrations["test_sql"]["Profile"]))
+		if len(engine.Migrations["todo"]["Todo"]) != 3 {
+			t.Fatalf("expected 3 migration for Todo, got %d", len(engine.Migrations["todo"]["Todo"]))
 		}
 
-		if len(engine.Migrations["test_sql"]["Todo"]) != 3 {
-			t.Fatalf("expected 3 migration for Todo, got %d", len(engine.Migrations["test_sql"]["Todo"]))
-		}
-
-		if len(engine.Migrations["test_sql"]["User"]) != 3 {
-			t.Fatalf("expected 3 migration for User, got %d", len(engine.Migrations["test_sql"]["User"]))
+		if len(engine.Migrations["auth"]["User"]) != 3 {
+			t.Fatalf("expected 3 migration for User, got %d", len(engine.Migrations["auth"]["User"]))
 		}
 
 		if len(latestMigrationProfile.Dependencies) != 1 {
@@ -310,30 +345,32 @@ func TestMigrator(t *testing.T) {
 		}
 
 		var (
-			latestMigrationProfile = engine.Migrations["test_sql"]["Profile"][len(engine.Migrations["test_sql"]["Profile"])-1]
-			latestMigrationTodo    = engine.Migrations["test_sql"]["Todo"][len(engine.Migrations["test_sql"]["Todo"])-1]
-			latestMigrationUser    = engine.Migrations["test_sql"]["User"][len(engine.Migrations["test_sql"]["User"])-1]
+			latestMigrationProfile = engine.Migrations["auth"]["Profile"][len(engine.Migrations["auth"]["Profile"])-1]
+			latestMigrationTodo    = engine.Migrations["todo"]["Todo"][len(engine.Migrations["todo"]["Todo"])-1]
+			latestMigrationUser    = engine.Migrations["auth"]["User"][len(engine.Migrations["auth"]["User"])-1]
 		)
 
 		// Verify stored migrations
-		if len(engine.Migrations["test_sql"]) == 0 {
-			t.Fatalf("expected engine to track stored migrations for app 'test_sql' %v", engine.Migrations)
+		if len(engine.Migrations["auth"]) != 2 {
+			t.Fatalf("expected 2 migrations for 'auth', got %d", len(engine.Migrations["auth"]))
+		}
+		if len(engine.Migrations["todo"]) != 1 {
+			t.Fatalf("expected 1 migrations for 'todo', got %d", len(engine.Migrations["todo"]))
+		}
+		if len(engine.Migrations["blog"]) != 2 {
+			t.Fatalf("expected 2 migrations for 'blog', got %d", len(engine.Migrations["blog"]))
 		}
 
-		if len(engine.Migrations["test_sql"]) != 3 {
-			t.Fatalf("expected 3 migrations, got %d", len(engine.Migrations["test_sql"]))
+		if len(engine.Migrations["auth"]["Profile"]) != 4 {
+			t.Fatalf("expected 4 migrations for Profile, got %d", len(engine.Migrations["auth"]["Profile"]))
 		}
 
-		if len(engine.Migrations["test_sql"]["Profile"]) != 4 {
-			t.Fatalf("expected 4 migrations for Profile, got %d", len(engine.Migrations["test_sql"]["Profile"]))
+		if len(engine.Migrations["todo"]["Todo"]) != 4 {
+			t.Fatalf("expected 4 migration for Todo, got %d", len(engine.Migrations["todo"]["Todo"]))
 		}
 
-		if len(engine.Migrations["test_sql"]["Todo"]) != 4 {
-			t.Fatalf("expected 4 migration for Todo, got %d", len(engine.Migrations["test_sql"]["Todo"]))
-		}
-
-		if len(engine.Migrations["test_sql"]["User"]) != 3 {
-			t.Fatalf("expected 3 migration for User, got %d", len(engine.Migrations["test_sql"]["User"]))
+		if len(engine.Migrations["auth"]["User"]) != 3 {
+			t.Fatalf("expected 3 migration for User, got %d", len(engine.Migrations["auth"]["User"]))
 		}
 
 		if len(latestMigrationProfile.Dependencies) != 0 {

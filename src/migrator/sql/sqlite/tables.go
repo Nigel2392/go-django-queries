@@ -7,11 +7,25 @@ import (
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/src/migrator"
+	django "github.com/Nigel2392/go-django/src"
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/mattn/go-sqlite3"
 )
 
 var _ migrator.SchemaEditor = &SQLiteSchemaEditor{}
+
+func init() {
+	migrator.RegisterSchemaEditor(&sqlite3.SQLiteDriver{}, func() (migrator.SchemaEditor, error) {
+		var db, ok = django.ConfigGetOK[*sql.DB](
+			django.Global.Settings,
+			django.APPVAR_DATABASE,
+		)
+		if !ok {
+			return nil, fmt.Errorf("migrator: mysql: no database connection found")
+		}
+		return NewSQLiteSchemaEditor(db), nil
+	})
+}
 
 const (
 	createTableMigrations = `CREATE TABLE IF NOT EXISTS migrations (

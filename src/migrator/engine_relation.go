@@ -22,12 +22,12 @@ func (a Action) String() string {
 }
 
 const (
-	// OnDeleteSetNull is the action to set the field to null when the target model is deleted.
-	SET_NULL Action = iota + 1
 	// OnDeleteCascade is the action to cascade the delete to the target model.
-	CASCADE
+	CASCADE Action = iota
 	// OnDeleteRestrict is the action to restrict the delete of the target model.
 	RESTRICT
+	// OnDeleteSetNull is the action to set the field to null when the target model is deleted.
+	SET_NULL
 
 	// not yet supported:
 	//	// OnDeleteSetDefault is the action to set the field to the default value when the target model is deleted.
@@ -42,10 +42,12 @@ var actions_map = map[Action]string{
 }
 
 type migrationRelationSerialized struct {
-	Type        attrs.RelationType                           `json:"type"`  // The type of the relation
-	TargetModel *contenttypes.BaseContentType[attrs.Definer] `json:"model"` // The target model of the relation
-	TargetField string                                       `json:"field"` // The field in the target model
-	Through     *MigrationRelationThrough
+	Type        attrs.RelationType                           `json:"type"`                // The type of the relation
+	TargetModel *contenttypes.BaseContentType[attrs.Definer] `json:"model"`               // The target model of the relation
+	TargetField string                                       `json:"field,omitempty"`     // The field in the target model
+	Through     *MigrationRelationThrough                    `json:"through,omitempty"`   // The through model of the relation
+	OnDelete    Action                                       `json:"on_delete,omitempty"` // The on delete action of the relation
+	OnUpdate    Action                                       `json:"on_update,omitempty"` // The on update action of the relation
 }
 
 type MigrationRelationThrough struct {
@@ -55,12 +57,12 @@ type MigrationRelationThrough struct {
 }
 
 type MigrationRelation struct {
-	Type        attrs.RelationType                           `json:"type"`      // The type of the relation
-	TargetModel *contenttypes.BaseContentType[attrs.Definer] `json:"model"`     // The target model of the relation
-	TargetField attrs.Field                                  `json:"field"`     // The field in the target model
-	Through     *MigrationRelationThrough                    `json:"through"`   // The through model of the relation
-	OnDelete    Action                                       `json:"on_delete"` // The on delete action of the relation
-	OnUpdate    Action                                       `json:"on_update"` // The on update action of the relation
+	Type        attrs.RelationType                           `json:"type"`                // The type of the relation
+	TargetModel *contenttypes.BaseContentType[attrs.Definer] `json:"model"`               // The target model of the relation
+	TargetField attrs.Field                                  `json:"field,omitempty"`     // The field in the target model
+	Through     *MigrationRelationThrough                    `json:"through,omitempty"`   // The through model of the relation
+	OnDelete    Action                                       `json:"on_delete,omitempty"` // The on delete action of the relation
+	OnUpdate    Action                                       `json:"on_update,omitempty"` // The on update action of the relation
 }
 
 func (m *MigrationRelation) Model() attrs.Definer {
@@ -84,6 +86,8 @@ func (m *MigrationRelation) MarshalJSON() ([]byte, error) {
 		Through:     m.Through,
 		TargetModel: m.TargetModel,
 		TargetField: targetField,
+		OnDelete:    m.OnDelete,
+		OnUpdate:    m.OnUpdate,
 	}
 	return json.Marshal(rel)
 }
@@ -112,6 +116,9 @@ func (m *MigrationRelation) UnmarshalJSON(data []byte) error {
 
 	m.Type = rel.Type
 	m.TargetModel = rel.TargetModel
+	m.Through = rel.Through
+	m.OnDelete = rel.OnDelete
+	m.OnUpdate = rel.OnUpdate
 
 	return nil
 }

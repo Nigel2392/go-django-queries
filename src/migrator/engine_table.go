@@ -32,6 +32,14 @@ func changed[T any](old, new T) *Changed[T] {
 	}
 }
 
+type Index struct {
+	Name    string   `json:"name"`
+	Type    string   `json:"type"`
+	Columns []string `json:"columns"`
+	Unique  bool     `json:"unique,omitempty"`
+	Comment string   `json:"comment,omitempty"`
+}
+
 type ModelTable struct {
 	Object attrs.Definer
 	Table  string
@@ -79,6 +87,8 @@ func NewModelTable(object attrs.Definer) *ModelTable {
 		attrAutoIncrement, _ := getFromAttrs[bool](atts, attrs.AttrAutoIncrementKey)
 		attrUnique, _ := getFromAttrs[bool](atts, attrs.AttrUniqueKey)
 		attrReverseAlias, _ := getFromAttrs[string](atts, attrs.AttrReverseAliasKey)
+		attrOnDelete, _ := getFromAttrs[Action](atts, AttrOnDeleteKey)
+		attrOnUpdate, _ := getFromAttrs[Action](atts, AttrOnUpdateKey)
 
 		var rel *MigrationRelation
 		var fRel = field.Rel()
@@ -92,6 +102,8 @@ func NewModelTable(object attrs.Definer) *ModelTable {
 				Type:        fRel.Type(),
 				TargetModel: cType,
 				TargetField: fRel.Field(),
+				OnDelete:    attrOnDelete,
+				OnUpdate:    attrOnUpdate,
 			}
 
 			var through = fRel.Through()

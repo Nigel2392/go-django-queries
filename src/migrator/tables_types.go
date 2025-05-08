@@ -8,8 +8,10 @@ import (
 )
 
 const (
-	AttrDBTypeKey  = "migrator.db_type"
-	AttrUseInDBKey = "migrator.use_in_db"
+	AttrDBTypeKey   = "migrator.db_type"
+	AttrUseInDBKey  = "migrator.use_in_db"
+	AttrOnDeleteKey = "migrator.on_delete"
+	AttrOnUpdateKey = "migrator.on_update"
 )
 
 var (

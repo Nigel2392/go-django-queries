@@ -22,7 +22,7 @@ func TestMigrator(t *testing.T) {
 		// tmpDir = t.TempDir()
 		tmpDir = "./migrations"
 		engine = migrator.NewMigrationEngine(tmpDir)
-		editor = testsql.NewTestMigrationEngine()
+		editor = testsql.NewTestMigrationEngine(t)
 		// editor = sqlite.NewSQLiteSchemaEditor(db)
 	)
 	engine.SchemaEditor = editor
@@ -83,139 +83,279 @@ func TestMigrator(t *testing.T) {
 		t.Errorf("expected CreateTable action")
 	}
 
-	testsql.ExtendedDefinitions = true
+	t.Run("TestMigrationAddField", func(t *testing.T) {
+		testsql.ExtendedDefinitions = true
 
-	needsToMigrate, err := engine.NeedsToMigrate()
-	if err != nil {
-		t.Fatalf("NeedsToMigrate failed: %v", err)
-	}
-
-	if len(needsToMigrate) != 3 {
-		t.Fatalf("expected 3 migrations, got %d", len(needsToMigrate))
-	}
-
-	if err := engine.MakeMigrations(); err != nil {
-		t.Fatalf("MakeMigrations failed: %v", err)
-	}
-
-	t.Logf("Migrations created in %q", tmpDir)
-
-	// Ensure migration files exist
-	files = 0
-	err = filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
-		if filepath.Ext(path) == migrator.MIGRATION_FILE_SUFFIX {
-			files++
+		needsToMigrate, err := engine.NeedsToMigrate()
+		if err != nil {
+			t.Fatalf("NeedsToMigrate failed: %v", err)
 		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Walk failed: %v", err)
-	}
 
-	if files == 0 {
-		t.Fatalf("expected migration files, got none")
-	}
-
-	// Migrate
-	if err := engine.Migrate(); err != nil {
-		t.Fatalf("Migrate failed: %v", err)
-	}
-
-	// Verify stored migrations
-	if len(engine.Migrations["test_sql"]) == 0 {
-		t.Fatalf("expected engine to track stored migrations for app 'test_sql' %v", engine.Migrations)
-	}
-
-	if len(engine.Migrations["test_sql"]) != 3 {
-		t.Fatalf("expected 3 migrations, got %d", len(engine.Migrations["test_sql"]))
-	}
-
-	if len(engine.Migrations["test_sql"]["Profile"]) != 2 {
-		t.Fatalf("expected 2 migrations for Profile, got %d", len(engine.Migrations["test_sql"]["Profile"]))
-	}
-
-	if len(engine.Migrations["test_sql"]["Todo"]) != 2 {
-		t.Fatalf("expected 2 migration for Todo, got %d", len(engine.Migrations["test_sql"]["Todo"]))
-	}
-
-	if len(engine.Migrations["test_sql"]["User"]) != 2 {
-		t.Fatalf("expected 2 migration for User, got %d", len(engine.Migrations["test_sql"]["User"]))
-	}
-
-	testsql.ExtendedDefinitions = false
-
-	needsToMigrate, err = engine.NeedsToMigrate()
-	if err != nil {
-		t.Fatalf("NeedsToMigrate failed: %v", err)
-	}
-
-	if len(needsToMigrate) != 3 {
-		t.Fatalf("expected 3 migrations, got %d", len(needsToMigrate))
-	}
-
-	if err := engine.MakeMigrations(); err != nil {
-		t.Fatalf("MakeMigrations failed: %v", err)
-	}
-
-	t.Logf("Migrations created in %q", tmpDir)
-
-	// Ensure migration files exist
-	files = 0
-	err = filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
-		if filepath.Ext(path) == migrator.MIGRATION_FILE_SUFFIX {
-			files++
+		if len(needsToMigrate) != 3 {
+			t.Fatalf("expected 3 migrations, got %d", len(needsToMigrate))
 		}
-		return nil
+
+		if err := engine.MakeMigrations(); err != nil {
+			t.Fatalf("MakeMigrations failed: %v", err)
+		}
+
+		t.Logf("Migrations created in %q", tmpDir)
+
+		// Ensure migration files exist
+		files = 0
+		err = filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+			if filepath.Ext(path) == migrator.MIGRATION_FILE_SUFFIX {
+				files++
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("Walk failed: %v", err)
+		}
+
+		if files == 0 {
+			t.Fatalf("expected migration files, got none")
+		}
+
+		// Migrate
+		if err := engine.Migrate(); err != nil {
+			t.Fatalf("Migrate failed: %v", err)
+		}
+
+		// Verify stored migrations
+		var (
+			latestMigrationProfile = engine.Migrations["test_sql"]["Profile"][len(engine.Migrations["test_sql"]["Profile"])-1]
+			latestMigrationTodo    = engine.Migrations["test_sql"]["Todo"][len(engine.Migrations["test_sql"]["Todo"])-1]
+			latestMigrationUser    = engine.Migrations["test_sql"]["User"][len(engine.Migrations["test_sql"]["User"])-1]
+		)
+
+		// Verify stored migrations
+		if len(engine.Migrations["test_sql"]) == 0 {
+			t.Fatalf("expected engine to track stored migrations for app 'test_sql' %v", engine.Migrations)
+		}
+
+		if len(engine.Migrations["test_sql"]) != 3 {
+			t.Fatalf("expected 3 migrations, got %d", len(engine.Migrations["test_sql"]))
+		}
+
+		if len(engine.Migrations["test_sql"]["Profile"]) != 2 {
+			t.Fatalf("expected 2 migrations for Profile, got %d", len(engine.Migrations["test_sql"]["Profile"]))
+		}
+
+		if len(engine.Migrations["test_sql"]["Todo"]) != 2 {
+			t.Fatalf("expected 2 migration for Todo, got %d", len(engine.Migrations["test_sql"]["Todo"]))
+		}
+
+		if len(engine.Migrations["test_sql"]["User"]) != 2 {
+			t.Fatalf("expected 2 migration for User, got %d", len(engine.Migrations["test_sql"]["User"]))
+		}
+
+		if len(latestMigrationProfile.Dependencies) != 1 {
+			t.Fatalf("expected 1 dependency for Profile, got %d", len(latestMigrationProfile.Dependencies))
+		}
+
+		if latestMigrationProfile.Actions[len(latestMigrationProfile.Actions)-1].ActionType != migrator.ActionAddField {
+			t.Fatalf("expected last action to be AddField, got %s", latestMigrationProfile.Actions[len(latestMigrationProfile.Actions)-1].ActionType)
+		}
+
+		if len(latestMigrationTodo.Dependencies) != 1 {
+			t.Fatalf("expected 1 dependency for Todo, got %d", len(latestMigrationTodo.Dependencies))
+		}
+
+		if latestMigrationTodo.Actions[len(latestMigrationTodo.Actions)-1].ActionType != migrator.ActionAddField {
+			t.Fatalf("expected last action to be AddField, got %s", latestMigrationTodo.Actions[len(latestMigrationTodo.Actions)-1].ActionType)
+		}
+
+		if len(latestMigrationUser.Dependencies) != 0 {
+			t.Fatalf("expected 0 dependencies for User, got %d", len(latestMigrationUser.Dependencies))
+		}
+
+		if latestMigrationUser.Actions[len(latestMigrationUser.Actions)-1].ActionType != migrator.ActionAddField {
+			t.Fatalf("expected last action to be AddField, got %s", latestMigrationUser.Actions[len(latestMigrationUser.Actions)-1].ActionType)
+		}
 	})
-	if err != nil {
-		t.Fatalf("Walk failed: %v", err)
-	}
 
-	if files == 0 {
-		t.Fatalf("expected migration files, got none")
-	}
+	t.Run("TestMigrationRemoveField", func(t *testing.T) {
+		testsql.ExtendedDefinitions = false
 
-	// Migrate
-	if err := engine.Migrate(); err != nil {
-		t.Fatalf("Migrate failed: %v", err)
-	}
+		var needsToMigrate, err = engine.NeedsToMigrate()
+		if err != nil {
+			t.Fatalf("NeedsToMigrate failed: %v", err)
+		}
 
-	var (
-		latestMigrationProfile = engine.Migrations["test_sql"]["Profile"][len(engine.Migrations["test_sql"]["Profile"])-1]
-		latestMigrationTodo    = engine.Migrations["test_sql"]["Todo"][len(engine.Migrations["test_sql"]["Todo"])-1]
-		latestMigrationUser    = engine.Migrations["test_sql"]["User"][len(engine.Migrations["test_sql"]["User"])-1]
-	)
+		if len(needsToMigrate) != 3 {
+			t.Fatalf("expected 3 migrations, got %d", len(needsToMigrate))
+		}
 
-	// Verify stored migrations
-	if len(engine.Migrations["test_sql"]) == 0 {
-		t.Fatalf("expected engine to track stored migrations for app 'test_sql' %v", engine.Migrations)
-	}
+		if err := engine.MakeMigrations(); err != nil {
+			t.Fatalf("MakeMigrations failed: %v", err)
+		}
 
-	if len(engine.Migrations["test_sql"]) != 3 {
-		t.Fatalf("expected 3 migrations, got %d", len(engine.Migrations["test_sql"]))
-	}
+		t.Logf("Migrations created in %q", tmpDir)
 
-	if len(engine.Migrations["test_sql"]["Profile"]) != 3 {
-		t.Fatalf("expected 2 migrations for Profile, got %d", len(engine.Migrations["test_sql"]["Profile"]))
-	}
+		// Ensure migration files exist
+		files = 0
+		err = filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+			if filepath.Ext(path) == migrator.MIGRATION_FILE_SUFFIX {
+				files++
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("Walk failed: %v", err)
+		}
 
-	if len(engine.Migrations["test_sql"]["Todo"]) != 3 {
-		t.Fatalf("expected 2 migration for Todo, got %d", len(engine.Migrations["test_sql"]["Todo"]))
-	}
+		if files == 0 {
+			t.Fatalf("expected migration files, got none")
+		}
 
-	if len(engine.Migrations["test_sql"]["User"]) != 3 {
-		t.Fatalf("expected 2 migration for User, got %d", len(engine.Migrations["test_sql"]["User"]))
-	}
+		// Migrate
+		if err := engine.Migrate(); err != nil {
+			t.Fatalf("Migrate failed: %v", err)
+		}
 
-	if latestMigrationProfile.Actions[len(latestMigrationProfile.Actions)-1].ActionType != migrator.ActionRemoveField {
-		t.Fatalf("expected last action to be AddField, got %s", latestMigrationProfile.Actions[len(latestMigrationProfile.Actions)-1].ActionType)
-	}
+		var (
+			latestMigrationProfile = engine.Migrations["test_sql"]["Profile"][len(engine.Migrations["test_sql"]["Profile"])-1]
+			latestMigrationTodo    = engine.Migrations["test_sql"]["Todo"][len(engine.Migrations["test_sql"]["Todo"])-1]
+			latestMigrationUser    = engine.Migrations["test_sql"]["User"][len(engine.Migrations["test_sql"]["User"])-1]
+		)
 
-	if latestMigrationTodo.Actions[len(latestMigrationTodo.Actions)-1].ActionType != migrator.ActionRemoveField {
-		t.Fatalf("expected last action to be AddField, got %s", latestMigrationTodo.Actions[len(latestMigrationTodo.Actions)-1].ActionType)
-	}
+		// Verify stored migrations
+		if len(engine.Migrations["test_sql"]) == 0 {
+			t.Fatalf("expected engine to track stored migrations for app 'test_sql' %v", engine.Migrations)
+		}
 
-	if latestMigrationUser.Actions[len(latestMigrationUser.Actions)-1].ActionType != migrator.ActionRemoveField {
-		t.Fatalf("expected last action to be AddField, got %s", latestMigrationUser.Actions[len(latestMigrationUser.Actions)-1].ActionType)
-	}
+		if len(engine.Migrations["test_sql"]) != 3 {
+			t.Fatalf("expected 3 migrations, got %d", len(engine.Migrations["test_sql"]))
+		}
+
+		if len(engine.Migrations["test_sql"]["Profile"]) != 3 {
+			t.Fatalf("expected 3 migrations for Profile, got %d", len(engine.Migrations["test_sql"]["Profile"]))
+		}
+
+		if len(engine.Migrations["test_sql"]["Todo"]) != 3 {
+			t.Fatalf("expected 3 migration for Todo, got %d", len(engine.Migrations["test_sql"]["Todo"]))
+		}
+
+		if len(engine.Migrations["test_sql"]["User"]) != 3 {
+			t.Fatalf("expected 3 migration for User, got %d", len(engine.Migrations["test_sql"]["User"]))
+		}
+
+		if len(latestMigrationProfile.Dependencies) != 1 {
+			t.Fatalf("expected 1 dependency for Profile, got %d", len(latestMigrationProfile.Dependencies))
+		}
+
+		if latestMigrationProfile.Actions[len(latestMigrationProfile.Actions)-1].ActionType != migrator.ActionRemoveField {
+			t.Fatalf("expected last action to be RemoveField, got %s", latestMigrationProfile.Actions[len(latestMigrationProfile.Actions)-1].ActionType)
+		}
+
+		if len(latestMigrationTodo.Dependencies) != 1 {
+			t.Fatalf("expected 1 dependency for Todo, got %d", len(latestMigrationTodo.Dependencies))
+		}
+
+		if latestMigrationTodo.Actions[len(latestMigrationTodo.Actions)-1].ActionType != migrator.ActionRemoveField {
+			t.Fatalf("expected last action to be RemoveField, got %s", latestMigrationTodo.Actions[len(latestMigrationTodo.Actions)-1].ActionType)
+		}
+
+		if len(latestMigrationUser.Dependencies) != 0 {
+			t.Fatalf("expected 0 dependencies for User, got %d", len(latestMigrationUser.Dependencies))
+		}
+
+		if latestMigrationUser.Actions[len(latestMigrationUser.Actions)-1].ActionType != migrator.ActionRemoveField {
+			t.Fatalf("expected last action to be RemoveField, got %s", latestMigrationUser.Actions[len(latestMigrationUser.Actions)-1].ActionType)
+		}
+	})
+
+	t.Run("TestMigrationAddFieldNoDeps", func(t *testing.T) {
+		testsql.ExtendedDefinitions = false
+		testsql.ExtendedDefinitionsProfile = true
+		testsql.ExtendedDefinitionsTodo = true
+
+		var needsToMigrate, err = engine.NeedsToMigrate()
+		if err != nil {
+			t.Fatalf("NeedsToMigrate failed: %v", err)
+		}
+
+		if len(needsToMigrate) != 2 {
+			t.Fatalf("expected 2 migrations, got %d", len(needsToMigrate))
+		}
+
+		if err := engine.MakeMigrations(); err != nil {
+			t.Fatalf("MakeMigrations failed: %v", err)
+		}
+
+		t.Logf("Migrations created in %q", tmpDir)
+
+		// Ensure migration files exist
+		files = 0
+		err = filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+			if filepath.Ext(path) == migrator.MIGRATION_FILE_SUFFIX {
+				files++
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("Walk failed: %v", err)
+		}
+
+		if files == 0 {
+			t.Fatalf("expected migration files, got none")
+		}
+
+		// Migrate
+		if err := engine.Migrate(); err != nil {
+			t.Fatalf("Migrate failed: %v", err)
+		}
+
+		var (
+			latestMigrationProfile = engine.Migrations["test_sql"]["Profile"][len(engine.Migrations["test_sql"]["Profile"])-1]
+			latestMigrationTodo    = engine.Migrations["test_sql"]["Todo"][len(engine.Migrations["test_sql"]["Todo"])-1]
+			latestMigrationUser    = engine.Migrations["test_sql"]["User"][len(engine.Migrations["test_sql"]["User"])-1]
+		)
+
+		// Verify stored migrations
+		if len(engine.Migrations["test_sql"]) == 0 {
+			t.Fatalf("expected engine to track stored migrations for app 'test_sql' %v", engine.Migrations)
+		}
+
+		if len(engine.Migrations["test_sql"]) != 3 {
+			t.Fatalf("expected 3 migrations, got %d", len(engine.Migrations["test_sql"]))
+		}
+
+		if len(engine.Migrations["test_sql"]["Profile"]) != 4 {
+			t.Fatalf("expected 4 migrations for Profile, got %d", len(engine.Migrations["test_sql"]["Profile"]))
+		}
+
+		if len(engine.Migrations["test_sql"]["Todo"]) != 4 {
+			t.Fatalf("expected 4 migration for Todo, got %d", len(engine.Migrations["test_sql"]["Todo"]))
+		}
+
+		if len(engine.Migrations["test_sql"]["User"]) != 3 {
+			t.Fatalf("expected 3 migration for User, got %d", len(engine.Migrations["test_sql"]["User"]))
+		}
+
+		if len(latestMigrationProfile.Dependencies) != 0 {
+			t.Fatalf("expected 0 dependencies for Profile, got %d", len(latestMigrationProfile.Dependencies))
+		}
+
+		if latestMigrationProfile.Actions[len(latestMigrationProfile.Actions)-1].ActionType != migrator.ActionAddField {
+			t.Fatalf("expected last action to be AddField, got %s", latestMigrationProfile.Actions[len(latestMigrationProfile.Actions)-1].ActionType)
+		}
+
+		if len(latestMigrationTodo.Dependencies) != 0 {
+			t.Fatalf("expected 0 dependencies for Todo, got %d", len(latestMigrationTodo.Dependencies))
+		}
+
+		if latestMigrationTodo.Actions[len(latestMigrationTodo.Actions)-1].ActionType != migrator.ActionAddField {
+			t.Fatalf("expected last action to be AddField, got %s", latestMigrationTodo.Actions[len(latestMigrationTodo.Actions)-1].ActionType)
+		}
+
+		if len(latestMigrationUser.Dependencies) != 0 {
+			t.Fatalf("expected 0 dependencies for User, got %d", len(latestMigrationUser.Dependencies))
+		}
+
+		if latestMigrationUser.Actions[len(latestMigrationUser.Actions)-1].ActionType != migrator.ActionRemoveField {
+			t.Fatalf("expected last action to be RemoveField, got %s", latestMigrationUser.Actions[len(latestMigrationUser.Actions)-1].ActionType)
+		}
+	})
 }

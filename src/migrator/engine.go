@@ -179,12 +179,6 @@ func (m *MigrationEngine) Log(action ActionType, file *MigrationFile, table *Cha
 	if m.MigrationLog == nil {
 		return
 	}
-	file.Actions = append(file.Actions, MigrationAction{
-		ActionType: action,
-		Table:      table,
-		Field:      column,
-		Index:      index,
-	})
 	m.MigrationLog.Log(action, file, table, column, index)
 }
 

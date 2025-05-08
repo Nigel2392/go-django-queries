@@ -44,6 +44,7 @@ func TestMigrator(t *testing.T) {
 		// editor = sqlite.NewSQLiteSchemaEditor(db)
 	)
 	engine.SchemaEditor = editor
+	engine.MigrationLog = &migrator.MigrationEngineConsoleLog{}
 
 	os.RemoveAll(tmpDir)
 

@@ -10,14 +10,17 @@ import (
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/Nigel2392/go-django/src/core/contenttypes"
-	"github.com/Nigel2392/go-signals"
 
 	// Register all schema editors for the migrator package.
 	_ "github.com/Nigel2392/go-django-queries/src/migrator/sql/mysql"
 	_ "github.com/Nigel2392/go-django-queries/src/migrator/sql/postgres"
 	_ "github.com/Nigel2392/go-django-queries/src/migrator/sql/sqlite"
 )
+
+type ForUseInQueries interface {
+	attrs.Definer
+	ForUseInQueries() bool
+}
 
 type AliasField interface {
 	attrs.Field
@@ -225,44 +228,3 @@ func Compiler(model attrs.Definer, defaultDB string) QueryCompiler {
 
 	return compiler(model, defaultDB)
 }
-
-var _, _ = attrs.OnBeforeModelRegister.Listen(func(s signals.Signal[attrs.Definer], d attrs.Definer) error {
-
-	var (
-		def           = contenttypes.DefinitionForObject(d)
-		registerCType = false
-		changeCType   = false
-	)
-
-	if def == nil {
-		def = &contenttypes.ContentTypeDefinition{
-			ContentObject:     d,
-			GetInstance:       CT_GetObject[attrs.Definer],
-			GetInstances:      CT_ListObjects[attrs.Definer],
-			GetInstancesByIDs: CT_ListObjectsByIDs[attrs.Definer],
-		}
-		registerCType = true
-	} else {
-		if def.GetInstance == nil {
-			def.GetInstance = CT_GetObject[attrs.Definer]
-			changeCType = true
-		}
-		if def.GetInstances == nil {
-			def.GetInstances = CT_ListObjects[attrs.Definer]
-			changeCType = true
-		}
-		if def.GetInstancesByIDs == nil {
-			def.GetInstancesByIDs = CT_ListObjectsByIDs[attrs.Definer]
-			changeCType = true
-		}
-	}
-
-	switch {
-	case changeCType:
-		contenttypes.EditDefinition(def)
-	case registerCType:
-		contenttypes.Register(def)
-	}
-
-	return nil
-})

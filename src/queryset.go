@@ -214,7 +214,7 @@ func Objects(model attrs.Definer, database ...string) *QuerySet {
 		// enable queryset caching by default
 		// this can result in race conditions in some rare edge cases
 		// but is generally safe to use
-		useCache: true,
+		useCache: QUERYSET_USE_CACHE_DEFAULT,
 	}
 	qs.compiler = Compiler(model, defaultDb)
 	return qs
@@ -1471,7 +1471,7 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 
 	// Check if the object is a saver
 	// If it is, we can use the Save method to save the object
-	if saver, ok := value.(models.Saver); ok && !qs.explicitSave {
+	if saver, ok := value.(models.ContextSaver); ok && !qs.explicitSave {
 		return &QueryObject[attrs.Definer]{
 			model:    value,
 			compiler: qs.compiler,
@@ -1642,6 +1642,11 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 				}
 			}
 
+			var rVal = reflect.ValueOf(value)
+			if rVal.Kind() == reflect.Ptr {
+				rVal.Elem().Set(reflect.ValueOf(newObj).Elem())
+			}
+
 			return newObj, nil
 		},
 	}
@@ -1670,7 +1675,7 @@ func (qs *QuerySet) Update(value attrs.Definer) CountQuery {
 			panic(fmt.Errorf("failed to get value for field %q: %w", primary.Name(), err))
 		}
 
-		if _, ok := value.(models.Saver); ok && !fields.IsZero(primaryVal) {
+		if saver, ok := value.(models.ContextSaver); ok && !fields.IsZero(primaryVal) {
 			return &QueryObject[int64]{
 				model:    value,
 				compiler: qs.compiler,
@@ -1679,7 +1684,7 @@ func (qs *QuerySet) Update(value attrs.Definer) CountQuery {
 						return 0, err
 					}
 
-					var err = value.(models.Saver).Save(context.Background())
+					var err = saver.Save(context.Background())
 					if err != nil {
 						return 0, err
 					}

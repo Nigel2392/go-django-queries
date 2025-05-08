@@ -124,7 +124,7 @@ func (r *RelationField[T]) IsReverse() bool {
 	return true
 }
 
-func (r *RelationField[T]) Attributes() map[string]any {
+func (r *RelationField[T]) Attrs() map[string]any {
 	var atts = make(map[string]any)
 	atts[attrs.AttrNameKey] = r.Name()
 	atts[migrator.AttrUseInDBKey] = r.rel.Through() == nil && !r.IsReverse()

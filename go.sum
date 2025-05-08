@@ -16,6 +16,8 @@ github.com/Nigel2392/go-django v1.6.10-0.20250508190821-6d2a840163ae h1:7yLLkgM6
 github.com/Nigel2392/go-django v1.6.10-0.20250508190821-6d2a840163ae/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
 github.com/Nigel2392/go-django v1.6.10-0.20250508193411-cafad99c4be9 h1:nL4V2Mj+VrfnR398LWkENnY7bF4hJns1yB11RCJ/q3M=
 github.com/Nigel2392/go-django v1.6.10-0.20250508193411-cafad99c4be9/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
+github.com/Nigel2392/go-django v1.6.10-0.20250508214841-2860a0c39b4e h1:I7zmZH50eNst8wWbZMFse1SBvnay5hmg41q9mAmotzc=
+github.com/Nigel2392/go-django v1.6.10-0.20250508214841-2860a0c39b4e/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
 github.com/Nigel2392/go-signals v1.0.8 h1:A7WchnawfSVk9FyMer5YtKUyDs5fIdKePnoumD56vgc=
 github.com/Nigel2392/go-signals v1.0.8/go.mod h1:Olk7MJlZ9gdGPN8bh+OZSe7iOsBixn7biVI7LqoWEIA=
 github.com/Nigel2392/goldcrest v1.0.4 h1:Xx+QLht6QjJ3Gg9uksgc6Ye1XjbtzQ1208ClZwoVWsg=

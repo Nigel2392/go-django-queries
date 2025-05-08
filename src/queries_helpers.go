@@ -182,11 +182,9 @@ func sendSignal(s signals.Signal[SignalSave], obj attrs.Definer, q QueryCompiler
 func CreateObject[T attrs.Definer](obj T) error {
 	var (
 		definitions = obj.FieldDefs()
-	)
-
-	var (
-		qs       = Objects(obj).ExplicitSave().Create(obj)
-		compiler = qs.Compiler()
+		qs          = Objects(obj).ExplicitSave().Create(obj)
+		compiler    = qs.Compiler()
+		ctx         = context.Background()
 	)
 
 	// Send pre model save signal
@@ -198,19 +196,18 @@ func CreateObject[T attrs.Definer](obj T) error {
 		d       attrs.Definer
 		retDefs attrs.Definitions
 		err     error
+		saved   bool
 	)
 
-	if saver, ok := any(obj).(models.Saver); ok {
-		err = saver.Save(context.Background())
-		if err != nil {
-			return err
-		}
+	if saved, err = models.SaveModel(ctx, obj); err != nil {
+		return err
+	} else if saved {
 		goto postSaveSignal
-	} else {
-		d, err = qs.Exec()
-		if err != nil {
-			return err
-		}
+	}
+
+	d, err = qs.Exec()
+	if err != nil {
+		return err
 	}
 
 	retDefs = d.FieldDefs()
@@ -270,13 +267,19 @@ func UpdateObject[T attrs.Definer](obj T) (int64, error) {
 		return 0, err
 	}
 
-	var d int64
-	if saver, ok := any(obj).(models.Saver); ok {
-		err = saver.Save(context.Background())
-		d = 1
-	} else {
-		d, err = qs.Exec()
+	var (
+		ctx   = context.Background()
+		saved bool
+		d     int64
+	)
+
+	if saved, err = models.SaveModel(ctx, obj); err != nil {
+		return 0, err
+	} else if saved {
+		return 1, nil
 	}
+
+	d, err = qs.Exec()
 	if err != nil {
 		return 0, err
 	}
@@ -308,15 +311,15 @@ func DeleteObject[T attrs.Definer](obj T) (int64, error) {
 		return 0, err
 	}
 
-	var d int64
-	if deleter, ok := any(obj).(models.Deleter); ok {
-		err = deleter.Delete(context.Background())
-		d = 1
-	} else {
-		d, err = Objects(obj).
-			Filter(primary.Name(), primaryVal).
-			Delete().Exec()
+	if deleted, err := models.DeleteModel(context.Background(), obj); err != nil {
+		return 0, err
+	} else if deleted {
+		return 1, nil
 	}
+
+	d, err := Objects(obj).
+		Filter(primary.Name(), primaryVal).
+		Delete().Exec()
 	if err != nil {
 		return 0, err
 	}

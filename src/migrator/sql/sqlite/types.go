@@ -18,32 +18,34 @@ const (
 // SQLITE TYPES
 func init() {
 	// register kinds
-	migrator.RegisterColumnKind(&sqlite3.SQLiteDriver{}, []reflect.Kind{reflect.String}, type__string)
-	migrator.RegisterColumnKind(&sqlite3.SQLiteDriver{}, []reflect.Kind{reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64}, type__int)
-	migrator.RegisterColumnKind(&sqlite3.SQLiteDriver{}, []reflect.Kind{reflect.Float32, reflect.Float64}, type__float)
-	migrator.RegisterColumnKind(&sqlite3.SQLiteDriver{}, []reflect.Kind{reflect.Bool}, type__bool)
+	migrator.RegisterColumnKind(&sqlite3.SQLiteDriver{}, []reflect.Kind{reflect.String}, Type__string)
+	migrator.RegisterColumnKind(&sqlite3.SQLiteDriver{}, []reflect.Kind{reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64}, Type__int)
+	migrator.RegisterColumnKind(&sqlite3.SQLiteDriver{}, []reflect.Kind{reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64}, Type__int)
+	migrator.RegisterColumnKind(&sqlite3.SQLiteDriver{}, []reflect.Kind{reflect.Float32, reflect.Float64}, Type__float)
+	migrator.RegisterColumnKind(&sqlite3.SQLiteDriver{}, []reflect.Kind{reflect.Bool}, Type__bool)
 
 	// register types
-	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullString{}, type__string)
-	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullFloat64{}, type__int)
-	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullInt64{}, type__int)
-	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullInt32{}, type__int)
-	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullInt16{}, type__int)
-	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullBool{}, type__bool)
-	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullByte{}, type__int)
-	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullTime{}, type__datetime)
-	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, time.Time{}, type__datetime)
+	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullString{}, Type__string)
+	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullFloat64{}, Type__int)
+	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullInt64{}, Type__int)
+	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullInt32{}, Type__int)
+	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullInt16{}, Type__int)
+	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullBool{}, Type__bool)
+	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullByte{}, Type__int)
+	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, sql.NullTime{}, Type__datetime)
+	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, time.Time{}, Type__datetime)
+	migrator.RegisterColumnType(&sqlite3.SQLiteDriver{}, []byte{}, Type__string)
 }
 
-func type__string(f attrs.Field) string {
+func Type__string(f attrs.Field) string {
 	return "TEXT"
 }
 
-func type__float(f attrs.Field) string {
+func Type__float(f attrs.Field) string {
 	return "REAL"
 }
 
-func type__int(f attrs.Field) string {
+func Type__int(f attrs.Field) string {
 	var atts = f.Attrs()
 	var max float64
 	var max_val = atts[attrs.AttrMaxValueKey]
@@ -71,10 +73,10 @@ func type__int(f attrs.Field) string {
 	return "BIGINT"
 }
 
-func type__bool(f attrs.Field) string {
+func Type__bool(f attrs.Field) string {
 	return "BOOLEAN"
 }
 
-func type__datetime(f attrs.Field) string {
+func Type__datetime(f attrs.Field) string {
 	return "TIMESTAMP"
 }

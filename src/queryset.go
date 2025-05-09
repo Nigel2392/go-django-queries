@@ -31,6 +31,8 @@ func express(key interface{}, vals ...interface{}) []expr.Expression
 
 const MAX_GET_RESULTS = 21
 
+var QUERYSET_USE_CACHE_DEFAULT = true
+
 type Table struct {
 	Name  string
 	Alias string

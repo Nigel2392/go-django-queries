@@ -20,24 +20,26 @@ const (
 // MYSQL TYPES
 func init() {
 	// register kinds
-	migrator.RegisterColumnKind(&mysql.MySQLDriver{}, []reflect.Kind{reflect.String}, type__string)
-	migrator.RegisterColumnKind(&mysql.MySQLDriver{}, []reflect.Kind{reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64}, type__int)
-	migrator.RegisterColumnKind(&mysql.MySQLDriver{}, []reflect.Kind{reflect.Float32, reflect.Float64}, type__float)
-	migrator.RegisterColumnKind(&mysql.MySQLDriver{}, []reflect.Kind{reflect.Bool}, type__bool)
+	migrator.RegisterColumnKind(&mysql.MySQLDriver{}, []reflect.Kind{reflect.String}, Type__string)
+	migrator.RegisterColumnKind(&mysql.MySQLDriver{}, []reflect.Kind{reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64}, Type__int)
+	migrator.RegisterColumnKind(&mysql.MySQLDriver{}, []reflect.Kind{reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64}, Type__int)
+	migrator.RegisterColumnKind(&mysql.MySQLDriver{}, []reflect.Kind{reflect.Float32, reflect.Float64}, Type__float)
+	migrator.RegisterColumnKind(&mysql.MySQLDriver{}, []reflect.Kind{reflect.Bool}, Type__bool)
 
 	// register types
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullString{}, type__string)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullFloat64{}, type__int)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullInt64{}, type__int)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullInt32{}, type__int)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullInt16{}, type__int)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullBool{}, type__bool)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullByte{}, type__int)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullTime{}, type__datetime)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, time.Time{}, type__datetime)
+	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullString{}, Type__string)
+	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullFloat64{}, Type__int)
+	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullInt64{}, Type__int)
+	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullInt32{}, Type__int)
+	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullInt16{}, Type__int)
+	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullBool{}, Type__bool)
+	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullByte{}, Type__int)
+	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullTime{}, Type__datetime)
+	migrator.RegisterColumnType(&mysql.MySQLDriver{}, time.Time{}, Type__datetime)
+	migrator.RegisterColumnType(&mysql.MySQLDriver{}, []byte{}, Type__string)
 }
 
-func type__string(f attrs.Field) string {
+func Type__string(f attrs.Field) string {
 	var atts = f.Attrs()
 	var max int64
 	var max_len = atts[attrs.AttrMaxLengthKey]
@@ -56,7 +58,7 @@ func type__string(f attrs.Field) string {
 	return sb.String()
 }
 
-func type__float(f attrs.Field) string {
+func Type__float(f attrs.Field) string {
 	switch f.Type().Kind() {
 	case reflect.Float32:
 		return "FLOAT"
@@ -66,7 +68,7 @@ func type__float(f attrs.Field) string {
 	return "DOUBLE"
 }
 
-func type__int(f attrs.Field) string {
+func Type__int(f attrs.Field) string {
 	var atts = f.Attrs()
 	var max float64
 	var max_val = atts[attrs.AttrMaxValueKey]
@@ -94,10 +96,10 @@ func type__int(f attrs.Field) string {
 	return "BIGINT"
 }
 
-func type__bool(f attrs.Field) string {
+func Type__bool(f attrs.Field) string {
 	return "BOOLEAN"
 }
 
-func type__datetime(f attrs.Field) string {
+func Type__datetime(f attrs.Field) string {
 	return "TIMESTAMP"
 }

@@ -1599,6 +1599,7 @@ func TestQuerySet_SharedInstance_Concurrency(t *testing.T) {
 		Filter("Title__startswith", "ConcurrentTodo")
 
 	queries.LogQueries = false
+	queries.QUERYSET_USE_CACHE_DEFAULT = false
 
 	const goroutines = 1000
 

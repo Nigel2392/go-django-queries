@@ -1593,13 +1593,13 @@ type testQuerySet_Concurrency struct {
 }
 
 func TestQuerySet_SharedInstance_Concurrency(t *testing.T) {
+	queries.QUERYSET_USE_CACHE_DEFAULT = false
 	var baseQS = queries.Objects(&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
 		Filter("Done", false).
 		Filter("Title__startswith", "ConcurrentTodo")
 
 	queries.LogQueries = false
-	queries.QUERYSET_USE_CACHE_DEFAULT = false
 
 	const goroutines = 1000
 

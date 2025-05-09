@@ -1,6 +1,8 @@
 package models
 
 import (
+	"reflect"
+
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/fields"
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -46,6 +48,16 @@ func (m *Model) Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinit
 		m._meta = attrs.GetModelMeta(def)
 	}
 
+	var model = reflect.TypeOf(def)
+	if model.Kind() == reflect.Ptr {
+		model = model.Elem()
+	}
+	var self, ok = model.FieldByName("Model")
+	if !ok {
+		panic("model does not have a Model field, did you forget to embed the Model struct?")
+	}
+
+	var tableName = self.Tag.Get("table")
 	if m._defs == nil {
 		// var reverseRelations = make([]attrs.Field, 0)
 		for head := m._meta.ReverseMap().Front(); head != nil; head = head.Next() {
@@ -80,6 +92,11 @@ func (m *Model) Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinit
 
 		m._defs = attrs.Define(def, f...)
 	}
+
+	if tableName != "" && m._defs.Table == "" {
+		m._defs.Table = tableName
+	}
+
 	return m._defs
 }
 

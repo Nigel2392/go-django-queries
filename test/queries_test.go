@@ -154,17 +154,16 @@ func (r *Related) Through() attrs.Definer {
 }
 
 type Todo struct {
-	models.Model
-	ID          int
-	Title       string
-	Description string
-	Done        bool
-	User        *User
+	models.Model `table:"todos"`
+	ID           int
+	Title        string
+	Description  string
+	Done         bool
+	User         *User
 }
 
 func (m *Todo) FieldDefs() attrs.Definitions {
 	return m.Model.Define(m,
-
 		attrs.NewField(m, "ID", &attrs.FieldConfig{
 			Column:   "id", // can be inferred, but explicitly set for clarity
 			Primary:  true,
@@ -184,7 +183,7 @@ func (m *Todo) FieldDefs() attrs.Definitions {
 			Column:      "user_id",
 			RelOneToOne: attrs.Relate(&User{}, "", nil),
 		}),
-	).WithTableName("todos")
+	)
 }
 
 type ObjectWithMultipleRelations struct {

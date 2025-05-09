@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/src/migrator"
@@ -312,7 +313,7 @@ func (m *SQLiteSchemaEditor) AlterField(
 
 	// Step 1: Prepare new table structure with updated column
 	var newTable = &migrator.ModelTable{
-		Table:  tableName,
+		Table:  tempTableName,
 		Object: table.Model(),
 		Fields: orderedmap.NewOrderedMap[string, migrator.Column](),
 	}
@@ -330,7 +331,24 @@ func (m *SQLiteSchemaEditor) AlterField(
 		if c.Name == oldCol.Name {
 			newTable.Fields.Set(newCol.Name, newCol)
 			columnNamesDst = append(columnNamesDst, fmt.Sprintf("`%s`", newCol.Column))
-			columnNamesSrc = append(columnNamesSrc, fmt.Sprintf("`%s`", oldCol.Column))
+			if oldCol.Nullable {
+				columnNamesSrc = append(columnNamesSrc, fmt.Sprintf("NULL AS `%s`", oldCol.Column))
+			} else {
+				switch oldCol.Field.Type().Kind() {
+				case reflect.String:
+					columnNamesSrc = append(columnNamesSrc, fmt.Sprintf("'' AS `%s`", oldCol.Column))
+				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+					columnNamesSrc = append(columnNamesSrc, fmt.Sprintf("0 AS `%s`", oldCol.Column))
+				case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+					columnNamesSrc = append(columnNamesSrc, fmt.Sprintf("0 AS `%s`", oldCol.Column))
+				case reflect.Float32, reflect.Float64:
+					columnNamesSrc = append(columnNamesSrc, fmt.Sprintf("0.0 AS `%s`", oldCol.Column))
+				case reflect.Bool:
+					columnNamesSrc = append(columnNamesSrc, fmt.Sprintf("0 AS `%s`", oldCol.Column))
+				default:
+					columnNamesSrc = append(columnNamesSrc, fmt.Sprintf("NULL AS `%s`", oldCol.Column))
+				}
+			}
 		} else {
 			newTable.Fields.Set(c.Name, *c)
 			columnNamesDst = append(columnNamesDst, fmt.Sprintf("`%s`", c.Column))
@@ -347,6 +365,13 @@ func (m *SQLiteSchemaEditor) AlterField(
 		return fmt.Errorf("fetch schema items: %w", err)
 	}
 	defer rows.Close()
+
+	_, err = m.db.ExecContext(ctx, fmt.Sprintf(
+		"DROP TABLE IF EXISTS `%s`;", tempTableName,
+	))
+	if err != nil {
+		return fmt.Errorf("drop temp table: %w", err)
+	}
 
 	var schemaItems []struct {
 		Type string
@@ -386,6 +411,19 @@ func (m *SQLiteSchemaEditor) AlterField(
 	// Step 5: Drop original table
 	if err := m.DropTable(table); err != nil {
 		return fmt.Errorf("drop original table: %w", err)
+	}
+
+	// Check if the original table was dropped
+	var count int
+	err = m.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM sqlite_schema
+		WHERE name = ? AND type = 'table';
+	`, tableName).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("check original table: %w", err)
+	}
+	if count > 0 {
+		return fmt.Errorf("original table still exists")
 	}
 
 	// Step 6: Rename temp table back

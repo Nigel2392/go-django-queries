@@ -231,12 +231,21 @@ func (m *MigrationEngine) Migrate() error {
 		m.storeMigration(migration)
 	}
 
-	graph, err := buildDependencyGraph(unappliedMigrations)
+	graph, err := m.buildDependencyGraph(unappliedMigrations)
 	if err != nil {
 		return err
 	}
 
 	for _, n := range graph {
+
+		if has, err := m.SchemaEditor.HasMigration(n.mig.AppName, n.mig.ModelName, n.mig.FileName()); err != nil {
+			logger.Errorf("failed to check if migration %q has been applied: %v", n.mig.FileName(), err)
+			continue
+		} else if has {
+			logger.Infof("migration %s has already been applied", n.mig.FileName())
+			continue
+		}
+
 		var defs = n.mig.Table.Object.FieldDefs()
 
 		for _, action := range n.mig.Actions {
@@ -433,23 +442,61 @@ func (m *MigrationEngine) MakeMigrations() error {
 	for _, mig := range migrationList {
 
 		// Check for dependencies
+	colLoop:
 		for _, col := range mig.Table.Columns() {
 			if col.Rel != nil {
 				var (
-					relApp     = getModelApp(col.Rel.TargetModel.New())
-					relAppName = relApp.Name()
-					relModel   = col.Rel.TargetModel.Model()
-					depMig, ok = dependencies[relAppName][relModel]
+					relApp      = getModelApp(col.Rel.TargetModel.New())
+					relAppName  = relApp.Name()
+					relModel    = col.Rel.TargetModel.Model()
+					depMigs, ok = m.dependencies[relAppName][relModel]
+					// depMig, ok = dependencies[relAppName][relModel]
 				)
-				if !ok {
+				if !ok || len(depMigs) == 0 {
+					logger.Warnf(
+						"Dependency %q/%q not found for migration %q/%q",
+						relAppName, relModel, mig.AppName, mig.ModelName,
+					)
 					continue
 				}
 
+				// walk old migrations and check if the latest dependency
+				// migration is already in the list of dependencies of
+				// one of the older migrations
+				var (
+					depMig    = depMigs[len(depMigs)-1]
+					appMigs   map[string][]*MigrationFile
+					modelMigs []*MigrationFile
+				)
+
+				appMigs, ok = m.dependencies[mig.AppName]
+				if !ok {
+					goto addDep
+				}
+
+				modelMigs, ok = appMigs[mig.ModelName]
+				if !ok {
+					goto addDep
+				}
+
+				if len(modelMigs) >= 2 {
+					var modelMigs = modelMigs[:len(modelMigs)-1]
+					for i := len(modelMigs) - 1; i >= 0; i-- {
+						var mig = modelMigs[i]
+						for _, oldDep := range mig.Dependencies {
+							if oldDep.AppName == relAppName && oldDep.ModelName == relModel && oldDep.Name == depMig.FileName() {
+								continue colLoop
+							}
+						}
+					}
+				}
+
+				// add dependency to the migration file
+			addDep:
 				logger.Debugf(
 					"Adding dependency \"%s/%s\" to migration \"%s/%s\"",
 					depMig.ModelName, depMig.FileName(), mig.ModelName, mig.FileName(),
 				)
-
 				mig.addDependency(relAppName, relModel, depMig.FileName())
 			}
 		}
@@ -470,7 +517,7 @@ type node struct {
 	visiting bool
 }
 
-func buildDependencyGraph(migrations []*MigrationFile) ([]*node, error) {
+func (m *MigrationEngine) buildDependencyGraph(migrations []*MigrationFile) ([]*node, error) {
 	var nodeMap = make(map[string]*node)
 
 	// helper to create a unique key for lookup
@@ -485,11 +532,41 @@ func buildDependencyGraph(migrations []*MigrationFile) ([]*node, error) {
 
 	// Step 2: Link dependencies
 	for _, n := range nodeMap {
+		// dependencyLoop:
 		for _, dep := range n.mig.Dependencies {
 			depKey := fmt.Sprintf("%s:%s:%s", dep.AppName, dep.ModelName, dep.Name)
 			depNode, ok := nodeMap[depKey]
 			if !ok {
-				return nil, fmt.Errorf("missing dependency: %s (%v)", depKey, nodeMap)
+
+				//var appMigs, ok = m.dependencies[n.mig.AppName]
+				//if !ok {
+				//	return nil, fmt.Errorf("dependency %q not found", depKey)
+				//}
+
+				//modelMigs, ok := appMigs[n.mig.ModelName]
+				//if ok && len(modelMigs) >= 2 {
+				//	var modelMigs = modelMigs[:len(modelMigs)-1]
+				//	for i := len(modelMigs) - 1; i >= 0; i-- {
+				//		var mig = modelMigs[i]
+				//		for _, oldDep := range mig.Dependencies {
+				//			if oldDep.AppName == dep.AppName && oldDep.ModelName == dep.ModelName {
+				//				continue dependencyLoop
+				//			}
+				//		}
+				//	}
+				//}
+
+				// ------- comment this out to ignore missing dependencies
+				//deps, ok := m.dependencies[dep.AppName]
+				//if !ok {
+				//	return nil, fmt.Errorf("dependency %q not found", depKey)
+				//}
+				//depMigs, ok := deps[dep.ModelName]
+				//if !ok || len(depMigs) == 0 {
+				return nil, fmt.Errorf("dependency %q not found", depKey)
+				//}
+				//depNode = &node{mig: depMigs[len(depMigs)-1]}
+				// ------- comment this out to ignore missing dependencies
 			}
 			n.deps = append(n.deps, depNode)
 		}

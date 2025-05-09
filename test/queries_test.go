@@ -863,7 +863,7 @@ func TestQuerySetSelectExpressions(t *testing.T) {
 	}
 
 	var q = queries.Objects(&Todo{}).
-		Select("ID", expr.F("Title", "UPPER(![Title])"), "Description", "Done").
+		Select("ID", expr.F("UPPER(![Title])"), "Description", "Done").
 		Filter("Title", "TestQuerySet_Select_Expressions").
 		OrderBy("-ID").
 		All()
@@ -921,11 +921,11 @@ func TestQuerySetSelectExpressionsWithRelated(t *testing.T) {
 	var q = queries.Objects(&Todo{}).
 		Select(
 			"ID",
-			expr.F("Title", "UPPER(![Title])"),
+			expr.F("UPPER(![Title])"),
 			"Description",
 			"Done",
 			"User.ID",
-			expr.F("User.Name", "UPPER(![User.Name])"),
+			expr.F("UPPER(![User.Name])"),
 		).
 		Filter("Title", "TestQuerySet_Select_ExpressionsWithRelated").
 		OrderBy("-ID").

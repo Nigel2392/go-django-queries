@@ -417,35 +417,6 @@ func UpdateExpr(statement string, value ...any) NamedExpression {
 // F creates a new RawNamedExpression with the given statement and values.
 // It parses the statement to extract the fields and values, and returns a pointer to the new RawNamedExpression.
 //
-// The statement should contain placeholders for the fields and values, which will be replaced with the actual values.
-//
-// The placeholders for fields should be in the format ![FieldName], and the placeholders for values should be in the format ?[Index],
-// or the values should use the regular SQL placeholder directly (database driver dependent).
-//
-// Example usage:
-//
-//	expr := F("Field1", "![Age] + ?[1] + ![Height] + ?[2] * ?[1]", 3, 4)
-//	fmt.Println(expr.SQL()) // prints: "table.age + ? + table.height + ?"
-//	fmt.Println(expr.Args()) // prints: [3, 4]
-//
-//	expr := F("Field1", "? + ? + ![Height] + ? * ?", 4, 5, 6, 7)
-//	fmt.Println(expr.SQL()) // prints: "? + ? + table.height + ? * ?"
-//	fmt.Println(expr.Args()) // prints: [4, 5, 6, 7]
-func F(fieldName, statement string, value ...any) NamedExpression {
-	statement, fields, values := ParseExprStatement(statement, value)
-
-	return &RawNamedExpression{
-		forUpdate: false,
-		Statement: statement,
-		Params:    values,
-		Fields:    fields,
-		Field:     fieldName,
-	}
-}
-
-// AutoF creates a new RawNamedExpression with the given statement and values.
-// It parses the statement to extract the fields and values, and returns a pointer to the new RawNamedExpression.
-//
 // The first field in the statement is used as the field name for the expression, and the rest of the fields are used as placeholders for the values.
 //
 // The statement should contain placeholders for the fields and values, which will be replaced with the actual values.
@@ -457,19 +428,22 @@ func F(fieldName, statement string, value ...any) NamedExpression {
 //
 //	 # sets the field name to the first field found in the statement, I.E. ![Age]:
 //
-//		expr := AutoF("![Age] + ?[1] + ![Height] + ?[2] * ?[1]", 3, 4)
+//		expr := F("![Age] + ?[1] + ![Height] + ?[2] * ?[1]", 3, 4)
 //		fmt.Println(expr.SQL()) // prints: "table.age + ? + table.height + ?"
 //		fmt.Println(expr.Args()) // prints: [3, 4]
 
 //	 # sets the field name to the first field found in the statement, I.E. ![Height]:
 //
-//		expr := AutoF("? + ? + ![Height] + ? * ?", 4, 5, 6, 7)
+//		expr := F("? + ? + ![Height] + ? * ?", 4, 5, 6, 7)
 //		fmt.Println(expr.SQL()) // prints: "? + ? + table.height + ? * ?"
 //		fmt.Println(expr.Args()) // prints: [4, 5, 6, 7]
-func AutoF(stmt string, value ...any) NamedExpression {
-	statement, fields, values := ParseExprStatement(stmt, value)
+func F(statement string, value ...any) NamedExpression {
+	statement, fields, values := ParseExprStatement(statement, value)
 
-	if len(fields) == 0 {
+	var fieldName string
+	if len(fields) > 0 {
+		fieldName = fields[0]
+	} else {
 		panic("no field found in statement")
 	}
 
@@ -478,7 +452,35 @@ func AutoF(stmt string, value ...any) NamedExpression {
 		Statement: statement,
 		Params:    values,
 		Fields:    fields,
-		Field:     fields[0],
+		Field:     fieldName,
+	}
+}
+
+// NamedF creates a new RawNamedExpression with the given statement and values.
+// It parses the statement to extract the fields and values, and returns a pointer to the new RawNamedExpression.
+//
+// The statement should contain placeholders for the fields and values, which will be replaced with the actual values.
+//
+// The placeholders for fields should be in the format ![FieldName], and the placeholders for values should be in the format ?[Index],
+// or the values should use the regular SQL placeholder directly (database driver dependent).
+//
+// Example usage:
+//
+//	expr := NamedF("Field1", "![Age] + ?[1] + ![Height] + ?[2] * ?[1]", 3, 4)
+//	fmt.Println(expr.SQL()) // prints: "table.age + ? + table.height + ?"
+//	fmt.Println(expr.Args()) // prints: [3, 4]
+//
+//	expr := NamedF("Field1", "? + ? + ![Height] + ? * ?", 4, 5, 6, 7)
+//	fmt.Println(expr.SQL()) // prints: "? + ? + table.height + ? * ?"
+//	fmt.Println(expr.Args()) // prints: [4, 5, 6, 7]
+func NamedF(fieldName, stmt string, value ...any) NamedExpression {
+	statement, fields, values := ParseExprStatement(stmt, value)
+	return &RawNamedExpression{
+		forUpdate: false,
+		Statement: statement,
+		Params:    values,
+		Fields:    fields,
+		Field:     fieldName,
 	}
 }
 

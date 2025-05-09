@@ -767,7 +767,7 @@ func TestAnnotatedValuesListWithSelectExpressions(t *testing.T) {
 		ValuesList(
 			"ID",
 			"Combined",
-			expr.AutoF("LOWER(![Text]) || ' ' || ?", "testSelectExpressions"),
+			expr.F("LOWER(![Text]) || ' ' || ?", "testSelectExpressions"),
 		)
 
 	var rows, err = a.Exec()

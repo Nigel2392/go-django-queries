@@ -62,3 +62,17 @@ func (q *queryField[T]) Validate() error              { return nil }
 func (q *queryField[T]) Label() string                { return q.name }
 func (q *queryField[T]) ToString() string             { return fmt.Sprint(q.value) }
 func (q *queryField[T]) HelpText() string             { return "" }
+
+var _ VirtualField = &exprField{}
+
+type exprField struct {
+	attrs.Field
+	expr expr.Expression
+}
+
+func (e *exprField) SQL(d driver.Driver, m attrs.Definer, quote string) (string, []any) {
+	var sqlBuilder = &strings.Builder{}
+	var expr = e.expr.With(d, m, quote)
+	expr.SQL(sqlBuilder)
+	return sqlBuilder.String(), expr.Args()
+}

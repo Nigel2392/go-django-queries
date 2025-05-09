@@ -3,7 +3,9 @@ package expr
 import (
 	"database/sql/driver"
 	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/internal"
@@ -13,12 +15,21 @@ import (
 type Expression interface {
 	SQL(sb *strings.Builder)
 	Args() []any
-	IsNot() bool
-	Not(b bool) Expression
-	And(...Expression) Expression
-	Or(...Expression) Expression
 	Clone() Expression
 	With(d driver.Driver, model attrs.Definer, quote string) Expression
+}
+
+type LogicalExpression interface {
+	Expression
+	IsNot() bool
+	Not(b bool) LogicalExpression
+	And(...Expression) LogicalExpression
+	Or(...Expression) LogicalExpression
+}
+
+type NamedExpression interface {
+	Expression
+	FieldName() string
 }
 
 type LogicalOp string
@@ -50,26 +61,61 @@ func Or(exprs ...Expression) Expression {
 	return &ExprGroup{children: exprs, op: OpOr}
 }
 
-func express(key interface{}, vals ...interface{}) []Expression {
+func ParseExprStatement(statement string, value []any) (newStatement string, fields []string, values []any) {
+	fields = make([]string, 0)
+	for _, m := range exprFieldRegex.FindAllStringSubmatch(statement, -1) {
+		if len(m) > 1 {
+			fields = append(fields, m[1]) // m[0] is full match, m[1] is capture group
+		}
+	}
+
+	var valuesIndices = exprValueRegex.FindAllStringSubmatch(statement, -1)
+	values = make([]any, len(valuesIndices))
+	for i, m := range valuesIndices {
+		var idx, err = strconv.Atoi(m[1])
+		if err != nil {
+			panic(fmt.Errorf("invalid index %q in statement %q: %w", m[1], statement, err))
+		}
+
+		idx -= 1 // convert to 0-based index
+		if idx < 0 || idx >= len(value) {
+			panic(fmt.Errorf("index %d out of range in statement %q", idx, statement))
+		}
+
+		values[i] = value[idx]
+	}
+
+	if len(valuesIndices) == 0 && len(value) > 0 {
+		values = make([]any, len(value))
+		copy(values, value)
+	}
+
+	statement = strings.Replace(statement, "%", "%%", -1)
+	statement = exprFieldRegex.ReplaceAllString(statement, "%s")
+	statement = exprValueRegex.ReplaceAllString(statement, "?")
+	return statement, fields, values
+}
+
+func Express(key interface{}, vals ...interface{}) []LogicalExpression {
 	switch v := key.(type) {
 	case string:
 		if len(vals) == 0 {
 			panic(fmt.Errorf("no values provided for key %q", v))
 		}
-		return []Expression{Q(v, vals...)}
+		return []LogicalExpression{Q(v, vals...)}
 	case Expression:
-		var expr = make([]Expression, 0, len(vals)+1)
-		expr = append(expr, v)
+		var expr = &ExprGroup{children: make([]Expression, 0, len(vals)+1), op: OpAnd}
+		expr.children = append(expr.children, v)
 		for _, val := range vals {
 			var v, ok = val.(Expression)
 			if !ok {
 				panic(fmt.Errorf("value %v is not an Expression", val))
 			}
-			expr = append(expr, v)
+			expr.children = append(expr.children, v)
 		}
-		return expr
+		return []LogicalExpression{expr}
 	case map[string]interface{}:
-		var expr = make([]Expression, 0, len(v))
+		var expr = make([]LogicalExpression, 0, len(v))
 		for k, val := range v {
 			expr = append(expr, Q(k, val))
 		}
@@ -189,7 +235,7 @@ func (e *ExprNode) Args() []any {
 	return e.args
 }
 
-func (e *ExprNode) Not(not bool) Expression {
+func (e *ExprNode) Not(not bool) LogicalExpression {
 	e.not = not
 	return e
 }
@@ -198,11 +244,11 @@ func (e *ExprNode) IsNot() bool {
 	return e.not
 }
 
-func (e *ExprNode) And(exprs ...Expression) Expression {
+func (e *ExprNode) And(exprs ...Expression) LogicalExpression {
 	return &ExprGroup{children: append([]Expression{e}, exprs...), op: OpAnd}
 }
 
-func (e *ExprNode) Or(exprs ...Expression) Expression {
+func (e *ExprNode) Or(exprs ...Expression) LogicalExpression {
 	return &ExprGroup{children: append([]Expression{e}, exprs...), op: OpOr}
 }
 
@@ -249,7 +295,7 @@ func (g *ExprGroup) Args() []any {
 	return args
 }
 
-func (g *ExprGroup) Not(not bool) Expression {
+func (g *ExprGroup) Not(not bool) LogicalExpression {
 	g.not = not
 	return g
 }
@@ -258,11 +304,11 @@ func (g *ExprGroup) IsNot() bool {
 	return g.not
 }
 
-func (g *ExprGroup) And(exprs ...Expression) Expression {
+func (g *ExprGroup) And(exprs ...Expression) LogicalExpression {
 	return &ExprGroup{children: append([]Expression{g}, exprs...), op: OpAnd}
 }
 
-func (g *ExprGroup) Or(exprs ...Expression) Expression {
+func (g *ExprGroup) Or(exprs ...Expression) LogicalExpression {
 	return &ExprGroup{children: append([]Expression{g}, exprs...), op: OpOr}
 }
 
@@ -299,15 +345,148 @@ func (g *ExprGroup) With(d driver.Driver, m attrs.Definer, quote string) Express
 //			// The arguments to be used in the SQL function call. Each argument will be replaced by the corresponding value in args.
 //			args:   []any{"ab"},
 //		}
-type RawExpr struct {
+type RawExpr = RawNamedExpression
+
+func Raw(statement string, value ...any) Expression {
+	var str, fields, values = ParseExprStatement(statement, value)
+	return &RawExpr{
+		Statement: str,
+		Fields:    fields,
+		Params:    values,
+	}
+}
+
+type RawNamedExpression struct {
 	Statement string
-	Fields    []string
 	Params    []any
+	Fields    []string
+	Field     string
+	forUpdate bool
 	not       bool
 	used      bool
 }
 
-func (e *RawExpr) SQL(sb *strings.Builder) {
+var (
+	exprFieldRegex = regexp.MustCompile(`!\[([^\]]*)\]`)
+	exprValueRegex = regexp.MustCompile(`\?\[([^\]][0-9]*)\]`)
+)
+
+// UpdateExpr creates a new RawNamedExpression with the given statement and values.
+// It parses the statement to extract the fields and values, and returns a pointer to the new RawNamedExpression.
+//
+// The first field in the statement is used as the field name for the expression, and the rest of the fields are used as placeholders for the values.
+//
+// The statement should contain placeholders for the fields and values, which will be replaced with the actual values.
+//
+// The placeholders for fields should be in the format ![FieldName], and the placeholders for values should be in the format ?[Index],
+// or the values should use the regular SQL placeholder directly (database driver dependent).
+//
+// Example usage:
+//
+//	 # sets the field name to the first field found in the statement, I.E. ![Field1]:
+//
+//		expr := UpdateExpr("![Field1] = ![Age] + ?[1] + ![Height] + ?[2] * ?[1]", 3, 4)
+//		fmt.Println(expr.SQL()) // prints: "field1 = age + ? + height + ?"
+//		fmt.Println(expr.Args()) // prints: [3, 4]
+//
+//	 # sets the field name to the first field found in the statement, I.E. ![Field1]:
+//
+//		expr := UpdateExpr("![Field1] = ? + ? + ![Height] + ? * ?", 4, 5, 6, 7)
+//		fmt.Println(expr.SQL()) // prints: "field1 = ? + ? + height + ? * ?"
+//		fmt.Println(expr.Args()) // prints: [4, 5, 6, 7]
+func UpdateExpr(statement string, value ...any) NamedExpression {
+
+	statement, fields, values := ParseExprStatement(statement, value)
+
+	var field string
+	if len(fields) > 0 {
+		field = fields[0]
+	} else {
+		panic("no field found in statement")
+	}
+
+	return &RawNamedExpression{
+		forUpdate: true,
+		Statement: statement,
+		Params:    values,
+		Fields:    fields,
+		Field:     field,
+	}
+}
+
+// F creates a new RawNamedExpression with the given statement and values.
+// It parses the statement to extract the fields and values, and returns a pointer to the new RawNamedExpression.
+//
+// The statement should contain placeholders for the fields and values, which will be replaced with the actual values.
+//
+// The placeholders for fields should be in the format ![FieldName], and the placeholders for values should be in the format ?[Index],
+// or the values should use the regular SQL placeholder directly (database driver dependent).
+//
+// Example usage:
+//
+//	expr := F("Field1", "![Age] + ?[1] + ![Height] + ?[2] * ?[1]", 3, 4)
+//	fmt.Println(expr.SQL()) // prints: "table.age + ? + table.height + ?"
+//	fmt.Println(expr.Args()) // prints: [3, 4]
+//
+//	expr := F("Field1", "? + ? + ![Height] + ? * ?", 4, 5, 6, 7)
+//	fmt.Println(expr.SQL()) // prints: "? + ? + table.height + ? * ?"
+//	fmt.Println(expr.Args()) // prints: [4, 5, 6, 7]
+func F(fieldName, statement string, value ...any) NamedExpression {
+	statement, fields, values := ParseExprStatement(statement, value)
+
+	return &RawNamedExpression{
+		forUpdate: false,
+		Statement: statement,
+		Params:    values,
+		Fields:    fields,
+		Field:     fieldName,
+	}
+}
+
+// AutoF creates a new RawNamedExpression with the given statement and values.
+// It parses the statement to extract the fields and values, and returns a pointer to the new RawNamedExpression.
+//
+// The first field in the statement is used as the field name for the expression, and the rest of the fields are used as placeholders for the values.
+//
+// The statement should contain placeholders for the fields and values, which will be replaced with the actual values.
+//
+// The placeholders for fields should be in the format ![FieldName], and the placeholders for values should be in the format ?[Index],
+// or the values should use the regular SQL placeholder directly (database driver dependent).
+//
+// Example usage:
+//
+//	 # sets the field name to the first field found in the statement, I.E. ![Age]:
+//
+//		expr := AutoF("![Age] + ?[1] + ![Height] + ?[2] * ?[1]", 3, 4)
+//		fmt.Println(expr.SQL()) // prints: "table.age + ? + table.height + ?"
+//		fmt.Println(expr.Args()) // prints: [3, 4]
+
+//	 # sets the field name to the first field found in the statement, I.E. ![Height]:
+//
+//		expr := AutoF("? + ? + ![Height] + ? * ?", 4, 5, 6, 7)
+//		fmt.Println(expr.SQL()) // prints: "? + ? + table.height + ? * ?"
+//		fmt.Println(expr.Args()) // prints: [4, 5, 6, 7]
+func AutoF(stmt string, value ...any) NamedExpression {
+	statement, fields, values := ParseExprStatement(stmt, value)
+
+	if len(fields) == 0 {
+		panic("no field found in statement")
+	}
+
+	return &RawNamedExpression{
+		forUpdate: false,
+		Statement: statement,
+		Params:    values,
+		Fields:    fields,
+		Field:     fields[0],
+	}
+}
+
+func (e *RawNamedExpression) FieldName() string {
+	return e.Field
+}
+
+func (e *RawNamedExpression) SQL(sb *strings.Builder) {
 	if len(e.Fields) == 0 {
 		sb.WriteString(e.Statement)
 		return
@@ -322,29 +501,13 @@ func (e *RawExpr) SQL(sb *strings.Builder) {
 	sb.WriteString(str)
 }
 
-func (e *RawExpr) Args() []any {
+func (e *RawNamedExpression) Args() []any {
 	return e.Params
 }
 
-func (e *RawExpr) Not(not bool) Expression {
-	e.not = not
-	return e
-}
-
-func (e *RawExpr) IsNot() bool {
-	return e.not
-}
-
-func (e *RawExpr) And(exprs ...Expression) Expression {
-	return &ExprGroup{children: append([]Expression{e}, exprs...), op: OpAnd}
-}
-
-func (e *RawExpr) Or(exprs ...Expression) Expression {
-	return &ExprGroup{children: append([]Expression{e}, exprs...), op: OpOr}
-}
-
-func (e *RawExpr) Clone() Expression {
-	return &RawExpr{
+func (e *RawNamedExpression) Clone() Expression {
+	return &RawNamedExpression{
+		forUpdate: e.forUpdate,
 		Statement: e.Statement,
 		Fields:    slices.Clone(e.Fields),
 		Params:    slices.Clone(e.Params),
@@ -353,32 +516,41 @@ func (e *RawExpr) Clone() Expression {
 	}
 }
 
-func (e *RawExpr) With(d driver.Driver, m attrs.Definer, quote string) Expression {
+func (e *RawNamedExpression) With(d driver.Driver, m attrs.Definer, quote string) Expression {
 	if m == nil || e.used {
 		return e
 	}
 
-	var nE = e.Clone().(*RawExpr)
+	var nE = e.Clone().(*RawNamedExpression)
 	nE.used = true
 
 	for i, field := range nE.Fields {
-		var current, _, f, _, aliases, _, err = internal.WalkFields(m, field)
+		var current, _, f, _, aliases, isRelated, err = internal.WalkFields(m, field)
 		if err != nil {
 			panic(err)
 		}
 
-		var alias string
-		if len(aliases) > 0 {
-			alias = aliases[len(aliases)-1]
-		} else {
-			alias = current.FieldDefs().TableName()
+		if !e.forUpdate || isRelated || len(aliases) > 0 {
+			var aliasStr string
+			if len(aliases) > 0 {
+				aliasStr = aliases[len(aliases)-1]
+			} else {
+				aliasStr = current.FieldDefs().TableName()
+			}
+
+			nE.Fields[i] = fmt.Sprintf(
+				"%s%s%s.%s%s%s",
+				quote, aliasStr, quote,
+				quote, f.ColumnName(), quote,
+			)
+			continue
 		}
 
 		nE.Fields[i] = fmt.Sprintf(
-			"%s%s%s.%s%s%s",
-			quote, alias, quote,
+			"%s%s%s",
 			quote, f.ColumnName(), quote,
 		)
 	}
+
 	return nE
 }

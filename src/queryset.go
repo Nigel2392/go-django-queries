@@ -22,9 +22,6 @@ import (
 	_ "unsafe"
 )
 
-//go:linkname express github.com/Nigel2392/go-django-queries/src/expr.express
-func express(key interface{}, vals ...interface{}) []expr.Expression
-
 // -----------------------------------------------------------------------------
 // QuerySet
 // -----------------------------------------------------------------------------
@@ -63,40 +60,79 @@ type OrderBy struct {
 
 func (f *FieldInfo) WriteFields(sb *strings.Builder, d driver.Driver, m attrs.Definer, quote string) []any {
 	var args = make([]any, 0, len(f.Fields))
-	for i, field := range f.Fields {
-		if i > 0 {
+	var written bool
+	for _, field := range f.Fields {
+		if written {
 			sb.WriteString(", ")
 		}
 
-		var tableAlias string
-		if f.Table.Alias == "" {
-			tableAlias = f.Table.Name
-		} else {
-			tableAlias = f.Table.Alias
-		}
-		if ve, ok := field.(VirtualField); ok && m != nil {
-			var alias = fmt.Sprintf(
-				"%s_%s", tableAlias, ve.Alias(),
-			)
-			var sql, a = ve.SQL(d, m, quote)
-			if sql == "" {
-				// SQL is empty, we don't need to add it to the query
-				continue
-			}
-
-			sb.WriteString(sql)
-
-			if alias != "" {
-				sb.WriteString(" AS ")
-				sb.WriteString(quote)
-				sb.WriteString(alias)
-				sb.WriteString(quote)
-			}
-
-			args = append(args, a...)
+		var a, _, ok = f.WriteField(sb, d, m, quote, field, false)
+		written = ok || written
+		if !ok {
 			continue
 		}
 
+		args = append(args, a...)
+	}
+
+	return args
+}
+
+func (f *FieldInfo) WriteUpdateFields(sb *strings.Builder, d driver.Driver, m attrs.Definer, quote string) []any {
+	var args = make([]any, 0, len(f.Fields))
+	var written bool
+	for _, field := range f.Fields {
+		if written {
+			sb.WriteString(", ")
+		}
+
+		var a, _, ok = f.WriteField(sb, d, m, quote, field, true)
+		written = ok || written
+		if !ok {
+			continue
+		}
+
+		args = append(args, a...)
+	}
+
+	return args
+}
+
+func (f *FieldInfo) WriteField(sb *strings.Builder, d driver.Driver, m attrs.Definer, quote string, field attrs.Field, forUpdate bool) (args []any, isSQL, written bool) {
+	var alias string
+	if ve, ok := field.(AliasField); ok && !forUpdate {
+		alias = ve.Alias()
+	}
+
+	var tableAlias string
+	if f.Table.Alias == "" {
+		tableAlias = f.Table.Name
+	} else {
+		tableAlias = f.Table.Alias
+	}
+
+	if ve, ok := field.(VirtualField); ok && m != nil {
+		var sql, a = ve.SQL(d, m, quote)
+		if sql == "" {
+			return nil, true, false
+		}
+
+		sb.WriteString(sql)
+
+		if alias != "" && !forUpdate {
+			sb.WriteString(" AS ")
+			sb.WriteString(quote)
+			sb.WriteString(fmt.Sprintf(
+				"%s_%s", tableAlias, alias,
+			))
+			sb.WriteString(quote)
+		}
+
+		args = append(args, a...)
+		return args, true, true
+	}
+
+	if !forUpdate {
 		sb.WriteString(quote)
 
 		if f.Table.Alias == "" {
@@ -107,19 +143,24 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, d driver.Driver, m attrs.De
 
 		sb.WriteString(quote)
 		sb.WriteString(".")
-		sb.WriteString(quote)
-		sb.WriteString(field.ColumnName())
-		sb.WriteString(quote)
 	}
 
-	return args
+	sb.WriteString(quote)
+	sb.WriteString(field.ColumnName())
+	sb.WriteString(quote)
+
+	if forUpdate {
+		sb.WriteString(" = ?")
+	}
+
+	return []any{}, false, true
 }
 
 type QuerySetInternals struct {
 	Annotations map[string]*queryField[any]
 	Fields      []FieldInfo
-	Where       []expr.Expression
-	Having      []expr.Expression
+	Where       []expr.LogicalExpression
+	Having      []expr.LogicalExpression
 	Joins       []JoinDef
 	GroupBy     []FieldInfo
 	OrderBy     []OrderBy
@@ -204,8 +245,8 @@ func Objects(model attrs.Definer, database ...string) *QuerySet {
 		queryInfo: queryInfo,
 		internals: &QuerySetInternals{
 			Annotations: make(map[string]*queryField[any]),
-			Where:       make([]expr.Expression, 0),
-			Having:      make([]expr.Expression, 0),
+			Where:       make([]expr.LogicalExpression, 0),
+			Having:      make([]expr.LogicalExpression, 0),
 			Joins:       make([]JoinDef, 0),
 			GroupBy:     make([]FieldInfo, 0),
 			OrderBy:     make([]OrderBy, 0),
@@ -383,22 +424,31 @@ func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelate
 		}
 	}
 
-	for _, field := range fields {
-
-		var onlyPrimary = false
-		if strings.HasSuffix(strings.ToLower(field), "__pk") {
-			field = field[:len(field)-4]
-			onlyPrimary = true
-		}
-
-		var current, _, field, chain, aliases, isRelated, err = internal.WalkFields(qs.model, field)
+	for _, selectedField := range fields {
+		var current, _, field, chain, aliases, isRelated, err = internal.WalkFields(
+			qs.model, selectedField,
+		)
 		if err != nil {
+			field, ok := qs.internals.Annotations[selectedField]
+			if ok {
+				infos = append(infos, FieldInfo{
+					Table: Table{
+						Name: qs.queryInfo.TableName,
+					},
+					Fields: []attrs.Field{field},
+				})
+				continue
+			}
+
 			panic(err)
 		}
 
-		if isRelated && ((!onlyPrimary && len(chain) == 1) || len(chain) > 1) {
-			hasRelated = true
+		// The field might be a relation
+		var rel = field.Rel()
 
+		// If all fields of the relation are requested, we need to add the relation
+		// to the join list. We also need to add the parent field to the chain.
+		if (rel != nil) || (len(chain) > 0 || isRelated) {
 			var relDefs = current.FieldDefs()
 			var tableName = relDefs.TableName()
 			infos = append(infos, FieldInfo{
@@ -654,7 +704,7 @@ func addJoinForO2O(qs *QuerySet, oneToOne attrs.Relation, parentDefs attrs.Defin
 // `Select("*", "Relation.*")`
 // `Select("Relation.*")`
 // `Select("*", "Relation.Field1", "Relation.Field2", "Relation.Nested.*")`
-func (qs *QuerySet) Select(fields ...string) *QuerySet {
+func (qs *QuerySet) Select(fields ...any) *QuerySet {
 	qs = qs.Clone()
 
 	var (
@@ -664,14 +714,14 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 	)
 
 	if len(fields) == 0 {
-		fields = make([]string, 0, len(qs.queryInfo.Fields))
+		fields = make([]any, 0, len(qs.queryInfo.Fields))
 		for _, field := range qs.queryInfo.Fields {
 			if ForSelectAll(field) {
 				fields = append(fields, field.Name())
 			}
 		}
 	} else if len(fields) > 0 && fields[0] == "*" {
-		var f = make([]string, 0, len(qs.queryInfo.Fields)+(len(fields)-1))
+		var f = make([]any, 0, len(qs.queryInfo.Fields)+(len(fields)-1))
 		for _, field := range qs.queryInfo.Fields {
 			if ForSelectAll(field) {
 				f = append(f, field.Name())
@@ -680,7 +730,24 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 		fields = append(f, fields[1:]...)
 	}
 
-	for _, selectedField := range fields {
+	var exprMap = make(map[string]expr.NamedExpression, len(fields))
+	for _, selectedFieldObj := range fields {
+
+		var selectedField string
+		switch v := selectedFieldObj.(type) {
+		case string:
+			selectedField = v
+		case expr.NamedExpression:
+			selectedField = v.FieldName()
+
+			if selectedField == "" {
+				panic(fmt.Errorf("Select: empty field name for %T", v))
+			}
+
+			exprMap[selectedField] = v
+		default:
+			panic(fmt.Errorf("Select: invalid field type %T, can be one of [string, NamedExpression]", v))
+		}
 
 		var allFields bool
 		if strings.HasSuffix(strings.ToLower(selectedField), ".*") {
@@ -704,6 +771,14 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 			}
 
 			panic(err)
+		}
+
+		// Check if expression
+		if expr, ok := selectedFieldObj.(expr.NamedExpression); ok {
+			field = &exprField{
+				Field: field,
+				expr:  expr,
+			}
 		}
 
 		//if !ForSelectAll(field) {
@@ -845,7 +920,7 @@ func (qs *QuerySet) Select(fields ...string) *QuerySet {
 // By default the `__exact` (=) operator is used, each where clause is separated by `AND`.
 func (qs *QuerySet) Filter(key interface{}, vals ...interface{}) *QuerySet {
 	var nqs = qs.Clone()
-	nqs.internals.Where = append(qs.internals.Where, express(key, vals...)...)
+	nqs.internals.Where = append(qs.internals.Where, expr.Express(key, vals...)...)
 	return nqs
 }
 
@@ -856,7 +931,7 @@ func (qs *QuerySet) Filter(key interface{}, vals ...interface{}) *QuerySet {
 // The key can be a field name (string), an expr.Expression (expr.Expression) or a map of field names to values.
 func (qs *QuerySet) Having(key interface{}, vals ...interface{}) *QuerySet {
 	var nqs = qs.Clone()
-	nqs.internals.Having = append(qs.internals.Having, express(key, vals...)...)
+	nqs.internals.Having = append(qs.internals.Having, expr.Express(key, vals...)...)
 	return nqs
 }
 
@@ -1136,7 +1211,7 @@ func (qs *QuerySet) All() Query[[]*Row] {
 // ValuesList is used to retrieve a list of values from the database.
 //
 // It takes a list of field names as arguments and returns a ValuesListQuery.
-func (qs *QuerySet) ValuesList(fields ...string) ValuesListQuery {
+func (qs *QuerySet) ValuesList(fields ...any) ValuesListQuery {
 
 	qs = qs.Select(fields...)
 
@@ -1252,7 +1327,7 @@ func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[
 			out := make(map[string]any)
 
 			for i, field := range scannables {
-				if vf, ok := field.(VirtualField); ok {
+				if vf, ok := field.(AliasField); ok {
 					if err := vf.Scan(row[i]); err != nil {
 						return nil, err
 					}
@@ -1663,7 +1738,7 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 //
 // If the model adheres to django's `models.Saver` interface, no where clause is provided
 // and ExplicitSave() was not called, the `Save()` method will be called on the model
-func (qs *QuerySet) Update(value attrs.Definer) CountQuery {
+func (qs *QuerySet) Update(value attrs.Definer, expressions ...expr.NamedExpression) CountQuery {
 	qs = qs.Clone()
 
 	if len(qs.internals.Where) == 0 && !qs.explicitSave {
@@ -1712,6 +1787,20 @@ func (qs *QuerySet) Update(value attrs.Definer) CountQuery {
 		Chain:  make([]string, 0),
 	}
 
+	var exprMap = make(map[string]expr.NamedExpression, len(expressions))
+	for _, expr := range expressions {
+		var fieldName = expr.FieldName()
+		if fieldName == "" {
+			panic(fmt.Errorf("expression %q has no field name", expr))
+		}
+
+		if _, ok := exprMap[fieldName]; ok {
+			panic(fmt.Errorf("duplicate field %q in update expression", fieldName))
+		}
+
+		exprMap[fieldName] = expr
+	}
+
 	for _, field := range fields {
 		var atts = field.Attrs()
 		var v, ok = atts[attrs.AttrAutoIncrementKey]
@@ -1734,6 +1823,14 @@ func (qs *QuerySet) Update(value attrs.Definer) CountQuery {
 				"field %q cannot be null",
 				field.Name(),
 			))
+		}
+
+		if expr, ok := exprMap[field.Name()]; ok {
+			info.Fields = append(info.Fields, &exprField{
+				Field: field,
+				expr:  expr,
+			})
+			continue
 		}
 
 		info.Fields = append(info.Fields, field)

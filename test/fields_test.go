@@ -86,19 +86,16 @@ func (t *TestStruct) FieldDefs() attrs.Definitions {
 		attrs.NewField(t, "Text", &attrs.FieldConfig{
 			Column: "text",
 		}),
-		fields.NewVirtualField[string](t, t, "TestNameText", &expr.RawExpr{
-			Statement: "%s || ' ' || %s || ' ' || ?",
-			Fields:    []string{"Name", "Text"},
-			Params:    []any{"test"},
-		}),
-		fields.NewVirtualField[string](t, t, "TestNameLower", &expr.RawExpr{
-			Statement: "LOWER(%s)",
-			Fields:    []string{"Name"},
-		}),
-		fields.NewVirtualField[string](t, t, "TestNameUpper", &expr.RawExpr{
-			Statement: "UPPER(%s)",
-			Fields:    []string{"Name"},
-		}),
+		fields.NewVirtualField[string](t, t, "TestNameText", expr.Raw(
+			"![Name] || ' ' || ![Text] || ' ' || ?",
+			"test",
+		)),
+		fields.NewVirtualField[string](t, t, "TestNameLower", expr.Raw(
+			"LOWER(![Name])",
+		)),
+		fields.NewVirtualField[string](t, t, "TestNameUpper", expr.Raw(
+			"UPPER(![Name])",
+		)),
 	).WithTableName("test_struct")
 }
 
@@ -124,19 +121,16 @@ func (t *TestStructNoObject) FieldDefs() attrs.Definitions {
 		attrs.NewField(t, "Text", &attrs.FieldConfig{
 			Column: "text",
 		}),
-		fields.NewVirtualField[string](t, &t.TestNameText, "TestNameText", &expr.RawExpr{
-			Statement: "%s || ' ' || %s || ' ' || ?",
-			Fields:    []string{"Name", "Text"},
-			Params:    []any{"test"},
-		}),
-		fields.NewVirtualField[string](t, &t.TestNameLower, "TestNameLower", &expr.RawExpr{
-			Statement: "LOWER(%s)",
-			Fields:    []string{"Name"},
-		}),
-		fields.NewVirtualField[string](t, &t.TestNameUpper, "TestNameUpper", &expr.RawExpr{
-			Statement: "UPPER(%s)",
-			Fields:    []string{"Name"},
-		}),
+		fields.NewVirtualField[string](t, &t.TestNameText, "TestNameText", expr.Raw(
+			"![Name] || ' ' || ![Text] || ' ' || ?",
+			"test",
+		)),
+		fields.NewVirtualField[string](t, &t.TestNameLower, "TestNameLower", expr.Raw(
+			"LOWER(![Name])",
+		)),
+		fields.NewVirtualField[string](t, &t.TestNameUpper, "TestNameUpper", expr.Raw(
+			"UPPER(![Name])",
+		)),
 	).WithTableName("test_struct_no_object")
 }
 
@@ -378,10 +372,7 @@ func Test_Annotate_With_GroupBy(t *testing.T) {
 	var a = queries.Objects(&TestStruct{}).
 		Select("Name").
 		GroupBy("Name").
-		Annotate("TextCount", &expr.RawExpr{
-			Statement: "COUNT(%s)",
-			Fields:    []string{"Text"},
-		}).
+		Annotate("TextCount", expr.Raw("COUNT(![Text])")).
 		All()
 
 	t.Logf("SQL: %s %v", a.SQL(), a.Args())
@@ -408,10 +399,7 @@ func Test_Annotate_With_GroupBy(t *testing.T) {
 func Test_Annotate_Only(t *testing.T) {
 	// Query only virtual field, not full model
 	var rows, err = queries.Objects(&TestStruct{}).
-		Annotate("UpperName", &expr.RawExpr{
-			Statement: "UPPER(%s)",
-			Fields:    []string{"Name"},
-		}).
+		Annotate("UpperName", expr.Raw("UPPER(![Name])")).
 		Limit(1).
 		All().
 		Exec()
@@ -760,5 +748,50 @@ func Test_Aggregate_With_Join(t *testing.T) {
 
 	if _, err := queries.Objects(&Book{}).Delete().Exec(); err != nil {
 		t.Fatalf("failed to delete books: %v", err)
+	}
+}
+
+func TestAnnotatedValuesListWithSelectExpressions(t *testing.T) {
+	var test = &TestStruct{
+		Name: "TestAnnotatedValuesListWithSelectExpressions1",
+		Text: "TestAnnotatedValuesListWithSelectExpressions2",
+	}
+
+	if err := queries.CreateObject(test); err != nil {
+		t.Fatalf("Failed to create object: %v", err)
+	}
+
+	var a = queries.Objects(test).
+		Filter("ID", test.ID).
+		Annotate("Combined", expr.Raw("![Name] || ' ' || ![Text]")).
+		ValuesList(
+			"ID",
+			"Combined",
+			expr.AutoF("LOWER(![Text]) || ' ' || ?", "testSelectExpressions"),
+		)
+
+	var rows, err = a.Exec()
+	if err != nil {
+		t.Fatalf("Failed to execute query: %v", err)
+	}
+
+	if len(rows) == 0 {
+		t.Fatal("expected at least one result")
+	}
+
+	if len(rows[0]) != 3 {
+		t.Errorf("expected 3 fields per row, got %d", len(rows[0]))
+	}
+
+	if rows[0][0] != test.ID {
+		t.Errorf("expected ID = %d, got %v", test.ID, rows[0][0])
+	}
+
+	if rows[0][1] != "TestAnnotatedValuesListWithSelectExpressions1 TestAnnotatedValuesListWithSelectExpressions2" {
+		t.Errorf("expected Combined = 'TestAnnotatedValuesListWithSelectExpressions1 TestAnnotatedValuesListWithSelectExpressions2', got %v", rows[0][1])
+	}
+
+	if rows[0][2] != "testannotatedvalueslistwithselectexpressions2 testSelectExpressions" {
+		t.Errorf("expected Text = 'testannotatedvalueslistwithselectexpressions2 testSelectExpressions', got %v", rows[0][2])
 	}
 }

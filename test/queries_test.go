@@ -847,6 +847,137 @@ func TestQueryRelatedMultiple(t *testing.T) {
 	}
 }
 
+func TestQuerySetSelectExpressions(t *testing.T) {
+	var todo = &Todo{
+		Title:       "TestQuerySet_Select_Expressions",
+		Description: "This is a test todo",
+		Done:        false,
+	}
+
+	if err := queries.CreateObject(todo); err != nil {
+		t.Fatalf("Failed to insert todo: %v", err)
+	}
+
+	if todo.ID == 0 {
+		t.Fatalf("Expected ID to be set after insert, got 0")
+	}
+
+	var q = queries.Objects(&Todo{}).
+		Select("ID", expr.F("Title", "UPPER(![Title])"), "Description", "Done").
+		Filter("Title", "TestQuerySet_Select_Expressions").
+		OrderBy("-ID").
+		All()
+
+	todos, err := q.Exec()
+	if err != nil {
+		t.Fatalf("Failed to filter todos: %v (%s)", err, q.SQL())
+	}
+
+	if len(todos) != 1 {
+		t.Fatalf("Expected 1 todo, got %d", len(todos))
+	}
+
+	var dbTodo = todos[0].Object.(*Todo)
+	t.Logf("Created todo: %+v", todo)
+
+	t.Logf("Filtered todo: %+v", dbTodo)
+
+	if dbTodo.ID != todo.ID || todo.ID == 0 {
+		t.Fatalf("Expected todo ID %d, got %d", todo.ID, dbTodo.ID)
+	}
+
+	if dbTodo.Title != strings.ToUpper(todo.Title) {
+		t.Fatalf("Expected todo title %q, got %q", todo.Title, dbTodo.Title)
+	}
+
+	if dbTodo.Description != todo.Description {
+		t.Fatalf("Expected todo description %q, got %q", todo.Description, dbTodo.Description)
+	}
+
+	if dbTodo.Done != todo.Done {
+		t.Fatalf("Expected todo done %v, got %v", todo.Done, dbTodo.Done)
+	}
+}
+
+func TestQuerySetSelectExpressionsWithRelated(t *testing.T) {
+	var user = &User{
+		Name: "TestQuerySet_Select_ExpressionsWithRelated",
+	}
+	if err := queries.CreateObject(user); err != nil || user.ID == 0 {
+		t.Fatalf("Failed to insert user: %v", err)
+	}
+
+	var todo = &Todo{
+		Title:       "TestQuerySet_Select_ExpressionsWithRelated",
+		Description: "This is a test todo",
+		Done:        false,
+		User:        user,
+	}
+
+	if err := queries.CreateObject(todo); err != nil {
+		t.Fatalf("Failed to insert todo: %v", err)
+	}
+
+	var q = queries.Objects(&Todo{}).
+		Select(
+			"ID",
+			expr.F("Title", "UPPER(![Title])"),
+			"Description",
+			"Done",
+			"User.ID",
+			expr.F("User.Name", "UPPER(![User.Name])"),
+		).
+		Filter("Title", "TestQuerySet_Select_ExpressionsWithRelated").
+		OrderBy("-ID").
+		All()
+
+	todos, err := q.Exec()
+	if err != nil {
+		t.Fatalf("Failed to filter todos: %v (%s)", err, q.SQL())
+	}
+
+	if len(todos) != 1 {
+		t.Fatalf("Expected 1 todo, got %d", len(todos))
+	}
+
+	var dbTodo = todos[0].Object.(*Todo)
+	t.Logf("Created todo: %+v, %+v", todo, todo.User)
+
+	t.Logf("Filtered todo: %+v, %+v", dbTodo, dbTodo.User)
+
+	if dbTodo.ID != todo.ID || todo.ID == 0 {
+		t.Fatalf("Expected todo ID %d, got %d", todo.ID, dbTodo.ID)
+	}
+
+	if dbTodo.Title != strings.ToUpper(todo.Title) {
+		t.Fatalf("Expected todo title %q, got %q", todo.Title, dbTodo.Title)
+	}
+
+	if dbTodo.Description != todo.Description {
+		t.Fatalf("Expected todo description %q, got %q", todo.Description, dbTodo.Description)
+	}
+
+	if dbTodo.Done != todo.Done {
+		t.Fatalf("Expected todo done %v, got %v", todo.Done, dbTodo.Done)
+	}
+
+	if dbTodo.User == nil {
+		t.Fatalf("Expected todo user to be not nil")
+	}
+
+	if dbTodo.User.ID != todo.User.ID {
+		t.Fatalf("Expected todo user ID %d, got %d", todo.User.ID, dbTodo.User.ID)
+	}
+
+	if dbTodo.User.Name != strings.ToUpper(todo.User.Name) {
+		t.Fatalf("Expected todo user name %q, got %q", todo.User.Name, dbTodo.User.Name)
+	}
+
+	if dbTodo.User.Profile != nil {
+		t.Fatalf("Expected todo user profile to be nil")
+	}
+}
+
 func TestQueryRelatedIDOnly(t *testing.T) {
 	var user = &User{
 		Name: "TestQueryRelatedIDOnly",
@@ -1241,6 +1372,56 @@ func TestQueryUpdate(t *testing.T) {
 
 	t.Logf("Updated todo: %+v", dbTodo2)
 	t.Logf("Updated todo user: %+v", dbTodo2.User)
+}
+
+func TestUpdateWithExpressions(t *testing.T) {
+	var todo = &Todo{
+		Title:       "TestUpdateWithExpressions",
+		Description: "This is a new test todo",
+		Done:        false,
+	}
+
+	if err := queries.CreateObject(todo); err != nil {
+		t.Fatalf("Failed to insert todo: %v", err)
+	}
+
+	var updated, err = queries.Objects(&Todo{}).
+		Select("Title", "Done").
+		Filter("ID", todo.ID).
+		ExplicitSave().
+		Update(
+			&Todo{},
+			expr.UpdateExpr("![Title] = UPPER(![Title])"),
+			expr.UpdateExpr("![Done] = (![ID] % ?[1] == ?[2] OR ![ID] % ?[1] == ?[3] OR ?[4])", 2, 0, 1, true),
+		).
+		Exec()
+	if err != nil {
+		t.Fatalf("Failed to update todo: %v", err)
+	}
+	if updated == 0 {
+		t.Fatalf("Expected 1 todo to be updated, got %d", updated)
+	}
+
+	dbTodo, err := queries.GetObject(&Todo{}, todo.ID)
+	if err != nil {
+		t.Fatalf("Failed to get todo: %v", err)
+	}
+
+	if dbTodo.ID != todo.ID || todo.ID == 0 {
+		t.Fatalf("Expected todo ID %d, got %d", todo.ID, dbTodo.ID)
+	}
+
+	if dbTodo.Title != strings.ToUpper(todo.Title) {
+		t.Fatalf("Expected todo title %q, got %q", strings.ToUpper(todo.Title), dbTodo.Title)
+	}
+
+	if dbTodo.Description != todo.Description {
+		t.Fatalf("Expected todo description %q, got %q", todo.Description, dbTodo.Description)
+	}
+
+	if dbTodo.Done != true {
+		t.Fatalf("Expected todo done %v, got %v", true, dbTodo.Done)
+	}
 }
 
 func TestQueryGet(t *testing.T) {

@@ -98,8 +98,8 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 	ctx context.Context,
 	qs *QuerySet,
 	fields []FieldInfo,
-	where []expr.Expression,
-	having []expr.Expression,
+	where []expr.LogicalExpression,
+	having []expr.LogicalExpression,
 	joins []JoinDef,
 	groupBy []FieldInfo,
 	orderBy []OrderBy,
@@ -193,7 +193,7 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 func (g *genericQueryBuilder) BuildCountQuery(
 	ctx context.Context,
 	qs *QuerySet,
-	where []expr.Expression,
+	where []expr.LogicalExpression,
 	joins []JoinDef,
 	groupBy []FieldInfo,
 	limit int,
@@ -364,7 +364,7 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 	ctx context.Context,
 	qs *QuerySet,
 	fields FieldInfo,
-	where []expr.Expression,
+	where []expr.LogicalExpression,
 	joins []JoinDef,
 	groupBy []FieldInfo,
 	values []any,
@@ -377,28 +377,36 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 	query.WriteString(g.quote)
 	query.WriteString(" SET ")
 
-	for i, field := range fields.Fields {
-		if i > 0 {
+	var args = make([]any, 0)
+	var written bool
+	var valuesIdx int
+	for _, field := range fields.Fields {
+		if written {
 			query.WriteString(", ")
 		}
 
-		query.WriteString(g.quote)
-		query.WriteString(field.ColumnName())
-		query.WriteString(g.quote)
-		query.WriteString(" = ?")
+		var a, isSQL, ok = fields.WriteField(
+			query, g.driver, model, g.quote, field, true,
+		)
+		written = ok || written
+		if !ok {
+			continue
+		}
+
+		if isSQL {
+			args = append(args, a...)
+		} else {
+			args = append(args, values[valuesIdx])
+			valuesIdx++
+		}
 	}
-
-	var args = make([]any, 0, len(values))
-
-	args = append(
-		args, values...,
-	)
 
 	args = append(
 		args,
 		g.writeWhereClause(query, model, where)...,
 	)
 
+	fmt.Println("args", args)
 	return &QueryObject[int64]{
 		sql:   g.queryInfo.DBX.Rebind(query.String()),
 		model: model,
@@ -416,7 +424,7 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 func (g *genericQueryBuilder) BuildDeleteQuery(
 	ctx context.Context,
 	qs *QuerySet,
-	where []expr.Expression,
+	where []expr.LogicalExpression,
 	joins []JoinDef,
 	groupBy []FieldInfo,
 ) CountQuery {
@@ -479,7 +487,7 @@ func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) {
 	}
 }
 
-func (g *genericQueryBuilder) writeWhereClause(sb *strings.Builder, model attrs.Definer, where []expr.Expression) []any {
+func (g *genericQueryBuilder) writeWhereClause(sb *strings.Builder, model attrs.Definer, where []expr.LogicalExpression) []any {
 	var args = make([]any, 0)
 	if len(where) > 0 {
 		sb.WriteString(" WHERE ")
@@ -503,7 +511,7 @@ func (g *genericQueryBuilder) writeGroupBy(sb *strings.Builder, groupBy []FieldI
 	}
 }
 
-func (g *genericQueryBuilder) writeHaving(sb *strings.Builder, model attrs.Definer, having []expr.Expression) []any {
+func (g *genericQueryBuilder) writeHaving(sb *strings.Builder, model attrs.Definer, having []expr.LogicalExpression) []any {
 	var args = make([]any, 0)
 	if len(having) > 0 {
 		sb.WriteString(" HAVING ")
@@ -568,7 +576,7 @@ func (g *genericQueryBuilder) writeLimitOffset(sb *strings.Builder, limit int, o
 // Helpers
 // -----------------------------------------------------------------------------
 
-func buildWhereClause(b *strings.Builder, d driver.Driver, model attrs.Definer, quote string, exprs []expr.Expression) []any {
+func buildWhereClause(b *strings.Builder, d driver.Driver, model attrs.Definer, quote string, exprs []expr.LogicalExpression) []any {
 	var args = make([]any, 0)
 	for i, e := range exprs {
 		e := e.With(d, model, quote)

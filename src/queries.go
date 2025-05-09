@@ -28,7 +28,6 @@ type AliasField interface {
 }
 
 type VirtualField interface {
-	AliasField
 	SQL(d driver.Driver, m attrs.Definer, quote string) (string, []any)
 }
 
@@ -137,8 +136,8 @@ type QueryCompiler interface {
 		ctx context.Context,
 		qs *QuerySet,
 		fields []FieldInfo,
-		where []expr.Expression,
-		having []expr.Expression,
+		where []expr.LogicalExpression,
+		having []expr.LogicalExpression,
 		joins []JoinDef,
 		groupBy []FieldInfo,
 		orderBy []OrderBy,
@@ -152,7 +151,7 @@ type QueryCompiler interface {
 	BuildCountQuery(
 		ctx context.Context,
 		qs *QuerySet,
-		where []expr.Expression,
+		where []expr.LogicalExpression,
 		joins []JoinDef,
 		groupBy []FieldInfo,
 		limit int,
@@ -173,7 +172,7 @@ type QueryCompiler interface {
 		ctx context.Context,
 		qs *QuerySet,
 		fields FieldInfo,
-		where []expr.Expression,
+		where []expr.LogicalExpression,
 		joins []JoinDef,
 		groupBy []FieldInfo,
 		values []any,
@@ -183,7 +182,7 @@ type QueryCompiler interface {
 	BuildDeleteQuery(
 		ctx context.Context,
 		qs *QuerySet,
-		where []expr.Expression,
+		where []expr.LogicalExpression,
 		joins []JoinDef,
 		groupBy []FieldInfo,
 	) CountQuery

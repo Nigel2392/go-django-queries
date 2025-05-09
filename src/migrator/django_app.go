@@ -12,17 +12,32 @@ const (
 	DEFAULT_MIGRATION_DIR = "./migrations"
 )
 
-type MigratorAppConfig struct {
+//
+//type MigrationAppConfig interface {
+//	django.AppConfig
+//	GetMigrationFS() fs.FS
+//}
+//
+//type MigratorAppConfig struct {
+//	django.AppConfig
+//	MigrationFS fs.FS
+//}
+//
+//func (m *MigratorAppConfig) GetMigrationFS() fs.FS {
+//	return m.MigrationFS
+//}
+
+type migratorAppConfig struct {
 	*apps.DBRequiredAppConfig
 	MigrationDir string
 	engine       *MigrationEngine
 }
 
-var app = &MigratorAppConfig{
+var app = &migratorAppConfig{
 	DBRequiredAppConfig: apps.NewDBAppConfig("migrator"),
 }
 
-func NewAppConfig() *MigratorAppConfig {
+func NewAppConfig() *migratorAppConfig {
 
 	app.MigrationDir, _ = django.ConfigGetOK(
 		django.Global.Settings,

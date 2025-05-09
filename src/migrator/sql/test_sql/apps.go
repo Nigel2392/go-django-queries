@@ -7,12 +7,17 @@ import (
 )
 
 func NewAuthAppConfig() django.AppConfig {
-	var app = apps.NewAppConfig("auth")
-	app.ModelObjects = []attrs.Definer{
+	var cnf = apps.NewAppConfig("auth")
+	// var app = &migrator.MigratorAppConfig{
+	// AppConfig:   cnf,
+	// MigrationFS: os.DirFS("./auth_migrations/auth"),
+	// }
+	cnf.ModelObjects = []attrs.Definer{
 		&User{},
 		&Profile{},
 	}
-	return app
+	// return app
+	return cnf
 }
 
 func NewTodoAppConfig() django.AppConfig {

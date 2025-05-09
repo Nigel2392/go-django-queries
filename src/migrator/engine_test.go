@@ -77,13 +77,13 @@ func TestMigrator(t *testing.T) {
 
 	// Verify stored migrations
 	if len(engine.Migrations["auth"]) == 0 {
-		t.Fatalf("expected engine to track stored migrations for app 'test_sql' %v", engine.Migrations)
+		t.Fatalf("expected engine to track stored migrations for app 'auth' %v", engine.Migrations)
 	}
 	if len(engine.Migrations["todo"]) == 0 {
-		t.Fatalf("expected engine to track stored migrations for app 'test_sql' %v", engine.Migrations)
+		t.Fatalf("expected engine to track stored migrations for app 'todo' %v", engine.Migrations)
 	}
 	if len(engine.Migrations["blog"]) == 0 {
-		t.Fatalf("expected engine to track stored migrations for app 'test_sql' %v", engine.Migrations)
+		t.Fatalf("expected engine to track stored migrations for app 'blog' %v", engine.Migrations)
 	}
 
 	for model, migs := range engine.Migrations["auth"] {

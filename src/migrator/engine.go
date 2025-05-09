@@ -3,6 +3,7 @@ package migrator
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -136,6 +137,11 @@ type MigrationEngine struct {
 	// This is used to execute SQL commands for creating, modifying, and deleting tables and columns.
 	SchemaEditor SchemaEditor
 
+	//	// MigrationFilesystems is the list of migration filesystems used to load the migration files.
+	//	//
+	//	// It is a map of application names to a slice of fs.FileSystem interfaces.
+	// MigrationFilesystems map[string]fs.FS
+
 	// Migrations is the list of migration files that have been applied to the database.
 	//
 	// This is used to keep track of the migrations that have been applied and ensure that they are not applied again.
@@ -158,13 +164,33 @@ type MigrationEngine struct {
 }
 
 func NewMigrationEngine(path string, schemaEditor SchemaEditor, apps ...string) *MigrationEngine {
-	var appMap = orderedmap.NewOrderedMap[string, django.AppConfig]()
+	var (
+		appMap = orderedmap.NewOrderedMap[string, django.AppConfig]()
+		// migrationDirectories = make(map[string]fs.FS)
+	)
 
 	if len(apps) == 0 {
 		appMap = django.Global.Apps
+		// for head := appMap.Front(); head != nil; head = head.Next() {
+		// var app = head.Value
+		// if mgAppCnf, ok := app.(MigrationAppConfig); ok {
+		// var fs = mgAppCnf.GetMigrationFS()
+		// if fs != nil {
+		// migrationDirectories[head.Key] = fs
+		// }
+		// }
+		// }
 	} else {
 		for _, app := range apps {
 			var appConfig = django.GetApp[django.AppConfig](app)
+
+			// if mgAppCnf, ok := appConfig.(MigrationAppConfig); ok {
+			// var fs = mgAppCnf.GetMigrationFS()
+			// if fs != nil {
+			// migrationDirectories[app] = fs
+			// }
+			// }
+
 			appMap.Set(app, appConfig)
 		}
 	}
@@ -172,7 +198,8 @@ func NewMigrationEngine(path string, schemaEditor SchemaEditor, apps ...string) 
 	return &MigrationEngine{
 		Path:         path,
 		SchemaEditor: schemaEditor,
-		apps:         appMap,
+		// MigrationFilesystems: migrationDirectories,
+		apps: appMap,
 	}
 }
 
@@ -831,44 +858,76 @@ func (e *MigrationEngine) WriteMigration(migration *MigrationFile) error {
 func (e *MigrationEngine) ReadMigrations() ([]*MigrationFile, error) {
 	os.MkdirAll(e.Path, 0755)
 
-	var directories, err = os.ReadDir(e.Path)
-	if err != nil && os.IsNotExist(err) {
-		return []*MigrationFile{}, nil
-	} else if err != nil {
-		return nil, errors.Wrapf(
-			err, "failed to read migration directory %q", e.Path,
-		)
-	}
-
-	if _, err = os.Stat(e.Path); err != nil && os.IsNotExist(err) {
-		return []*MigrationFile{}, nil
-	} else if err != nil {
-		return nil, errors.Wrapf(
-			err, "failed to read migration directory %q", e.Path,
-		)
-	}
-
 	var migrations = make([]*MigrationFile, 0)
+
+	//for appName, fSys := range e.MigrationFilesystems {
+	//	var app, ok = e.apps.Get(appName)
+	//	if !ok || app == nil {
+	//		return nil, fmt.Errorf("app %q not found in migration engines' apps list", appName)
+	//	}
+	//
+	//	var models = app.Models()
+	//	for _, model := range models {
+	//
+	//		var cType = contenttypes.NewContentType(model)
+	//		var modelMigrationPath = cType.Model()
+	//
+	//		modelMigrationPath = filepath.FromSlash(modelMigrationPath)
+	//		modelMigrationPath = filepath.ToSlash(modelMigrationPath)
+	//
+	//		var modelMigrationDir, err = fs.ReadDir(fSys, modelMigrationPath)
+	//		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	//			return nil, errors.Wrapf(
+	//				err, "failed to read migration directory %q", modelMigrationPath,
+	//			)
+	//		} else if err != nil || len(modelMigrationDir) == 0 {
+	//			continue
+	//		}
+	//
+	//		migrationFiles, err := e.readMigrationDirFS(
+	//			fSys, modelMigrationPath, appName, cType.Model(),
+	//		)
+	//		if err != nil {
+	//			return nil, errors.Wrapf(
+	//				err, "failed to read app's migration directory %q", modelMigrationPath,
+	//			)
+	//		}
+	//
+	//		migrations = append(migrations, migrationFiles...)
+	//	}
+	//}
+
+	var path = filepath.FromSlash(e.Path)
+	path = filepath.ToSlash(path)
+	var dirFS = os.DirFS(path)
+	var directories, err = fs.ReadDir(dirFS, ".")
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return []*MigrationFile{}, nil
+	} else if err != nil {
+		return nil, errors.Wrapf(
+			err, "failed to read migration directory %q", e.Path,
+		)
+	}
+
 	for _, appMigrationDir := range directories {
 		if !appMigrationDir.IsDir() {
 			continue
 		}
 
-		var workingPath = filepath.Join(
-			e.Path, appMigrationDir.Name(),
-		)
-
-		if _, err = os.Stat(workingPath); err != nil && os.IsNotExist(err) {
+		var workingPath = appMigrationDir.Name()
+		if _, err = fs.Stat(dirFS, workingPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
 			return nil, errors.Wrapf(
-				err, "failed to read migration directory %q", workingPath,
+				err, "failed to stat migration directory %q", workingPath,
 			)
 		}
 
-		var files, err = os.ReadDir(workingPath)
-		if err != nil {
+		var files, err = fs.ReadDir(dirFS, workingPath)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			continue
+		} else if err != nil {
 			return nil, errors.Wrapf(
 				err, "failed to read migration directory %q", workingPath,
 			)
@@ -885,67 +944,14 @@ func (e *MigrationEngine) ReadMigrations() ([]*MigrationFile, error) {
 
 			var filesDir = filepath.Join(workingPath, modelMigrationDir.Name())
 
-			if _, err = os.Stat(filesDir); err != nil && os.IsNotExist(err) {
-				continue
-			}
+			migrationFiles, err := e.readMigrationDirFS(
+				dirFS, filesDir, appMigrationDir.Name(), modelMigrationDir.Name(),
+			)
 			if err != nil {
-				return nil, errors.Wrapf(
-					err, "failed to read migration directory %q", filesDir,
-				)
+				return nil, err
 			}
 
-			var files, err = os.ReadDir(filesDir)
-			if err != nil {
-				return nil, errors.Wrapf(
-					err, "failed to read migration directory %q", filesDir,
-				)
-			}
-
-			for _, file := range files {
-				var filePath = filepath.Join(
-					filesDir, file.Name(),
-				)
-
-				if file.IsDir() || filepath.Ext(file.Name()) != MIGRATION_FILE_SUFFIX {
-					continue
-				}
-
-				if _, err = os.Stat(filePath); err != nil && os.IsNotExist(err) {
-					continue
-				}
-
-				var migrationFileBytes, err = os.ReadFile(filePath)
-				if err != nil {
-					return nil, errors.Wrapf(
-						err, "failed to read migration file %q", filePath,
-					)
-				}
-
-				var migrationFile = new(MigrationFile)
-				if err := json.Unmarshal(migrationFileBytes, &migrationFile); err != nil {
-					return nil, errors.Wrapf(
-						err, "failed to unmarshal migration file %q", filePath,
-					)
-				}
-
-				orderNum, name, err := parseMigrationFileName(file.Name())
-				if err != nil {
-					return nil, errors.Wrapf(
-						err, "failed to parse migration file name %q", file.Name(),
-					)
-				}
-
-				migrations = append(migrations, &MigrationFile{
-					Name:         name,
-					AppName:      appMigrationDir.Name(),
-					ModelName:    modelMigrationDir.Name(),
-					Order:        orderNum,
-					Table:        migrationFile.Table,
-					Actions:      migrationFile.Actions,
-					Dependencies: migrationFile.Dependencies,
-					ContentType:  contenttypes.NewContentType(migrationFile.Table.Object),
-				})
-			}
+			migrations = append(migrations, migrationFiles...)
 		}
 	}
 
@@ -958,6 +964,72 @@ func (e *MigrationEngine) ReadMigrations() ([]*MigrationFile, error) {
 		}
 		return 0
 	})
+
+	return migrations, nil
+}
+
+func (e *MigrationEngine) readMigrationDirFS(dir fs.FS, dirPath, appName, modelName string) ([]*MigrationFile, error) {
+	dirPath = filepath.FromSlash(dirPath)
+	dirPath = filepath.ToSlash(dirPath)
+
+	var files, err = fs.ReadDir(dir, dirPath)
+	if err != nil && errors.Is(err, fs.ErrNotExist) {
+		return []*MigrationFile{}, nil
+	} else if err != nil {
+		return nil, errors.Wrapf(
+			err, "failed to read migration directory %q", dirPath,
+		)
+	}
+
+	var migrations = make([]*MigrationFile, 0)
+	for _, file := range files {
+		var filePath = filepath.Join(
+			dirPath, file.Name(),
+		)
+
+		if file.IsDir() || filepath.Ext(file.Name()) != MIGRATION_FILE_SUFFIX {
+			continue
+		}
+
+		filePath = filepath.FromSlash(filePath)
+		filePath = filepath.ToSlash(filePath)
+
+		if _, err = fs.Stat(dir, filePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+
+		var migrationFileBytes, err = fs.ReadFile(dir, filePath)
+		if err != nil {
+			return nil, errors.Wrapf(
+				err, "failed to read migration file %q", filePath,
+			)
+		}
+
+		var migrationFile = new(MigrationFile)
+		if err := json.Unmarshal(migrationFileBytes, &migrationFile); err != nil {
+			return nil, errors.Wrapf(
+				err, "failed to unmarshal migration file %q", filePath,
+			)
+		}
+
+		orderNum, name, err := parseMigrationFileName(file.Name())
+		if err != nil {
+			return nil, errors.Wrapf(
+				err, "failed to parse migration file name %q", file.Name(),
+			)
+		}
+
+		migrations = append(migrations, &MigrationFile{
+			Name:         name,
+			AppName:      appName,
+			ModelName:    modelName,
+			Order:        orderNum,
+			Table:        migrationFile.Table,
+			Actions:      migrationFile.Actions,
+			Dependencies: migrationFile.Dependencies,
+			ContentType:  contenttypes.NewContentType(migrationFile.Table.Object),
+		})
+	}
 
 	return migrations, nil
 }

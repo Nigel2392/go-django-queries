@@ -59,7 +59,7 @@ type MigrationRelationThrough struct {
 type MigrationRelation struct {
 	Type        attrs.RelationType                           `json:"type"`                // The type of the relation
 	TargetModel *contenttypes.BaseContentType[attrs.Definer] `json:"model"`               // The target model of the relation
-	TargetField attrs.Field                                  `json:"field,omitempty"`     // The field in the target model
+	TargetField attrs.FieldDefinition                        `json:"field,omitempty"`     // The field in the target model
 	Through     *MigrationRelationThrough                    `json:"through,omitempty"`   // The through model of the relation
 	OnDelete    Action                                       `json:"on_delete,omitempty"` // The on delete action of the relation
 	OnUpdate    Action                                       `json:"on_update,omitempty"` // The on update action of the relation
@@ -72,7 +72,7 @@ func (m *MigrationRelation) Model() attrs.Definer {
 	return m.TargetModel.New()
 }
 
-func (m *MigrationRelation) Field() attrs.Field {
+func (m *MigrationRelation) Field() attrs.FieldDefinition {
 	return m.TargetField
 }
 

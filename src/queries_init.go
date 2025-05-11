@@ -40,25 +40,20 @@ func init() {
 		}
 
 		if primaryValue == nil || fields.IsZero(primaryValue) {
-			var _, err = Objects(m).ExplicitSave().Create(m).Exec()
+			var _, err = Objects[attrs.Definer](m).ExplicitSave().Create(m)
 			if err != nil {
 				return false, err
 			}
 			return true, nil
 		}
 
-		_, err = Objects(m).
+		ct, err := Objects[attrs.Definer](m).
 			ExplicitSave().
 			Filter(
 				primaryField.Name(), primaryValue,
 			).
-			Update(m).
-			Exec()
-		if err != nil {
-			return false, err
-		}
-
-		return true, nil
+			Update(m)
+		return ct > 0, err
 	}))
 
 	goldcrest.Register(models.MODEL_DELETE_HOOK, 0, models.ModelFunc(func(c context.Context, m attrs.Definer) (changed bool, err error) {
@@ -80,15 +75,11 @@ func init() {
 			return false, nil
 		}
 
-		_, err = Objects(m).Filter(
+		ct, err := Objects[attrs.Definer](m).Filter(
 			primaryField.Name(),
 			primaryValue,
-		).Delete().Exec()
-		if err != nil {
-			return false, err
-		}
-
-		return true, nil
+		).Delete()
+		return ct > 0, err
 	}))
 }
 

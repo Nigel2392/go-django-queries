@@ -11,6 +11,7 @@ import (
 var (
 	_ queries.ForUseInQueriesField = (*RelationField[any])(nil)
 	_ attrs.CanRelatedName         = (*RelationField[any])(nil)
+	_ queries.InjectorField        = (*RelationField[any])(nil)
 )
 
 type RelationField[T any] struct {
@@ -43,7 +44,7 @@ func (r *wrappedRelation) From() attrs.RelationTarget {
 
 type relationTarget struct {
 	model    attrs.Definer
-	field    attrs.Field
+	field    attrs.FieldDefinition
 	fieldStr string
 	prev     attrs.RelationTarget
 }
@@ -56,12 +57,13 @@ func (r *relationTarget) Model() attrs.Definer {
 	return r.model
 }
 
-func (r *relationTarget) Field() attrs.Field {
+func (r *relationTarget) Field() attrs.FieldDefinition {
 	if r.field != nil {
 		return r.field
 	}
 
-	var defs = r.model.FieldDefs()
+	var meta = attrs.GetModelMeta(r.model)
+	var defs = meta.Definitions()
 	if r.fieldStr != "" {
 		var ok bool
 		r.field, ok = defs.Field(r.fieldStr)
@@ -107,7 +109,7 @@ func (r *RelationField[T]) ColumnName() string {
 	return r.col
 }
 
-func (r *RelationField[T]) GetTargetField() attrs.Field {
+func (r *RelationField[T]) GetTargetField() attrs.FieldDefinition {
 	var targetField = r.rel.Field()
 	if targetField == nil {
 		var defs = r.rel.Model().FieldDefs()
@@ -145,6 +147,6 @@ func (r *RelationField[T]) Rel() attrs.Relation {
 	}
 }
 
-func (r *RelationField[T]) Inject(qs *queries.QuerySet) *queries.QuerySet {
+func (r *RelationField[T]) Inject(qs *queries.GenericQuerySet) *queries.GenericQuerySet {
 	return qs
 }

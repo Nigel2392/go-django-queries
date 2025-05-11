@@ -5,7 +5,6 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
-	"slices"
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
@@ -98,6 +97,14 @@ func NewJoinAlias(field attrs.Field, tableName string, chain []string) string {
 	//return fmt.Sprintf("%s_%s", field.ColumnName(), tableName)
 }
 
+// generate an alias for fields.AliasField
+func NewAlias(tableAlias, alias string) string {
+	if tableAlias == "" {
+		return alias
+	}
+	return fmt.Sprintf("%s_%s", tableAlias, alias)
+}
+
 type walkFieldsResult struct {
 	definer   attrs.Definer
 	parent    attrs.Definer
@@ -178,137 +185,6 @@ func WalkFields(
 	}
 
 	return current, parent, field, chain, aliases, isRelated, nil
-}
-
-type PathMetaChain []*PathMeta
-
-func (c PathMetaChain) First() *PathMeta {
-	if len(c) == 0 {
-		return nil
-	}
-	return c[0]
-}
-
-func (c PathMetaChain) Last() *PathMeta {
-	if len(c) == 0 {
-		return nil
-	}
-	return c[len(c)-1]
-}
-
-type PathMeta struct {
-	idx         int
-	root        PathMetaChain
-	Object      attrs.Definer
-	Definitions attrs.Definitions
-	Field       attrs.Field
-	Relation    attrs.Relation
-	TableAlias  string
-}
-
-func (m *PathMeta) String() string {
-	var sb strings.Builder
-	for i, part := range m.root[:m.idx+1] {
-		if i > 0 {
-			sb.WriteString(".")
-		}
-		sb.WriteString(part.Field.Name())
-	}
-	return sb.String()
-}
-
-func pathMetaTableAlias(m *PathMeta) string {
-	if len(m.root) == 1 {
-		return m.Definitions.TableName()
-	}
-	var c = m.CutAt()
-	var s = make([]string, len(c))
-	for i, part := range c {
-		s[i] = part.Field.Name()
-	}
-
-	var field attrs.Field
-	if m.idx > 0 {
-		field = m.root[m.idx-1].Field
-	}
-
-	return NewJoinAlias(field, m.Definitions.TableName(), s)
-}
-
-func (m *PathMeta) Parent() *PathMeta {
-	if m.idx == 0 {
-		return nil
-	}
-	return m.root[m.idx-1]
-}
-
-func (m *PathMeta) Child() *PathMeta {
-	if m.idx >= len(m.root)-1 {
-		return nil
-	}
-	return m.root[m.idx+1]
-}
-
-func (m *PathMeta) CutAt() []*PathMeta {
-	return slices.Clone(m.root)[:m.idx+1]
-}
-
-var walkFieldPathsCache = make(map[string]PathMetaChain)
-
-func WalkFieldPath(m attrs.Definer, path string) (PathMetaChain, error) {
-	var cacheKey = fmt.Sprintf("%T.%s", m, path)
-	if CACHE_TRAVERSAL_RESULTS {
-		if result, ok := walkFieldPathsCache[cacheKey]; ok {
-			return result, nil
-		}
-	}
-
-	var parts = strings.Split(path, ".")
-	var root = make(PathMetaChain, len(parts))
-	var current = m
-	for i, part := range parts {
-		var defs = current.FieldDefs()
-		var meta = &PathMeta{
-			Object:      current,
-			Definitions: defs,
-		}
-
-		var f, ok = defs.Field(part)
-		if !ok {
-			return nil, fmt.Errorf("field %q not found in %T", part, meta.Object)
-		}
-
-		relation, ok := attrs.GetRelationMeta(meta.Object, part)
-		if !ok && i != len(parts)-1 {
-			return nil, fmt.Errorf("field %q is not a relation in %T", part, meta.Object)
-		}
-
-		meta.idx = i
-		meta.root = root
-		meta.Field = f
-		meta.Relation = relation
-
-		root[i] = meta
-
-		meta.TableAlias = pathMetaTableAlias(meta)
-
-		if i == len(parts)-1 {
-			break
-		}
-
-		// This is required to avoid FieldNotFound errors - some objects might cache
-		// their field definitions, meaning any dynamic changes to the field will not be reflected
-		// in the field definitions. This is a workaround to avoid that issue.
-		var newTyp = reflect.TypeOf(relation.Model())
-		var newObj = reflect.New(newTyp.Elem())
-		current = newObj.Interface().(attrs.Definer)
-	}
-
-	if CACHE_TRAVERSAL_RESULTS {
-		walkFieldPathsCache[cacheKey] = root
-	}
-
-	return root, nil
 }
 
 type QueryInfo struct {

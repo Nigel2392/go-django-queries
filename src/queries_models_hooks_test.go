@@ -87,11 +87,11 @@ func TestModelsSave(t *testing.T) {
 		t.Fatalf("model not saved")
 	}
 
-	fromDb, err := queries.Objects(&User{}).
+	fromDb, err := queries.Objects[*User](&User{}).
 		Filter("Name", "John Doe").
 		Filter("Email", "test@example.com").
 		Filter("Age", 30).
-		Get().Exec()
+		Get()
 	if err != nil {
 		t.Fatalf("failed to get model: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestModelsSave(t *testing.T) {
 		t.Fatalf("model not found in db")
 	}
 
-	var user = fromDb.Object.(*User)
+	var user = fromDb.Object
 	if user.Name != "John Doe" {
 		t.Fatalf("expected name to be 'John Doe', got '%s'", user.Name)
 	}
@@ -125,10 +125,10 @@ func TestModelsSave(t *testing.T) {
 		t.Fatalf("expected last_name to be 'Doe', got '%s'", user.LastName)
 	}
 
-	_, err = queries.Objects(&User{}).
+	_, err = queries.Objects[*User](&User{}).
 		Filter("Name", "John Doe").
 		Filter("Email", "test@example.com").
-		Delete().Exec()
+		Delete()
 	if err != nil {
 		t.Fatalf("failed to delete model: %v", err)
 	}
@@ -157,13 +157,13 @@ func TestModelsDelete(t *testing.T) {
 		t.Fatalf("model ID is 0")
 	}
 
-	obj, err := queries.Objects(&User{}).
+	obj, err := queries.Objects[*User](&User{}).
 		Filter("ID", user.ID).
-		Get().Exec()
+		Get()
 	if err != nil {
 		t.Fatalf("failed to get model: %v", err)
 	}
-	if *obj.Object.(*User) != *user {
+	if *obj.Object != *user {
 		t.Fatalf("model not found in db")
 	}
 
@@ -176,9 +176,9 @@ func TestModelsDelete(t *testing.T) {
 		t.Fatalf("model not deleted")
 	}
 
-	_, err = queries.Objects(&User{}).
+	_, err = queries.Objects[*User](&User{}).
 		Filter("ID", user.ID).
-		Get().Exec()
+		Get()
 	if !errors.Is(err, query_errors.ErrNoRows) {
 		t.Fatalf("expected no rows error, got: %v", err)
 	}

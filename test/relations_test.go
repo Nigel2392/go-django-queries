@@ -11,7 +11,6 @@ import (
 type relationTestExpected struct {
 	type_ attrs.RelationType
 	final reflect.Type
-	chain []string
 }
 
 type relationTest struct {
@@ -197,13 +196,12 @@ func TestReverseRelations(t *testing.T) {
 		return
 	}
 
-	var q = queries.Objects(&User{}).
+	var q = queries.Objects[attrs.Definer](&User{}).
 		Select("ID", "Name", "Todo.*").
-		Filter("ID", user.ID).
-		First()
-	var dbTodo, err = q.Exec()
+		Filter("ID", user.ID)
+	var dbTodo, err = q.First()
 	if err != nil {
-		t.Errorf("expected no error, got %v (%s)", err, q.SQL())
+		t.Errorf("expected no error, got %v (%s)", err, q.LatestQuery().SQL())
 		return
 	}
 
@@ -308,17 +306,17 @@ func TestReverseRelationsNested(t *testing.T) {
 		return
 	}
 
-	var q = queries.Objects(&User{}).
+	var q = queries.Objects[attrs.Definer](&User{}).
 		Select("ID", "Name", "Todo.*", "Todo.User.*", "Todo.User.Todo.*", "Todo.User.Todo.User.*").
 		Filter("ID", user.ID).
 		Filter("Todo.ID", todo.ID).
 		Filter("Todo.User.ID", user.ID).
 		Filter("Todo.User.Todo.ID", todo.ID).
-		Filter("Todo.User.Todo.User.ID", user.ID).
-		First()
-	var dbTodo, err = q.Exec()
+		Filter("Todo.User.Todo.User.ID", user.ID)
+
+	var dbTodo, err = q.First()
 	if err != nil {
-		t.Errorf("expected no error, got %v (%s)", err, q.SQL())
+		t.Errorf("expected no error, got %v (%s)", err, q.LatestQuery().SQL())
 		return
 	}
 
@@ -485,14 +483,13 @@ func TestOneToOneWithThrough(t *testing.T) {
 	}
 
 	// Query and include the through-relation
-	var q = queries.Objects(&OneToOneWithThrough{}).
+	var q = queries.Objects[attrs.Definer](&OneToOneWithThrough{}).
 		Select("ID", "Title", "Target.*").
-		Filter("ID", main.ID).
-		First()
+		Filter("ID", main.ID)
 
-	result, err := q.Exec()
+	result, err := q.First()
 	if err != nil {
-		t.Fatalf("query failed: %v (%s)", err, q.SQL())
+		t.Fatalf("query failed: %v (%s)", err, q.LatestQuery().SQL())
 	}
 	if result == nil {
 		t.Fatalf("expected result, got nil")
@@ -544,11 +541,10 @@ func TestOneToOneWithThroughReverse(t *testing.T) {
 	}
 
 	// Now test reverse relation (Target → Main)
-	result, err := queries.Objects(&OneToOneWithThrough_Target{}).
+	result, err := queries.Objects[attrs.Definer](&OneToOneWithThrough_Target{}).
 		Select("ID", "Name", "TargetReverse.*"). // TargetReverse is the reverse field name
 		Filter("ID", target.ID).
-		First().
-		Exec()
+		First()
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}
@@ -609,11 +605,10 @@ func TestOneToOneWithThroughReverseIntoForward(t *testing.T) {
 	}
 
 	// Now test reverse relation (Target → Main)
-	result, err := queries.Objects(&OneToOneWithThrough_Target{}).
+	result, err := queries.Objects[attrs.Definer](&OneToOneWithThrough_Target{}).
 		Select("ID", "Name", "TargetReverse.*", "TargetReverse.User.*"). // TargetReverse is the reverse field name
 		Filter("ID", target.ID).
-		First().
-		Exec()
+		First()
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}
@@ -678,7 +673,7 @@ func TestOneToOneWithThroughReverseIntoForward(t *testing.T) {
 //	}
 //
 //	// Nested: Target → Reverse → Target
-//	result, err := queries.Objects(&OneToOneWithThrough_Target{}).
+//	result, err := queries.Objects[attrs.Definer](&OneToOneWithThrough_Target{}).
 //		Select("ID", "Name", "TargetReverse.*", "TargetReverse.Target.*").
 //		Filter("ID", target.ID).
 //		First().

@@ -573,7 +573,7 @@ func TestTodoCount(t *testing.T) {
 }
 
 func TestQuerySet_Filter(t *testing.T) {
-	var query = queries.Objects(&Todo{}).
+	var query = queries.Objects[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done").
 		Filter("Title__icontains", "test").
 		Filter("Done", false).
@@ -589,7 +589,7 @@ func TestQuerySet_Filter(t *testing.T) {
 		t.Fatalf("Expected query model to be not nil")
 	}
 
-	todos, err := query.All().Exec()
+	todos, err := query.All()
 
 	if err != nil {
 		t.Fatalf("Failed to filter todos: %v", err)
@@ -614,10 +614,10 @@ func TestQuerySet_Filter(t *testing.T) {
 }
 
 func TestQuerySet_First(t *testing.T) {
-	todo, err := queries.Objects(&Todo{}).
+	todo, err := queries.Objects[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done").
 		Filter("Done", true).
-		First().Exec()
+		First()
 
 	if err != nil {
 		t.Fatalf("Failed to get first todo: %v", err)
@@ -635,13 +635,13 @@ func TestQuerySet_First(t *testing.T) {
 	t.Logf("First todo: %+v", tdo)
 }
 func TestQuerySet_Where(t *testing.T) {
-	todos, err := queries.Objects(&Todo{}).
+	todos, err := queries.Objects[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done").
 		Filter(
 			expr.Expr("Title", "icontains", "test"),
 			expr.Q("Done", false),
 		).
-		All().Exec()
+		All()
 
 	if err != nil {
 		t.Fatalf("Failed to get first todo: %v", err)
@@ -666,12 +666,12 @@ func TestQuerySet_Where(t *testing.T) {
 }
 
 func TestQuerySet_Count(t *testing.T) {
-	count, err := queries.Objects(&Todo{}).
+	count, err := queries.Objects[attrs.Definer](&Todo{}).
 		Filter(expr.And(
 			expr.Expr("Title", "icontains", "test"),
 			expr.Q("Done", false),
 		)).
-		Count().Exec()
+		Count()
 
 	if err != nil {
 		t.Fatalf("Failed to count todos: %v", err)
@@ -714,7 +714,7 @@ func TestQueryRelated(t *testing.T) {
 		t.Fatalf("Failed to insert todo: %v", err)
 	}
 
-	var q = queries.Objects(&Todo{}).
+	var qs = queries.Objects[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User.Name", "User.Profile.*").
 		Filter(
 			expr.Q("Title__icontains", "new test"),
@@ -722,11 +722,10 @@ func TestQueryRelated(t *testing.T) {
 			expr.Q("User.Name__icontains", "test"),
 		).
 		OrderBy("-ID", "-User.Name").
-		Limit(5).
-		All()
-	todos, err := q.Exec()
+		Limit(5)
+	todos, err := qs.All()
 	if err != nil {
-		t.Fatalf("Failed to filter todos: %v (%s)", err, q.SQL())
+		t.Fatalf("Failed to filter todos: %v (%s)", err, qs.LatestQuery().SQL())
 	}
 
 	if len(todos) != 1 {
@@ -806,13 +805,12 @@ func TestQueryRelatedMultiple(t *testing.T) {
 		t.Fatalf("Failed to insert object with multiple relations: %v", err)
 	}
 
-	var q = queries.Objects(&ObjectWithMultipleRelations{}).
+	var qs = queries.Objects[attrs.Definer](&ObjectWithMultipleRelations{}).
 		Select("ID", "Obj1.*", "Obj2.*").
-		OrderBy("-ID").
-		All()
-	var objs, err = q.Exec()
+		OrderBy("-ID")
+	var objs, err = qs.All()
 	if err != nil {
-		t.Fatalf("Failed to filter objects with multiple relations: %v (%s)", err, q.SQL())
+		t.Fatalf("Failed to filter objects with multiple relations: %v (%s)", err, qs.LatestQuery().SQL())
 	}
 
 	if len(objs) != 1 {
@@ -862,15 +860,14 @@ func TestQuerySetSelectExpressions(t *testing.T) {
 		t.Fatalf("Expected ID to be set after insert, got 0")
 	}
 
-	var q = queries.Objects(&Todo{}).
+	var qs = queries.Objects[attrs.Definer](&Todo{}).
 		Select("ID", expr.F("UPPER(![Title])"), "Description", "Done").
 		Filter("Title", "TestQuerySet_Select_Expressions").
-		OrderBy("-ID").
-		All()
+		OrderBy("-ID")
 
-	todos, err := q.Exec()
+	var todos, err = qs.All()
 	if err != nil {
-		t.Fatalf("Failed to filter todos: %v (%s)", err, q.SQL())
+		t.Fatalf("Failed to filter todos: %v (%s)", err, qs.LatestQuery().SQL())
 	}
 
 	if len(todos) != 1 {
@@ -918,7 +915,7 @@ func TestQuerySetSelectExpressionsWithRelated(t *testing.T) {
 		t.Fatalf("Failed to insert todo: %v", err)
 	}
 
-	var q = queries.Objects(&Todo{}).
+	var qs = queries.Objects[attrs.Definer](&Todo{}).
 		Select(
 			"ID",
 			expr.F("UPPER(![Title])"),
@@ -928,12 +925,11 @@ func TestQuerySetSelectExpressionsWithRelated(t *testing.T) {
 			expr.F("UPPER(![User.Name])"),
 		).
 		Filter("Title", "TestQuerySet_Select_ExpressionsWithRelated").
-		OrderBy("-ID").
-		All()
+		OrderBy("-ID")
 
-	todos, err := q.Exec()
+	todos, err := qs.All()
 	if err != nil {
-		t.Fatalf("Failed to filter todos: %v (%s)", err, q.SQL())
+		t.Fatalf("Failed to filter todos: %v (%s)", err, qs.LatestQuery().SQL())
 	}
 
 	if len(todos) != 1 {
@@ -997,12 +993,12 @@ func TestQueryRelatedIDOnly(t *testing.T) {
 		t.Fatalf("Failed to insert todo: %v", err)
 	}
 
-	todos, err := queries.Objects(&Todo{}).
+	todos, err := queries.Objects[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
 		Filter("Title", "TestQueryRelatedIDOnly").
 		OrderBy("-ID", "-User").
 		Limit(5).
-		All().Exec()
+		All()
 
 	if err != nil {
 		t.Fatalf("Failed to filter todos: %v", err)
@@ -1066,11 +1062,11 @@ func TestQueryValuesList(t *testing.T) {
 		}
 	}
 
-	var values, err = queries.Objects(&Todo{}).
+	var values, err = queries.Objects[attrs.Definer](&Todo{}).
 		Filter("Title__istartswith", "testqueryvalueslist").
 		OrderBy("ID", "-User.Name").
 		// ValuesList("ID", "Title", "Description", "Done", "User.ID", "User.Name")
-		ValuesList("ID", "Title", "Description", "Done", "User", "User.ID", "User.Name", "User.*").Exec()
+		ValuesList("ID", "Title", "Description", "Done", "User", "User.ID", "User.Name", "User.*")
 	// ValuesList("ID", "Title", "Description", "Done", "User")
 
 	if err != nil {
@@ -1177,7 +1173,7 @@ func TestQueryNestedRelated(t *testing.T) {
 		t.Fatalf("Failed to insert todo: %v", err)
 	}
 
-	var q = queries.Objects(&Todo{}).
+	var qs = queries.Objects[attrs.Definer](&Todo{}).
 		Select("*", "User.*", "User.Profile.*", "User.Profile.Image.*").
 		Filter(
 			expr.Q("Title__icontains", "new test"),
@@ -1200,11 +1196,10 @@ func TestQueryNestedRelated(t *testing.T) {
 			// queries.Q("User.Profile.Email__icontains", "example"),
 		).
 		OrderBy("-ID", "-User.Name", "-User.Profile.Email").
-		Limit(5).
-		All()
-	todos, err := q.Exec()
+		Limit(5)
+	todos, err := qs.All()
 	if err != nil {
-		t.Fatalf("Failed to filter todos: %v (%s)", err, q.SQL())
+		t.Fatalf("Failed to filter todos: %v (%s)", err, qs.LatestQuery().SQL())
 	}
 
 	if len(todos) != 1 {
@@ -1292,14 +1287,14 @@ func TestQueryUpdate(t *testing.T) {
 		t.Fatalf("Failed to insert todo: %v", err)
 	}
 
-	var updated, err = queries.Objects(&Todo{}).
+	var updated, err = queries.Objects[attrs.Definer](&Todo{}).
 		Select("Title", "User").
 		Filter("Title__istartswith", "testqueryupdate").
 		Filter("Done", false).
 		Update(&Todo{
 			Title: "Updated Title",
 			User:  user,
-		}).Exec()
+		})
 
 	if err != nil {
 		t.Fatalf("Failed to update todo: %v", err)
@@ -1385,16 +1380,15 @@ func TestUpdateWithExpressions(t *testing.T) {
 		t.Fatalf("Failed to insert todo: %v", err)
 	}
 
-	var updated, err = queries.Objects(&Todo{}).
+	var updated, err = queries.Objects[attrs.Definer](&Todo{}).
 		Select("Title", "Done").
 		Filter("ID", todo.ID).
 		ExplicitSave().
 		Update(
 			&Todo{},
-			expr.UpdateExpr("![Title] = UPPER(![Title])"),
-			expr.UpdateExpr("![Done] = (![ID] % ?[1] == ?[2] OR ![ID] % ?[1] == ?[3] OR ?[4])", 2, 0, 1, true),
-		).
-		Exec()
+			expr.U("![Title] = UPPER(![Title])"),
+			expr.U("![Done] = (![ID] % ?[1] == ?[2] OR ![ID] % ?[1] == ?[3] OR ?[4])", 2, 0, 1, true),
+		)
 	if err != nil {
 		t.Fatalf("Failed to update todo: %v", err)
 	}
@@ -1438,10 +1432,10 @@ func TestQueryGet(t *testing.T) {
 		}
 	}
 
-	var todo, err = queries.Objects(&Todo{}).
+	var todo, err = queries.Objects[attrs.Definer](&Todo{}).
 		Select("*").
 		Filter("Title", "TestQueryGet1").
-		Get().Exec()
+		Get()
 	if err != nil {
 		t.Fatalf("Failed to get todo: %v", err)
 	}
@@ -1474,10 +1468,10 @@ func TestQueryGet(t *testing.T) {
 }
 
 func TestQueryGetErrNoRows(t *testing.T) {
-	var todo, err = queries.Objects(&Todo{}).
+	var todo, err = queries.Objects[attrs.Definer](&Todo{}).
 		Select("*").
 		Filter("Title", "NonExistentTitle").
-		Get().Exec()
+		Get()
 	if err == nil {
 		t.Fatalf("Expected an error, got nil")
 	}
@@ -1506,10 +1500,10 @@ func TestQueryGetMultipleRows(t *testing.T) {
 		}
 	}
 
-	var todo, err = queries.Objects(&Todo{}).
+	var todo, err = queries.Objects[attrs.Definer](&Todo{}).
 		Select("*").
 		Filter("Title__icontains", "TestQueryGetMultipleRows").
-		Get().Exec()
+		Get()
 	if err == nil {
 		t.Fatalf("Expected an error, got nil")
 	}
@@ -1544,7 +1538,7 @@ func TestQueryCreate(t *testing.T) {
 	t.Run("CreateReturningLastInsertID", func(t *testing.T) {
 		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningLastInsertId)
 
-		var dbTodo, err = queries.Objects(&Todo{}).Create(todo).Exec()
+		var dbTodo, err = queries.Objects[attrs.Definer](&Todo{}).Create(todo)
 		if err != nil {
 			t.Fatalf("Failed to create todo: %v", err)
 		}
@@ -1587,7 +1581,7 @@ func TestQueryCreate(t *testing.T) {
 	t.Run("CreateReturningColumns", func(t *testing.T) {
 		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningColumns)
 
-		var dbTodo, err = queries.Objects(&Todo{}).Create(todo).Exec()
+		var dbTodo, err = queries.Objects[attrs.Definer](&Todo{}).Create(todo)
 		if err != nil {
 			t.Fatalf("Failed to create todo: %v", err)
 		}
@@ -1628,7 +1622,7 @@ func TestQueryCreate(t *testing.T) {
 	t.Run("CreateReturningNone", func(t *testing.T) {
 		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningNone)
 
-		var dbTodo, err = queries.Objects(&Todo{}).Create(todo).Exec()
+		var dbTodo, err = queries.Objects[attrs.Definer](&Todo{}).Create(todo)
 		if err != nil {
 			t.Fatalf("Failed to create todo: %v", err)
 		}
@@ -1689,7 +1683,7 @@ func TestQueryGetOrCreate(t *testing.T) {
 	var _todo = *todo
 	_todo.User.Name = ""
 
-	var dbTodo, err = queries.Objects(&Todo{}).
+	var dbTodo, err = queries.Objects[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
 		Filter("Title", todo.Title).
 		GetOrCreate(&_todo)
@@ -1734,6 +1728,286 @@ func TestQueryGetOrCreate(t *testing.T) {
 	t.Logf("Created or retrieved todo: %+v, %+v", tdo, tdo.User)
 }
 
+// error checking is irrelevant for these tests,
+// there don't need to actually be any todos in the database
+func TestQuerySet_LatestQuery(t *testing.T) {
+	// Test All() CompiledQuery[[][]interface{}]
+	t.Run("TestAll", func(t *testing.T) {
+		var query = queries.Objects[attrs.Definer](&Todo{}).
+			Select("ID", "Title", "Description", "Done").
+			Filter("Title__icontains", "test").
+			Filter("Done", false)
+
+		query.All()
+
+		var latest = query.LatestQuery()
+		if latest == nil {
+			t.Fatalf("expected latest query, got nil")
+		}
+
+		if _, ok := latest.(queries.CompiledQuery[[][]interface{}]); !ok {
+			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
+		}
+	})
+
+	// Test ValuesList(fields ...any) CompiledQuery[[][]any]
+	t.Run("TestValuesList", func(t *testing.T) {
+		var query = queries.Objects[attrs.Definer](&Todo{}).
+			Select("ID", "Title", "Description", "Done", "User").
+			Filter("Title__icontains", "test").
+			Filter("Done", false)
+
+		query.ValuesList("ID", "Title", "Description", "Done", "User")
+
+		var latest = query.LatestQuery()
+		if latest == nil {
+			t.Fatalf("expected latest query, got nil")
+		}
+
+		if _, ok := latest.(queries.CompiledQuery[[][]any]); !ok {
+			t.Fatalf("expected *QueryObject[[][]any], got %T", latest)
+		}
+	})
+
+	// Test Aggregate(annotations map[string]expr.Expression) CompiledQuery[[][]interface{}]
+	t.Run("TestAggregate", func(t *testing.T) {
+		var query = queries.Objects[attrs.Definer](&Todo{}).
+			Select("ID", "Title", "Description", "Done", "User").
+			Filter("Title__icontains", "test").
+			Filter("Done", false)
+
+		query.Aggregate(map[string]expr.Expression{
+			"Total": &expr.RawExpr{
+				Statement: "COUNT(*)",
+			},
+			"MinID": &expr.RawExpr{
+				Statement: "MIN(id)",
+			},
+			"MaxID": &expr.RawExpr{
+				Statement: "MAX(id)",
+			},
+		})
+
+		var latest = query.LatestQuery()
+		if latest == nil {
+			t.Fatalf("expected latest query, got nil")
+		}
+
+		if _, ok := latest.(queries.CompiledQuery[[][]interface{}]); !ok {
+			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
+		}
+	})
+
+	// Test Get() CompiledQuery[[][]interface{}]
+	t.Run("TestGet", func(t *testing.T) {
+		var query = queries.Objects[attrs.Definer](&Todo{}).
+			Select("ID", "Title", "Description", "Done", "User").
+			Filter("Title__icontains", "test").
+			Filter("Done", false)
+
+		query.Get()
+
+		var latest = query.LatestQuery()
+		if latest == nil {
+			t.Fatalf("expected latest query, got nil")
+		}
+
+		if _, ok := latest.(queries.CompiledQuery[[][]interface{}]); !ok {
+			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
+		}
+	})
+
+	// Test GetOrCreate(value T) CompiledQuery[[][]interface{}] | CompiledQuery[[]interface{}]
+	t.Run("TestGetOrCreate", func(t *testing.T) {
+		var query = queries.Objects[attrs.Definer](&Todo{}).
+			Select("ID", "Title", "Description", "Done", "User").
+			Filter("Title", "LatestQuery_TestGetOrCreate").
+			Filter("Done", false)
+
+		var todo = &Todo{Title: "LatestQuery_TestGetOrCreate"}
+
+		t.Run("TestGetOrCreate_Create", func(t *testing.T) {
+			var _, err = query.GetOrCreate(todo)
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+				return
+			}
+
+			var latest = query.LatestQuery()
+			if latest == nil {
+				t.Fatalf("expected latest query, got nil")
+			}
+
+			if _, ok := latest.(queries.CompiledQuery[[]interface{}]); !ok {
+				t.Fatalf("expected *QueryObject[[]interface{}], got %T", latest)
+			}
+		})
+
+		t.Run("TestGetOrCreate_Get", func(t *testing.T) {
+			var _, err = query.GetOrCreate(todo)
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+				return
+			}
+
+			var latest = query.LatestQuery()
+			if latest == nil {
+				t.Fatalf("expected latest query, got nil")
+			}
+
+			if _, ok := latest.(queries.CompiledQuery[[][]interface{}]); !ok {
+				t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
+			}
+		})
+
+		if todo.ID == 0 {
+			t.Fatalf("expected todo ID to be not 0, got %d", todo.ID)
+		}
+
+		queries.DeleteObject(todo)
+	})
+
+	// Test First() CompiledQuery[[][]interface{}]
+	t.Run("TestFirst", func(t *testing.T) {
+		var query = queries.Objects[attrs.Definer](&Todo{}).
+			Select("ID", "Title", "Description", "Done").
+			Filter("Title__icontains", "test").
+			Filter("Done", false)
+
+		query.First()
+
+		var latest = query.LatestQuery()
+		if latest == nil {
+			t.Fatalf("expected latest query, got nil")
+		}
+
+		if _, ok := latest.(queries.CompiledQuery[[][]interface{}]); !ok {
+			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
+		}
+
+	})
+
+	// Test Last() CompiledQuery[[][]interface{}]
+	t.Run("TestLast", func(t *testing.T) {
+		var query = queries.Objects[attrs.Definer](&Todo{}).
+			Select("ID", "Title", "Description", "Done").
+			Filter("Title__icontains", "test").
+			Filter("Done", false)
+
+		query.Last()
+
+		var latest = query.LatestQuery()
+		if latest == nil {
+			t.Fatalf("expected latest query, got nil")
+		}
+
+		if _, ok := latest.(queries.CompiledQuery[[][]interface{}]); !ok {
+			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
+		}
+	})
+
+	// Test Exists() CompiledQuery[int64]
+	t.Run("TestExists", func(t *testing.T) {
+		var query = queries.Objects[attrs.Definer](&Todo{}).
+			Select("ID", "Title", "Description", "Done").
+			Filter("Title__icontains", "test").
+			Filter("Done", false)
+
+		query.Exists()
+
+		var latest = query.LatestQuery()
+		if latest == nil {
+			t.Fatalf("expected latest query, got nil")
+		}
+
+		if _, ok := latest.(queries.CompiledQuery[int64]); !ok {
+			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
+		}
+	})
+
+	// Test Count() CompiledQuery[int64]
+	t.Run("TestCount", func(t *testing.T) {
+		var query = queries.Objects[attrs.Definer](&Todo{}).
+			Select("ID", "Title", "Description", "Done").
+			Filter("Title__icontains", "test").
+			Filter("Done", false)
+
+		query.Count()
+
+		var latest = query.LatestQuery()
+		if latest == nil {
+			t.Fatalf("expected latest query, got nil")
+		}
+
+		if _, ok := latest.(queries.CompiledQuery[int64]); !ok {
+			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
+		}
+	})
+
+	// Test Create(value T) CompiledQuery[[]interface{}]
+	t.Run("TestCreate", func(t *testing.T) {
+		var query = queries.Objects[attrs.Definer](&Todo{}).
+			Select("ID", "Title", "Description", "Done").
+			Filter("Title__icontains", "test")
+
+		var todo = &Todo{Title: "TestCreate"}
+		var _, err = query.Create(todo)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+			return
+		}
+
+		var latest = query.LatestQuery()
+		if latest == nil {
+			t.Fatalf("expected latest query, got nil")
+		}
+
+		if _, ok := latest.(queries.CompiledQuery[[]interface{}]); !ok {
+			t.Fatalf("expected *QueryObject[[]interface{}], got %T", latest)
+		}
+
+		queries.DeleteObject(todo)
+	})
+
+	// Test Update(value attrs.Definer, expressions ...expr.NamedExpression) CompiledQuery[int64]
+	t.Run("TestUpdate", func(t *testing.T) {
+		var query = queries.Objects[attrs.Definer](&Todo{}).
+			Select("ID", "Title", "Description", "Done").
+			Filter("Title__icontains", "test").
+			Filter("Done", false)
+
+		query.Update(&Todo{}, expr.U("![Title] = UPPER(![Title])"))
+
+		var latest = query.LatestQuery()
+		if latest == nil {
+			t.Fatalf("expected latest query, got nil")
+		}
+
+		if _, ok := latest.(queries.CompiledQuery[int64]); !ok {
+			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
+		}
+	})
+
+	// Test Delete() CompiledQuery[int64]
+	t.Run("TestDelete", func(t *testing.T) {
+		var query = queries.Objects[attrs.Definer](&Todo{}).
+			Select("ID", "Title", "Description", "Done").
+			Filter("Title__icontains", "test").
+			Filter("Done", false)
+
+		query.Delete()
+
+		var latest = query.LatestQuery()
+		if latest == nil {
+			t.Fatalf("expected latest query, got nil")
+		}
+
+		if _, ok := latest.(queries.CompiledQuery[int64]); !ok {
+			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
+		}
+	})
+}
+
 func TestQuerySetChaining(t *testing.T) {
 	var todos = []*Todo{
 		{Title: "TestQuerySetChaining1", Description: "Description TestQuerySetChaining", Done: false},
@@ -1747,14 +2021,14 @@ func TestQuerySetChaining(t *testing.T) {
 		}
 	}
 
-	var qs = queries.Objects(&Todo{}).
+	var qs = queries.Objects[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
 		Filter("Title__icontains", "TestQuerySetChaining").
 		Filter("Done", false)
 
 	qs = qs.Filter("ID", todos[0].ID)
 
-	todosList, err := qs.All().Exec()
+	todosList, err := qs.All()
 	if err != nil {
 		t.Fatalf("Failed to get todos: %v", err)
 	}
@@ -1768,13 +2042,13 @@ type testQuerySet_Concurrency struct {
 	idx   int
 	sql   string
 	args  []any
-	todos []*queries.Row
+	todos []*queries.Row[attrs.Definer]
 	err   error
 }
 
 func TestQuerySet_SharedInstance_Concurrency(t *testing.T) {
 	queries.QUERYSET_USE_CACHE_DEFAULT = false
-	var baseQS = queries.Objects(&Todo{}).
+	var baseQS = queries.Objects[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
 		Filter("Done", false).
 		Filter("Title__startswith", "ConcurrentTodo")
@@ -1811,17 +2085,16 @@ func TestQuerySet_SharedInstance_Concurrency(t *testing.T) {
 				}
 			}()
 
-			var qs = baseQS
+			var qs = baseQS.Clone()
 			if idx%2 == 0 {
 				qs = baseQS.Filter("ID", todo.ID)
 			}
 
-			allQuery := qs.All()
-			todos, err := allQuery.Exec()
+			todos, err := qs.All()
 			items <- testQuerySet_Concurrency{
 				idx:   idx,
-				sql:   allQuery.SQL(),
-				args:  allQuery.Args(),
+				sql:   qs.LatestQuery().SQL(),
+				args:  qs.LatestQuery().Args(),
 				todos: todos,
 				err:   err,
 			}
@@ -1898,14 +2171,13 @@ func TestRecursiveAliasConflict(t *testing.T) {
 	}
 
 	// Select deeply nested field that should require distinct aliases
-	q := queries.Objects(&Category{}).
+	qs := queries.Objects[attrs.Definer](&Category{}).
 		Select("*", "Parent.ID", "Parent.Parent.*").
-		Filter("Parent.Parent.Name", "Root").
-		All()
+		Filter("Parent.Parent.Name", "Root")
 
-	obj, err := q.Exec()
+	obj, err := qs.All()
 	if err != nil {
-		t.Fatalf("Failed to execute query: %v (%s)", err, q.SQL())
+		t.Fatalf("Failed to execute query: %v (%s)", err, qs.LatestQuery().SQL())
 	}
 
 	if len(obj) != 1 {

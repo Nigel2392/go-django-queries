@@ -147,8 +147,15 @@ func (c *Column) Equals(other *Column) bool {
 				return false
 			}
 
-			if c.Rel.TargetField.GetDefault() != other.TargetField.GetDefault() {
-				return false
+			var (
+				c1, ok1 = c.Rel.TargetField.(interface{ GetDefault() any })
+				c2, ok2 = other.TargetField.(interface{ GetDefault() any })
+			)
+
+			if ok1 && ok2 {
+				if c1.GetDefault() != c2.GetDefault() {
+					return false
+				}
 			}
 
 			if c.Rel.TargetField.Type() != other.TargetField.Type() {

@@ -122,8 +122,8 @@ func (f *FieldInfo) WriteField(sb *strings.Builder, d driver.Driver, m attrs.Def
 		if alias != "" && !forUpdate {
 			sb.WriteString(" AS ")
 			sb.WriteString(quote)
-			sb.WriteString(fmt.Sprintf(
-				"%s_%s", tableAlias, alias,
+			sb.WriteString(internal.NewAlias(
+				tableAlias, alias,
 			))
 			sb.WriteString(quote)
 		}
@@ -168,6 +168,8 @@ type QuerySetInternals struct {
 	Offset      int
 	ForUpdate   bool
 	Distinct    bool
+
+	joinsMap map[string]bool
 }
 
 // QuerySet is a struct that represents a query set in the database.
@@ -181,15 +183,29 @@ type QuerySetInternals struct {
 // It also has a chainable api, so that you can easily build complex queries by chaining methods together.
 //
 // Queries are built internally with the help of the QueryCompiler interface, which is responsible for generating the SQL queries for the database.
-type QuerySet struct {
+type QuerySet[T attrs.Definer] struct {
 	queryInfo    *internal.QueryInfo
 	internals    *QuerySetInternals
 	model        attrs.Definer
 	compiler     QueryCompiler
 	explicitSave bool
 	useCache     bool
+	latestQuery  QueryInfo
 	cached       any
 }
+
+// QuerySet is a struct that represents a query set in the database.
+//
+// It contains methods to filter, order, and limit the results of a query.
+//
+// It is used to build and execute queries against the database.
+//
+// Every method on the queryset returns a new queryset, so that the original queryset is not modified.
+//
+// It also has a chainable api, so that you can easily build complex queries by chaining methods together.
+//
+// Queries are built internally with the help of the QueryCompiler interface, which is responsible for generating the SQL queries for the database.
+type GenericQuerySet = QuerySet[attrs.Definer]
 
 // Objects creates a new QuerySet for the given model.
 //
@@ -203,7 +219,7 @@ type QuerySet struct {
 // It returns a pointer to a new QuerySet.
 //
 // The model must implement the Definer interface.
-func Objects(model attrs.Definer, database ...string) *QuerySet {
+func Objects[T attrs.Definer](model attrs.Definer, database ...string) *QuerySet[T] {
 
 	if model == nil {
 		panic("QuerySet: model is nil")
@@ -228,7 +244,8 @@ func Objects(model attrs.Definer, database ...string) *QuerySet {
 
 	if m, ok := model.(QuerySetDefiner); ok {
 		var qs = m.GetQuerySet()
-		return qs.Clone()
+		qs = qs.Clone()
+		return ChangeObjectsType[attrs.Definer, T](qs)
 	}
 
 	var queryInfo, err = internal.GetBaseQueryInfo(model)
@@ -240,7 +257,7 @@ func Objects(model attrs.Definer, database ...string) *QuerySet {
 		panic("QuerySet: queryInfo is nil")
 	}
 
-	var qs = &QuerySet{
+	var qs = &QuerySet[T]{
 		model:     model,
 		queryInfo: queryInfo,
 		internals: &QuerySetInternals{
@@ -263,25 +280,42 @@ func Objects(model attrs.Definer, database ...string) *QuerySet {
 	return qs
 }
 
+func ChangeObjectsType[OldT, NewT attrs.Definer](qs *QuerySet[OldT]) *QuerySet[NewT] {
+	return &QuerySet[NewT]{
+		queryInfo:    qs.queryInfo,
+		model:        qs.model,
+		compiler:     qs.compiler,
+		explicitSave: qs.explicitSave,
+		useCache:     qs.useCache,
+		cached:       qs.cached,
+		internals:    qs.internals,
+	}
+}
+
 // Return the underlying database which the compiler is using.
-func (qs *QuerySet) DB() DB {
+func (qs *QuerySet[T]) DB() DB {
 	return qs.compiler.DB()
 }
 
 // Return the model which the queryset is for.
-func (qs *QuerySet) Model() attrs.Definer {
+func (qs *QuerySet[T]) Model() attrs.Definer {
 	return qs.model
 }
 
 // Return the compiler which the queryset is using.
-func (qs *QuerySet) Compiler() QueryCompiler {
+func (qs *QuerySet[T]) Compiler() QueryCompiler {
 	return qs.compiler
+}
+
+// LatestQuery returns the latest query that was executed on the queryset.
+func (qs *QuerySet[T]) LatestQuery() QueryInfo {
+	return qs.latestQuery
 }
 
 // StartTransaction starts a transaction on the underlying database.
 //
 // It returns a transaction object which can be used to commit or rollback the transaction.
-func (qs *QuerySet) StartTransaction(ctx context.Context) (Transaction, error) {
+func (qs *QuerySet[T]) StartTransaction(ctx context.Context) (Transaction, error) {
 	return qs.compiler.StartTransaction(ctx)
 }
 
@@ -290,8 +324,8 @@ func (qs *QuerySet) StartTransaction(ctx context.Context) (Transaction, error) {
 // It is used to create a new QuerySet with the same parameters as the original one, so that the original one is not modified.
 //
 // It is a shallow clone, underlying values like `*queries.Expr` are not cloned and have built- in immutability.
-func (qs *QuerySet) Clone() *QuerySet {
-	return &QuerySet{
+func (qs *QuerySet[T]) Clone() *QuerySet[T] {
+	return &QuerySet[T]{
 		model:     qs.model,
 		queryInfo: qs.queryInfo,
 		internals: &QuerySetInternals{
@@ -306,6 +340,7 @@ func (qs *QuerySet) Clone() *QuerySet {
 			Offset:      qs.internals.Offset,
 			ForUpdate:   qs.internals.ForUpdate,
 			Distinct:    qs.internals.Distinct,
+			joinsMap:    maps.Clone(qs.internals.joinsMap),
 		},
 		explicitSave: qs.explicitSave,
 		useCache:     qs.useCache,
@@ -314,7 +349,7 @@ func (qs *QuerySet) Clone() *QuerySet {
 }
 
 // Return the string representation of the QuerySet.
-func (w *QuerySet) String() string {
+func (w *QuerySet[T]) String() string {
 	var sb = strings.Builder{}
 	sb.WriteString("QuerySet{")
 	sb.WriteString("model: ")
@@ -343,7 +378,7 @@ func (w *QuerySet) String() string {
 }
 
 // Return a detailed string representation of the QuerySet.
-func (qs *QuerySet) GoString() string {
+func (qs *QuerySet[T]) GoString() string {
 	var sb = strings.Builder{}
 	sb.WriteString("QuerySet{")
 	sb.WriteString("\n\tmodel: ")
@@ -408,7 +443,7 @@ func (qs *QuerySet) GoString() string {
 // This function will make sure to map each provided field name to a model field.
 //
 // Relations are also respected, joins are automatically added to the query.
-func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelated bool) {
+func (qs *QuerySet[T]) unpackFields(fields ...string) (infos []FieldInfo, hasRelated bool) {
 	infos = make([]FieldInfo, 0, len(qs.internals.Fields))
 	var info = FieldInfo{
 		Table: Table{
@@ -446,8 +481,6 @@ func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelate
 		// The field might be a relation
 		var rel = field.Rel()
 
-		// If all fields of the relation are requested, we need to add the relation
-		// to the join list. We also need to add the parent field to the chain.
 		if (rel != nil) || (len(chain) > 0 || isRelated) {
 			var relDefs = current.FieldDefs()
 			var tableName = relDefs.TableName()
@@ -474,7 +507,7 @@ func (qs *QuerySet) unpackFields(fields ...string) (infos []FieldInfo, hasRelate
 	return infos, hasRelated
 }
 
-func (qs *QuerySet) attrFields(obj attrs.Definer) []attrs.Field {
+func (qs *QuerySet[T]) attrFields(obj attrs.Definer) []attrs.Field {
 	var defs = obj.FieldDefs()
 	var fields []attrs.Field
 	if len(qs.internals.Fields) > 0 {
@@ -503,7 +536,7 @@ func (qs *QuerySet) attrFields(obj attrs.Definer) []attrs.Field {
 	return fields
 }
 
-func addJoinForFK(qs *QuerySet, foreignKey attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]FieldInfo, []JoinDef) {
+func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]FieldInfo, []JoinDef) {
 	var target = foreignKey.Model()
 	var relField = foreignKey.Field()
 	// var relField attrs.Field
@@ -586,7 +619,7 @@ func addJoinForFK(qs *QuerySet, foreignKey attrs.Relation, parentDefs attrs.Defi
 	return []FieldInfo{info}, []JoinDef{join}
 }
 
-func addJoinForM2M(qs *QuerySet, manyToMany attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]FieldInfo, []JoinDef) {
+func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]FieldInfo, []JoinDef) {
 	var through = manyToMany.Through()
 
 	// through model info
@@ -679,12 +712,12 @@ func addJoinForM2M(qs *QuerySet, manyToMany attrs.Relation, parentDefs attrs.Def
 
 }
 
-func addJoinForO2O(qs *QuerySet, oneToOne attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]FieldInfo, []JoinDef) {
+func (qs *QuerySet[T]) addJoinForO2O(oneToOne attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]FieldInfo, []JoinDef) {
 	var through = oneToOne.Through()
 	if through == nil {
-		return addJoinForFK(qs, oneToOne, parentDefs, parentField, field, chain, aliases, all, joinM)
+		return qs.addJoinForFK(oneToOne, parentDefs, parentField, field, chain, aliases, all, joinM)
 	}
-	return addJoinForM2M(qs, oneToOne, parentDefs, parentField, field, chain, aliases, all, joinM)
+	return qs.addJoinForM2M(oneToOne, parentDefs, parentField, field, chain, aliases, all, joinM)
 }
 
 // Select is used to select specific fields from the model.
@@ -704,14 +737,13 @@ func addJoinForO2O(qs *QuerySet, oneToOne attrs.Relation, parentDefs attrs.Defin
 // `Select("*", "Relation.*")`
 // `Select("Relation.*")`
 // `Select("*", "Relation.Field1", "Relation.Field2", "Relation.Nested.*")`
-func (qs *QuerySet) Select(fields ...any) *QuerySet {
+func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 	qs = qs.Clone()
 
-	var (
-		fieldInfos = make([]FieldInfo, 0)
-		joins      = make([]JoinDef, 0)
-		joinM      = make(map[string]bool)
-	)
+	qs.internals.Fields = make([]FieldInfo, 0)
+	if qs.internals.joinsMap == nil {
+		qs.internals.joinsMap = make(map[string]bool, len(qs.internals.Joins))
+	}
 
 	if len(fields) == 0 {
 		fields = make([]any, 0, len(qs.queryInfo.Fields))
@@ -761,7 +793,7 @@ func (qs *QuerySet) Select(fields ...any) *QuerySet {
 		if err != nil {
 			field, ok := qs.internals.Annotations[selectedField]
 			if ok {
-				fieldInfos = append(fieldInfos, FieldInfo{
+				qs.internals.Fields = append(qs.internals.Fields, FieldInfo{
 					Table: Table{
 						Name: qs.queryInfo.TableName,
 					},
@@ -773,17 +805,13 @@ func (qs *QuerySet) Select(fields ...any) *QuerySet {
 			panic(err)
 		}
 
-		// Check if expression
+		// Check if expression, wrap it in exprField
 		if expr, ok := selectedFieldObj.(expr.NamedExpression); ok {
 			field = &exprField{
 				Field: field,
 				expr:  expr,
 			}
 		}
-
-		//if !ForSelectAll(field) {
-		//	panic(fmt.Errorf("field %q is not for use in queries", field.Name()))
-		//}
 
 		// The field might be a relation
 		var rel = field.Rel()
@@ -808,62 +836,6 @@ func (qs *QuerySet) Select(fields ...any) *QuerySet {
 				join  []JoinDef
 			)
 
-			/*
-				This works fine for fetching related fields, I.E. Select("Parent.Parent.*"), but
-				am unsure if this is the best way to do it. It looks messy, but does behave how it should.
-
-			*/
-			//	var (
-			//		joinChainModel = qs.model
-			//	)
-			//
-			//	for i := 0; i < len(chain); i++ {
-			//		fieldName := chain[i]
-			//		defs := joinChainModel.FieldDefs()
-			//
-			//		cField, ok := defs.Field(fieldName)
-			//		if !ok {
-			//			panic(fmt.Errorf("field %q not found in %T", fieldName, joinChainModel))
-			//		}
-			//
-			//		nextModel := cField.ForeignKey()
-			//		if nextModel == nil && cField.OneToOne() != nil {
-			//			nextModel = cField.OneToOne().Model()
-			//			if nextModel == nil {
-			//				nextModel = cField.OneToOne().Through()
-			//			}
-			//		} else if nextModel == nil && cField.ManyToMany() != nil {
-			//			nextModel = cField.ManyToMany().Through()
-			//		}
-			//		if nextModel == nil {
-			//			panic(fmt.Errorf("field %q in %T is not a relation", fieldName, joinChainModel))
-			//		}
-			//
-			//		alias := aliases[i]
-			//		if joinM[alias] {
-			//			joinChainModel = nextModel
-			//			continue // already joined
-			//		}
-			//
-			//		// This is the join we need to add
-			//		switch {
-			//		case cField.ForeignKey() != nil:
-			//			_, j := addJoinForFK(qs, cField.ForeignKey(), defs, cField, nil, chain[:i+1], aliases[:i+1], true, joinM)
-			//			joins = append(joins, j...)
-			//		case cField.OneToOne() != nil:
-			//			_, j := addJoinForO2O(qs, cField.OneToOne(), defs, cField, nil, chain[:i+1], aliases[:i+1], true, joinM)
-			//			joins = append(joins, j...)
-			//		case cField.ManyToMany() != nil:
-			//			_, j := addJoinForM2M(qs, cField.ManyToMany(), defs, cField, nil, chain[:i+1], aliases[:i+1], true, joinM)
-			//			joins = append(joins, j...)
-			//		default:
-			//			panic(fmt.Errorf("field %q is not a relation", cField.Name()))
-			//		}
-			//
-			//		joinM[alias] = true
-			//		joinChainModel = nextModel
-			//	}
-
 			var parentDefs = parent.FieldDefs()
 			var parentField, ok = parentDefs.Field(chain[len(chain)-1])
 			if !ok {
@@ -876,11 +848,11 @@ func (qs *QuerySet) Select(fields ...any) *QuerySet {
 
 			switch rel.Type() {
 			case attrs.RelManyToOne:
-				infos, join = addJoinForFK(qs, rel, parentDefs, parentField, field, chain, aliases, allFields, joinM)
+				infos, join = qs.addJoinForFK(rel, parentDefs, parentField, field, chain, aliases, allFields, qs.internals.joinsMap)
 			case attrs.RelOneToOne:
-				infos, join = addJoinForO2O(qs, rel, parentDefs, parentField, field, chain, aliases, allFields, joinM)
+				infos, join = qs.addJoinForO2O(rel, parentDefs, parentField, field, chain, aliases, allFields, qs.internals.joinsMap)
 			case attrs.RelManyToMany:
-				infos, join = addJoinForM2M(qs, rel, parentDefs, parentField, field, chain, aliases, allFields, joinM)
+				infos, join = qs.addJoinForM2M(rel, parentDefs, parentField, field, chain, aliases, allFields, qs.internals.joinsMap)
 			case attrs.RelOneToMany:
 
 			default:
@@ -888,14 +860,14 @@ func (qs *QuerySet) Select(fields ...any) *QuerySet {
 			}
 
 			if len(infos) > 0 {
-				fieldInfos = append(fieldInfos, infos...)
-				joins = append(joins, join...)
+				qs.internals.Fields = append(qs.internals.Fields, infos...)
+				qs.internals.Joins = append(qs.internals.Joins, join...)
 			}
 
 			continue
 		}
 
-		fieldInfos = append(fieldInfos, FieldInfo{
+		qs.internals.Fields = append(qs.internals.Fields, FieldInfo{
 			Model: current,
 			Table: Table{
 				Name: tableName,
@@ -905,8 +877,73 @@ func (qs *QuerySet) Select(fields ...any) *QuerySet {
 		})
 	}
 
-	qs.internals.Joins = joins
-	qs.internals.Fields = fieldInfos
+	return qs
+}
+
+// Join is used to join related models to the current queryset.
+//
+// It can be useful in some instances, but in most cases the select
+// method will automatically add the required joins for you.
+func (qs *QuerySet[T]) Join(relationFields ...string) *QuerySet[T] {
+	qs = qs.Clone()
+
+	if qs.internals.joinsMap == nil {
+		qs.internals.joinsMap = make(map[string]bool, len(relationFields))
+	}
+
+	if len(relationFields) == 0 {
+		return qs
+	}
+
+	for _, selectedField := range relationFields {
+
+		var _, parent, field, chain, aliases, isRelated, err = internal.WalkFields(
+			qs.model, selectedField,
+		)
+		if err != nil {
+			panic(err)
+		}
+
+		var rel = field.Rel()
+		if (rel != nil) || (len(chain) > 0 || isRelated) {
+
+			var join []JoinDef
+			var parentDefs = parent.FieldDefs()
+			var parentField, ok = parentDefs.Field(chain[len(chain)-1])
+			if !ok {
+				panic(fmt.Errorf("field %q not found in %T", chain[len(chain)-1], parent))
+			}
+
+			if rel == nil {
+				rel = parentField.Rel()
+			}
+
+			switch rel.Type() {
+			case attrs.RelManyToOne:
+				_, join = qs.addJoinForFK(
+					rel, parentDefs, parentField, field, chain, aliases, false, qs.internals.joinsMap,
+				)
+			case attrs.RelOneToOne:
+				_, join = qs.addJoinForO2O(
+					rel, parentDefs, parentField, field, chain, aliases, false, qs.internals.joinsMap,
+				)
+			case attrs.RelManyToMany:
+				_, join = qs.addJoinForM2M(
+					rel, parentDefs, parentField, field, chain, aliases, false, qs.internals.joinsMap,
+				)
+			case attrs.RelOneToMany:
+
+			default:
+				panic(fmt.Errorf("field %q is not a relation", field.Name()))
+			}
+
+			if len(join) > 0 {
+				qs.internals.Joins = append(qs.internals.Joins, join...)
+			}
+
+			continue
+		}
+	}
 
 	return qs
 }
@@ -918,7 +955,7 @@ func (qs *QuerySet) Select(fields ...any) *QuerySet {
 // The key can be a field name (string), an expr.Expression (expr.Expression) or a map of field names to values.
 //
 // By default the `__exact` (=) operator is used, each where clause is separated by `AND`.
-func (qs *QuerySet) Filter(key interface{}, vals ...interface{}) *QuerySet {
+func (qs *QuerySet[T]) Filter(key interface{}, vals ...interface{}) *QuerySet[T] {
 	var nqs = qs.Clone()
 	nqs.internals.Where = append(qs.internals.Where, expr.Express(key, vals...)...)
 	return nqs
@@ -929,7 +966,7 @@ func (qs *QuerySet) Filter(key interface{}, vals ...interface{}) *QuerySet {
 // It takes a key and a list of values as arguments and returns a new QuerySet with the filtered results.
 //
 // The key can be a field name (string), an expr.Expression (expr.Expression) or a map of field names to values.
-func (qs *QuerySet) Having(key interface{}, vals ...interface{}) *QuerySet {
+func (qs *QuerySet[T]) Having(key interface{}, vals ...interface{}) *QuerySet[T] {
 	var nqs = qs.Clone()
 	nqs.internals.Having = append(qs.internals.Having, expr.Express(key, vals...)...)
 	return nqs
@@ -938,7 +975,7 @@ func (qs *QuerySet) Having(key interface{}, vals ...interface{}) *QuerySet {
 // GroupBy is used to group the results of a query.
 //
 // It takes a list of field names as arguments and returns a new QuerySet with the grouped results.
-func (qs *QuerySet) GroupBy(fields ...string) *QuerySet {
+func (qs *QuerySet[T]) GroupBy(fields ...string) *QuerySet[T] {
 	var nqs = qs.Clone()
 	nqs.internals.GroupBy, _ = qs.unpackFields(fields...)
 	return nqs
@@ -949,7 +986,7 @@ func (qs *QuerySet) GroupBy(fields ...string) *QuerySet {
 // It takes a list of field names as arguments and returns a new QuerySet with the ordered results.
 //
 // The field names can be prefixed with a minus sign (-) to indicate descending order.
-func (qs *QuerySet) OrderBy(fields ...string) *QuerySet {
+func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
 	var nqs = qs.Clone()
 	nqs.internals.OrderBy = make([]OrderBy, 0, len(fields))
 
@@ -979,8 +1016,8 @@ func (qs *QuerySet) OrderBy(fields ...string) *QuerySet {
 
 		var alias string
 		if vF, ok := field.(AliasField); ok {
-			alias = fmt.Sprintf(
-				"%s_%s", tableAlias, vF.Alias(),
+			alias = internal.NewAlias(
+				tableAlias, vF.Alias(),
 			)
 		}
 
@@ -1001,7 +1038,7 @@ func (qs *QuerySet) OrderBy(fields ...string) *QuerySet {
 // Reverse is used to reverse the order of the results of a query.
 //
 // It returns a new QuerySet with the reversed order.
-func (qs *QuerySet) Reverse() *QuerySet {
+func (qs *QuerySet[T]) Reverse() *QuerySet[T] {
 	var ordBy = make([]OrderBy, 0, len(qs.internals.OrderBy))
 	for _, ord := range qs.internals.OrderBy {
 		ordBy = append(ordBy, OrderBy{
@@ -1017,14 +1054,14 @@ func (qs *QuerySet) Reverse() *QuerySet {
 }
 
 // Limit is used to limit the number of results returned by a query.
-func (qs *QuerySet) Limit(n int) *QuerySet {
+func (qs *QuerySet[T]) Limit(n int) *QuerySet[T] {
 	var nqs = qs.Clone()
 	nqs.internals.Limit = n
 	return nqs
 }
 
 // Offset is used to set the offset of the results returned by a query.
-func (qs *QuerySet) Offset(n int) *QuerySet {
+func (qs *QuerySet[T]) Offset(n int) *QuerySet[T] {
 	var nqs = qs.Clone()
 	nqs.internals.Offset = n
 	return nqs
@@ -1033,7 +1070,7 @@ func (qs *QuerySet) Offset(n int) *QuerySet {
 // ForUpdate is used to lock the rows returned by a query for update.
 //
 // It is used to prevent other transactions from modifying the rows until the current transaction is committed or rolled back.
-func (qs *QuerySet) ForUpdate() *QuerySet {
+func (qs *QuerySet[T]) ForUpdate() *QuerySet[T] {
 	var nqs = qs.Clone()
 	nqs.internals.ForUpdate = true
 	return nqs
@@ -1042,7 +1079,7 @@ func (qs *QuerySet) ForUpdate() *QuerySet {
 // Distinct is used to select distinct rows from the results of a query.
 //
 // It is used to remove duplicate rows from the results.
-func (qs *QuerySet) Distinct() *QuerySet {
+func (qs *QuerySet[T]) Distinct() *QuerySet[T] {
 	var nqs = qs.Clone()
 	nqs.internals.Distinct = true
 	return nqs
@@ -1054,13 +1091,13 @@ func (qs *QuerySet) Distinct() *QuerySet {
 //
 // I.E. when using the `Create` method after calling `qs.ExplicitSave()`, it will **not** automatically
 // save the model to the database using the model's own `Save` method.
-func (qs *QuerySet) ExplicitSave() *QuerySet {
+func (qs *QuerySet[T]) ExplicitSave() *QuerySet[T] {
 	var nqs = qs.Clone()
 	nqs.explicitSave = true
 	return nqs
 }
 
-func (qs *QuerySet) annotate(alias string, expr expr.Expression) {
+func (qs *QuerySet[T]) annotate(alias string, expr expr.Expression) {
 	field := newQueryField[any](alias, expr)
 	qs.internals.Annotations[alias] = field
 
@@ -1080,7 +1117,7 @@ func (qs *QuerySet) annotate(alias string, expr expr.Expression) {
 // If a string is provided, it is used as the alias for the expr.Expression.
 //
 // If a map is provided, the keys are used as aliases for the expr.Expressions.
-func (qs *QuerySet) Annotate(aliasOrAliasMap interface{}, exprs ...expr.Expression) *QuerySet {
+func (qs *QuerySet[T]) Annotate(aliasOrAliasMap interface{}, exprs ...expr.Expression) *QuerySet[T] {
 	qs = qs.Clone()
 
 	switch aliasOrAliasMap := aliasOrAliasMap.(type) {
@@ -1114,8 +1151,8 @@ func (qs *QuerySet) Annotate(aliasOrAliasMap interface{}, exprs ...expr.Expressi
 	return qs
 }
 
-type Row struct {
-	Object      attrs.Definer
+type Row[T attrs.Definer] struct {
+	Object      T
 	Annotations map[string]any
 }
 
@@ -1126,14 +1163,21 @@ type Row struct {
 // Each Row object contains the model object and a map of annotations.
 //
 // If no fields are provided, it selects all fields from the model, see `Select()` for more details.
-func (qs *QuerySet) All() Query[[]*Row] {
+func (qs *QuerySet[T]) All() ([]*Row[T], error) {
+	if qs.cached != nil && qs.useCache {
+		return qs.cached.([]*Row[T]), nil
+	}
+
+	// Select all fields if no fields are provided
+	//
+	// Override the pointer to the original QuerySet with the Select("*") QuerySet
 	if len(qs.internals.Fields) == 0 {
-		qs = qs.Select("*")
+		*qs = *qs.Select("*")
 	}
 
 	var resultQuery = qs.compiler.BuildSelectQuery(
 		context.Background(),
-		qs,
+		ChangeObjectsType[T, attrs.Definer](qs),
 		qs.internals.Fields,
 		qs.internals.Where,
 		qs.internals.Having,
@@ -1145,79 +1189,76 @@ func (qs *QuerySet) All() Query[[]*Row] {
 		qs.internals.ForUpdate,
 		qs.internals.Distinct,
 	)
+	qs.latestQuery = resultQuery
 
-	return &wrappedQuery[[][]interface{}, []*Row]{
-		query: resultQuery,
-		exec: func(q Query[[][]interface{}]) ([]*Row, error) {
-			if qs.cached != nil && qs.useCache {
-				return qs.cached.([]*Row), nil
-			}
-
-			var results, err = q.Exec()
-			if err != nil {
-				return nil, err
-			}
-
-			var list = make([]*Row, len(results))
-
-			for i, row := range results {
-				obj := internal.NewObjectFromIface(qs.model)
-				scannables := getScannableFields(qs.internals.Fields, obj)
-
-				annotations := make(map[string]any)
-				var annotator, _ = obj.(DataModel)
-
-				for j, field := range scannables {
-					f := field.(attrs.Field)
-					val := row[j]
-
-					if err := f.Scan(val); err != nil {
-						return nil, errors.Wrapf(err, "failed to scan field %q in %T", f.Name(), obj)
-					}
-
-					// If it's a virtual field not in the model, store as annotation
-					if vf, ok := f.(AliasField); ok {
-						var (
-							alias = vf.Alias()
-							val   = vf.GetValue()
-						)
-						if alias == "" {
-							alias = f.Name()
-						}
-
-						annotations[alias] = val
-
-						if annotator != nil {
-							annotator.SetQueryValue(alias, val)
-						}
-					}
-				}
-
-				list[i] = &Row{
-					Object:      obj,
-					Annotations: annotations,
-				}
-			}
-
-			if qs.useCache {
-				qs.cached = list
-			}
-
-			return list, nil
-		},
+	var results, err = resultQuery.Exec()
+	if err != nil {
+		return nil, err
 	}
+
+	var list = make([]*Row[T], len(results))
+
+	for i, row := range results {
+		obj := internal.NewObjectFromIface(qs.model)
+		scannables := getScannableFields(qs.internals.Fields, obj)
+
+		annotations := make(map[string]any)
+		var annotator, _ = obj.(DataModel)
+
+		for j, field := range scannables {
+			f := field.(attrs.Field)
+			val := row[j]
+
+			if err := f.Scan(val); err != nil {
+				return nil, errors.Wrapf(err, "failed to scan field %q in %T", f.Name(), obj)
+			}
+
+			// If it's a virtual field not in the model, store as annotation
+			if vf, ok := f.(AliasField); ok {
+				var (
+					alias = vf.Alias()
+					val   = vf.GetValue()
+				)
+				if alias == "" {
+					alias = f.Name()
+				}
+
+				annotations[alias] = val
+
+				if annotator != nil {
+					annotator.SetQueryValue(alias, val)
+				}
+			}
+		}
+
+		list[i] = &Row[T]{
+			Object:      obj.(T),
+			Annotations: annotations,
+		}
+	}
+
+	if qs.useCache {
+		qs.cached = list
+	}
+
+	return list, nil
 }
 
 // ValuesList is used to retrieve a list of values from the database.
 //
 // It takes a list of field names as arguments and returns a ValuesListQuery.
-func (qs *QuerySet) ValuesList(fields ...any) ValuesListQuery {
+func (qs *QuerySet[T]) ValuesList(fields ...any) ([][]interface{}, error) {
+	if qs.cached != nil && qs.useCache {
+		return qs.cached.([][]any), nil
+	}
 
-	qs = qs.Select(fields...)
+	if len(fields) > 0 {
+		*qs = *qs.Select(fields...)
+	}
 
 	var resultQuery = qs.compiler.BuildSelectQuery(
 		context.Background(),
-		qs,
+		ChangeObjectsType[T, attrs.Definer](qs),
 		qs.internals.Fields,
 		qs.internals.Where,
 		qs.internals.Having,
@@ -1229,57 +1270,52 @@ func (qs *QuerySet) ValuesList(fields ...any) ValuesListQuery {
 		qs.internals.ForUpdate,
 		qs.internals.Distinct,
 	)
+	qs.latestQuery = resultQuery
 
-	return &wrappedQuery[[][]interface{}, [][]any]{
-		query: resultQuery,
-		exec: func(q Query[[][]interface{}]) ([][]any, error) {
-			if qs.cached != nil && qs.useCache {
-				return qs.cached.([][]any), nil
-			}
-
-			var results, err = q.Exec()
-			if err != nil {
-				return nil, err
-			}
-
-			var list = make([][]any, len(results))
-			for i, row := range results {
-				var obj = internal.NewObjectFromIface(qs.model)
-				var fields = getScannableFields(qs.internals.Fields, obj)
-				var values = make([]any, len(fields))
-				for j, field := range fields {
-					var f = field.(attrs.Field)
-					var val = row[j]
-
-					if err = f.Scan(val); err != nil {
-						return nil, errors.Wrapf(
-							err,
-							"failed to scan field %q in %T",
-							f.Name(), row,
-						)
-					}
-
-					var v = f.GetValue()
-					values[j] = v
-				}
-
-				list[i] = values
-			}
-
-			if qs.useCache {
-				qs.cached = list
-			}
-
-			return list, nil
-		},
+	var results, err = resultQuery.Exec()
+	if err != nil {
+		return nil, err
 	}
+
+	var list = make([][]any, len(results))
+	for i, row := range results {
+		var obj = internal.NewObjectFromIface(qs.model)
+		var fields = getScannableFields(qs.internals.Fields, obj)
+		var values = make([]any, len(fields))
+		for j, field := range fields {
+			var f = field.(attrs.Field)
+			var val = row[j]
+
+			if err = f.Scan(val); err != nil {
+				return nil, errors.Wrapf(
+					err,
+					"failed to scan field %q in %T",
+					f.Name(), row,
+				)
+			}
+
+			var v = f.GetValue()
+			values[j] = v
+		}
+
+		list[i] = values
+	}
+
+	if qs.useCache {
+		qs.cached = list
+	}
+
+	return list, nil
 }
 
 // Aggregate is used to perform aggregation on the results of a query.
 //
 // It takes a map of field names to expr.Expressions as arguments and returns a Query that can be executed to get the results.
-func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[string]any] {
-	qs = qs.Clone()
+func (qs *QuerySet[T]) Aggregate(annotations map[string]expr.Expression) (map[string]any, error) {
+	if qs.cached != nil && qs.useCache {
+		return qs.cached.(map[string]any), nil
+	}
+
 	qs.internals.Fields = make([]FieldInfo, 0, len(annotations))
 
 	for alias, expr := range annotations {
@@ -1292,9 +1328,9 @@ func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[
 		})
 	}
 
-	query := qs.compiler.BuildSelectQuery(
+	var query = qs.compiler.BuildSelectQuery(
 		context.Background(),
-		qs,
+		ChangeObjectsType[T, attrs.Definer](qs),
 		qs.internals.Fields,
 		qs.internals.Where,
 		qs.internals.Having,
@@ -1306,41 +1342,35 @@ func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[
 		false, // not for update
 		false, // not distinct
 	)
+	qs.latestQuery = query
 
-	return &wrappedQuery[[][]interface{}, map[string]any]{
-		query: query,
-		exec: func(q Query[[][]interface{}]) (map[string]any, error) {
-			if qs.cached != nil && qs.useCache {
-				return qs.cached.(map[string]any), nil
-			}
+	var results, err = query.Exec()
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return map[string]any{}, nil
+	}
 
-			results, err := q.Exec()
-			if err != nil {
+	var scannables = getScannableFields(qs.internals.Fields, internal.NewObjectFromIface(qs.model))
+	var row = results[0]
+	var out = make(map[string]any)
+
+	for i, field := range scannables {
+		if vf, ok := field.(AliasField); ok {
+			if err := vf.Scan(row[i]); err != nil {
 				return nil, err
 			}
-			if len(results) == 0 {
-				return map[string]any{}, nil
-			}
-
-			scannables := getScannableFields(qs.internals.Fields, internal.NewObjectFromIface(qs.model))
-			row := results[0]
-			out := make(map[string]any)
-
-			for i, field := range scannables {
-				if vf, ok := field.(AliasField); ok {
-					if err := vf.Scan(row[i]); err != nil {
-						return nil, err
-					}
-					out[vf.Alias()] = vf.GetValue()
-				}
-			}
-
-			if qs.useCache {
-				qs.cached = out
-			}
-			return out, nil
-		},
+			out[vf.Alias()] = vf.GetValue()
+		}
 	}
+
+	if qs.useCache {
+		qs.cached = out
+	}
+
+	return out, nil
+
 }
 
 // Get is used to retrieve a single row from the database.
@@ -1353,51 +1383,47 @@ func (qs *QuerySet) Aggregate(annotations map[string]expr.Expression) Query[map[
 // If no rows are found, it returns queries.query_errors.ErrNoRows.
 //
 // If multiple rows are found, it returns queries.query_errors.ErrMultipleRows.
-func (qs *QuerySet) Get() Query[*Row] {
+func (qs *QuerySet[T]) Get() (*Row[T], error) {
 	if len(qs.internals.Where) == 0 {
 		panic(query_errors.ErrNoWhereClause)
 	}
 
-	qs = qs.Limit(MAX_GET_RESULTS)
-	q := qs.All()
-
-	return &wrappedQuery[[]*Row, *Row]{
-		query: q,
-		exec: func(q Query[[]*Row]) (*Row, error) {
-			if qs.cached != nil && qs.useCache {
-				return qs.cached.(*Row), nil
-			}
-
-			var results, err = q.Exec()
-			if err != nil {
-				return nil, err
-			}
-			var resCnt = len(results)
-			if resCnt == 0 {
-				return nil, query_errors.ErrNoRows
-			}
-			if resCnt > 1 {
-				var errResCnt string
-				if MAX_GET_RESULTS == 0 || resCnt < MAX_GET_RESULTS {
-					errResCnt = strconv.Itoa(resCnt)
-				} else {
-					errResCnt = strconv.Itoa(MAX_GET_RESULTS-1) + "+"
-				}
-
-				return nil, errors.Wrapf(
-					query_errors.ErrMultipleRows,
-					"multiple rows returned for %T: %s rows",
-					qs.model, errResCnt,
-				)
-			}
-
-			if qs.useCache {
-				qs.cached = results[0]
-			}
-
-			return results[0], nil
-		},
+	if qs.cached != nil && qs.useCache {
+		return qs.cached.(*Row[T]), nil
 	}
+
+	*qs = *qs.Limit(MAX_GET_RESULTS)
+	var results, err = qs.All()
+	if err != nil {
+		return nil, err
+	}
+
+	var resCnt = len(results)
+	if resCnt == 0 {
+		return nil, query_errors.ErrNoRows
+	}
+
+	if resCnt > 1 {
+		var errResCnt string
+		if MAX_GET_RESULTS == 0 || resCnt < MAX_GET_RESULTS {
+			errResCnt = strconv.Itoa(resCnt)
+		} else {
+			errResCnt = strconv.Itoa(MAX_GET_RESULTS-1) + "+"
+		}
+
+		return nil, errors.Wrapf(
+			query_errors.ErrMultipleRows,
+			"multiple rows returned for %T: %s rows",
+			qs.model, errResCnt,
+		)
+	}
+
+	if qs.useCache {
+		qs.cached = results[0]
+	}
+
+	return results[0], nil
+
 }
 
 // GetOrCreate is used to retrieve a single row from the database or create it if it does not exist.
@@ -1407,7 +1433,7 @@ func (qs *QuerySet) Get() Query[*Row] {
 // This method executes a transaction to ensure that the object is created only once.
 //
 // It panics if the queryset has no where clause.
-func (qs *QuerySet) GetOrCreate(value attrs.Definer) (attrs.Definer, error) {
+func (qs *QuerySet[T]) GetOrCreate(value T) (T, error) {
 
 	if len(qs.internals.Where) == 0 {
 		panic(query_errors.ErrNoWhereClause)
@@ -1417,20 +1443,19 @@ func (qs *QuerySet) GetOrCreate(value attrs.Definer) (attrs.Definer, error) {
 	var ctx = context.Background()
 	var transaction, err = qs.compiler.StartTransaction(ctx)
 	if err != nil {
-		return nil, err
+		return *new(T), err
 	}
 
 	defer transaction.Rollback()
 
 	// Check if the object already exists
 	qs.useCache = false
-	var resultQuery = qs.Get()
-	row, err := resultQuery.Exec()
+	row, err := qs.Get()
 	if err != nil {
 		if errors.Is(err, query_errors.ErrNoRows) {
 			goto create
 		} else {
-			return nil, err
+			return *new(T), err
 		}
 	}
 
@@ -1441,10 +1466,9 @@ func (qs *QuerySet) GetOrCreate(value attrs.Definer) (attrs.Definer, error) {
 
 	// Object does not exist, create it
 create:
-	var createQuery = qs.Create(value)
-	obj, err := createQuery.Exec()
+	obj, err := qs.Create(value)
 	if err != nil {
-		return nil, err
+		return *new(T), err
 	}
 
 	// Object was created successfully, commit the transaction
@@ -1455,23 +1479,17 @@ create:
 //
 // It returns a Query that can be executed to get the result, which is a Row object
 // that contains the model object and a map of annotations.
-func (qs *QuerySet) First() Query[*Row] {
-	qs = qs.Limit(1)
-	q := qs.All()
-
-	return &wrappedQuery[[]*Row, *Row]{
-		query: q,
-		exec: func(q Query[[]*Row]) (*Row, error) {
-			var results, err = q.Exec()
-			if err != nil {
-				return nil, err
-			}
-			if len(results) == 0 {
-				return nil, query_errors.ErrNoRows
-			}
-			return results[0], nil
-		},
+func (qs *QuerySet[T]) First() (*Row[T], error) {
+	*qs = *qs.Limit(1)
+	var results, err = qs.All()
+	if err != nil {
+		return nil, err
 	}
+	if len(results) == 0 {
+		return nil, query_errors.ErrNoRows
+	}
+	return results[0], nil
+
 }
 
 // Last is used to retrieve the last row from the database.
@@ -1480,56 +1498,54 @@ func (qs *QuerySet) First() Query[*Row] {
 //
 // It returns a Query that can be executed to get the result, which is a Row object
 // that contains the model object and a map of annotations.
-func (qs *QuerySet) Last() Query[*Row] {
-	var nqs = qs.Reverse()
-	return nqs.First()
+func (qs *QuerySet[T]) Last() (*Row[T], error) {
+	*qs = *qs.Reverse()
+	return qs.First()
 }
 
 // Exists is used to check if any rows exist in the database.
 //
 // It returns a Query that can be executed to get the result,
 // which is a boolean indicating if any rows exist.
-func (qs *QuerySet) Exists() ExistsQuery {
-	qs = qs.Clone()
-
+func (qs *QuerySet[T]) Exists() (bool, error) {
 	var resultQuery = qs.compiler.BuildCountQuery(
 		context.Background(),
-		qs,
+		ChangeObjectsType[T, attrs.Definer](qs),
 		qs.internals.Where,
 		qs.internals.Joins,
 		qs.internals.GroupBy,
 		1,
 		0,
 	)
+	qs.latestQuery = resultQuery
 
-	return &wrappedQuery[int64, bool]{
-		query: resultQuery,
-		exec: func(q Query[int64]) (bool, error) {
-			var exists, err = q.Exec()
-			if err != nil {
-				return false, err
-			}
-			return exists > 0, nil
-		},
+	var exists, err = resultQuery.Exec()
+	if err != nil {
+		return false, err
 	}
+	return exists > 0, nil
 }
 
 // Count is used to count the number of rows in the database.
 //
 // It returns a CountQuery that can be executed to get the result, which is an int64 indicating the number of rows.
-func (qs *QuerySet) Count() CountQuery {
-
-	qs = qs.Clone()
-
-	return qs.compiler.BuildCountQuery(
+func (qs *QuerySet[T]) Count() (int64, error) {
+	var q = qs.compiler.BuildCountQuery(
 		context.Background(),
-		qs,
+		ChangeObjectsType[T, attrs.Definer](qs),
 		qs.internals.Where,
 		qs.internals.Joins,
 		qs.internals.GroupBy,
 		qs.internals.Limit,
 		qs.internals.Offset,
 	)
+	qs.latestQuery = q
+
+	var count, err = q.Exec()
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 // Create is used to create a new object in the database.
@@ -1544,33 +1560,26 @@ func (qs *QuerySet) Count() CountQuery {
 //
 // If `ExplicitSave()` was called, the `Create()` method will return a query that can be executed to create the object
 // without calling the `Save()` method on the model.
-func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
+func (qs *QuerySet[T]) Create(value T) (T, error) {
 
 	// Check if the object is a saver
 	// If it is, we can use the Save method to save the object
-	if saver, ok := value.(models.ContextSaver); ok && !qs.explicitSave {
-		return &QueryObject[attrs.Definer]{
-			model:    value,
-			compiler: qs.compiler,
-			exec: func(sql string, args ...any) (attrs.Definer, error) {
-				if err := sendSignal(SignalPreModelSave, value, qs.compiler); err != nil {
-					return nil, err
-				}
-
-				var err = saver.Save(context.Background())
-				if err != nil {
-					return nil, err
-				}
-
-				if err := sendSignal(SignalPostModelSave, value, qs.compiler); err != nil {
-					return nil, err
-				}
-				return saver.(attrs.Definer), nil
-			},
+	if saver, ok := any(value).(models.ContextSaver); ok && !qs.explicitSave {
+		if err := sendSignal(SignalPreModelSave, value, qs.compiler); err != nil {
+			return *new(T), err
 		}
-	}
 
-	qs = qs.Clone()
+		var err = saver.Save(context.Background())
+		if err != nil {
+			return *new(T), err
+		}
+
+		if err := sendSignal(SignalPostModelSave, value, qs.compiler); err != nil {
+			return *new(T), err
+		}
+
+		return saver.(T), nil
+	}
 
 	var defs = value.FieldDefs()
 	var fields = defs.Fields()
@@ -1618,115 +1627,110 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 	var support = qs.compiler.SupportsReturning()
 	var resultQuery = qs.compiler.BuildCreateQuery(
 		context.Background(),
-		qs,
+		ChangeObjectsType[T, attrs.Definer](qs),
 		info,
 		defs.Primary(),
 		values,
 	)
+	qs.latestQuery = resultQuery
 
-	return &wrappedQuery[[]interface{}, attrs.Definer]{
-		query: resultQuery,
-		exec: func(q Query[[]interface{}]) (attrs.Definer, error) {
+	var newObj = internal.NewObjectFromIface(qs.model)
+	var newDefs = newObj.FieldDefs()
 
-			var newObj = internal.NewObjectFromIface(qs.model)
-			var newDefs = newObj.FieldDefs()
+	// Set the old values on the new object
+	for _, field := range infoFields {
+		var (
+			n     = field.Name()
+			f, ok = newDefs.Field(n)
+		)
+		if !ok {
+			panic(fmt.Errorf("field %q not found in %T", n, newObj))
+		}
 
-			// Set the old values on the new object
-			for _, field := range infoFields {
-				var (
-					n     = field.Name()
-					f, ok = newDefs.Field(n)
-				)
-				if !ok {
-					panic(fmt.Errorf("field %q not found in %T", n, newObj))
-				}
-
-				var val = field.GetValue()
-				if err := f.SetValue(val, true); err != nil {
-					return nil, errors.Wrapf(
-						err,
-						"failed to set field %q in %T",
-						f.Name(), newObj,
-					)
-				}
-			}
-
-			// Execute the create query
-			var results, err = q.Exec()
-			if err != nil {
-				return nil, err
-			}
-
-			// Check results & which returning method to use
-			switch {
-			case len(results) == 0 && support == SupportsReturningNone:
-				// Do nothing
-
-			case len(results) > 0 && support == SupportsReturningLastInsertId:
-				var (
-					id   = results[0].(int64)
-					prim = newDefs.Primary()
-				)
-				if err := prim.SetValue(id, true); err != nil {
-					return nil, errors.Wrapf(
-						err,
-						"failed to set primary key %q in %T",
-						prim.Name(), newObj,
-					)
-				}
-
-			case len(results) > 0 && support == SupportsReturningColumns:
-				var (
-					scannables = getScannableFields([]FieldInfo{info}, newObj)
-					resLen     = len(results)
-					prim       = newDefs.Primary()
-				)
-				if prim != nil {
-					resLen--
-				}
-
-				if len(scannables) != resLen {
-					return nil, errors.Wrapf(
-						query_errors.ErrLastInsertId,
-						"expected %d results returned after insert, got %d",
-						len(scannables), len(results),
-					)
-				}
-
-				var idx = 0
-				if prim != nil {
-					var id = results[0].(int64)
-					if err := prim.Scan(id); err != nil {
-						return nil, errors.Wrapf(
-							err, "failed to scan primary key %q in %T",
-							prim.Name(), newObj,
-						)
-					}
-					idx++
-				}
-
-				for i, field := range scannables {
-					var f = field.(attrs.Field)
-					var val = results[i+idx]
-
-					if err := f.Scan(val); err != nil {
-						return nil, errors.Wrapf(
-							err,
-							"failed to scan field %q in %T",
-							f.Name(), newObj,
-						)
-					}
-				}
-			}
-
-			var rVal = reflect.ValueOf(value)
-			if rVal.Kind() == reflect.Ptr {
-				rVal.Elem().Set(reflect.ValueOf(newObj).Elem())
-			}
-
-			return newObj, nil
-		},
+		var val = field.GetValue()
+		if err := f.SetValue(val, true); err != nil {
+			return *new(T), errors.Wrapf(
+				err,
+				"failed to set field %q in %T",
+				f.Name(), newObj,
+			)
+		}
 	}
+
+	// Execute the create query
+	var results, err = resultQuery.Exec()
+	if err != nil {
+		return *new(T), err
+	}
+
+	// Check results & which returning method to use
+	switch {
+	case len(results) == 0 && support == SupportsReturningNone:
+		// Do nothing
+
+	case len(results) > 0 && support == SupportsReturningLastInsertId:
+		var (
+			id   = results[0].(int64)
+			prim = newDefs.Primary()
+		)
+		if err := prim.SetValue(id, true); err != nil {
+			return *new(T), errors.Wrapf(
+				err,
+				"failed to set primary key %q in %T",
+				prim.Name(), newObj,
+			)
+		}
+
+	case len(results) > 0 && support == SupportsReturningColumns:
+		var (
+			scannables = getScannableFields([]FieldInfo{info}, newObj)
+			resLen     = len(results)
+			prim       = newDefs.Primary()
+		)
+		if prim != nil {
+			resLen--
+		}
+
+		if len(scannables) != resLen {
+			return *new(T), errors.Wrapf(
+				query_errors.ErrLastInsertId,
+				"expected %d results returned after insert, got %d",
+				len(scannables), len(results),
+			)
+		}
+
+		var idx = 0
+		if prim != nil {
+			var id = results[0].(int64)
+			if err := prim.Scan(id); err != nil {
+				return *new(T), errors.Wrapf(
+					err, "failed to scan primary key %q in %T",
+					prim.Name(), newObj,
+				)
+			}
+			idx++
+		}
+
+		for i, field := range scannables {
+			var f = field.(attrs.Field)
+			var val = results[i+idx]
+
+			if err := f.Scan(val); err != nil {
+				return *new(T), errors.Wrapf(
+					err,
+					"failed to scan field %q in %T",
+					f.Name(), newObj,
+				)
+			}
+		}
+	}
+
+	var rVal = reflect.ValueOf(value)
+	if rVal.Kind() == reflect.Ptr {
+		rVal.Elem().Set(reflect.ValueOf(newObj).Elem())
+	}
+
+	return newObj.(T), nil
 }
 
 // Update is used to update an object in the database.
@@ -1738,9 +1742,7 @@ func (qs *QuerySet) Create(value attrs.Definer) Query[attrs.Definer] {
 //
 // If the model adheres to django's `models.Saver` interface, no where clause is provided
 // and ExplicitSave() was not called, the `Save()` method will be called on the model
-func (qs *QuerySet) Update(value attrs.Definer, expressions ...expr.NamedExpression) CountQuery {
-	qs = qs.Clone()
-
+func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int64, error) {
 	if len(qs.internals.Where) == 0 && !qs.explicitSave {
 		var (
 			defs            = value.FieldDefs()
@@ -1752,26 +1754,20 @@ func (qs *QuerySet) Update(value attrs.Definer, expressions ...expr.NamedExpress
 			panic(fmt.Errorf("failed to get value for field %q: %w", primary.Name(), err))
 		}
 
-		if saver, ok := value.(models.ContextSaver); ok && !fields.IsZero(primaryVal) {
-			return &QueryObject[int64]{
-				model:    value,
-				compiler: qs.compiler,
-				exec: func(sql string, args ...any) (int64, error) {
-					if err := sendSignal(SignalPreModelSave, value, qs.compiler); err != nil {
-						return 0, err
-					}
-
-					var err = saver.Save(context.Background())
-					if err != nil {
-						return 0, err
-					}
-
-					if err := sendSignal(SignalPostModelSave, value, qs.compiler); err != nil {
-						return 0, err
-					}
-					return 1, nil
-				},
+		if saver, ok := any(value).(models.ContextSaver); ok && !fields.IsZero(primaryVal) {
+			if err := sendSignal(SignalPreModelSave, value, qs.compiler); err != nil {
+				return 0, err
 			}
+
+			var err = saver.Save(context.Background())
+			if err != nil {
+				return 0, err
+			}
+
+			if err := sendSignal(SignalPostModelSave, value, qs.compiler); err != nil {
+				return 0, err
+			}
+			return 1, nil
 		}
 	}
 
@@ -1839,32 +1835,32 @@ func (qs *QuerySet) Update(value attrs.Definer, expressions ...expr.NamedExpress
 
 	var resultQuery = qs.compiler.BuildUpdateQuery(
 		context.Background(),
-		qs,
+		ChangeObjectsType[T, attrs.Definer](qs),
 		info,
 		qs.internals.Where,
 		qs.internals.Joins,
 		qs.internals.GroupBy,
 		values,
 	)
+	qs.latestQuery = resultQuery
 
-	return resultQuery
+	return resultQuery.Exec()
 }
 
 // Delete is used to delete an object from the database.
 //
 // It returns a CountQuery that can be executed to get the result, which is the number of rows affected.
-func (qs *QuerySet) Delete() CountQuery {
-	qs = qs.Clone()
-
+func (qs *QuerySet[T]) Delete() (int64, error) {
 	var resultQuery = qs.compiler.BuildDeleteQuery(
 		context.Background(),
-		qs,
+		ChangeObjectsType[T, attrs.Definer](qs),
 		qs.internals.Where,
 		qs.internals.Joins,
 		qs.internals.GroupBy,
 	)
+	qs.latestQuery = resultQuery
 
-	return resultQuery
+	return resultQuery.Exec()
 }
 
 func getScannableFields(fields []FieldInfo, root attrs.Definer) []any {

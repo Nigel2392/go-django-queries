@@ -60,14 +60,14 @@ func ListObjectsByIDs[T attrs.Definer, T2 any](object T, offset, limit uint64, i
 		primaryField = definitions.Primary()
 	)
 
-	var d, err = Objects(obj).
+	var d, err = Objects[T](obj).
 		Filter(
 			fmt.Sprintf("%s__in", primaryField.Name()),
 			attrs.InterfaceList(ids)...,
 		).
 		Limit(int(limit)).
 		Offset(int(offset)).
-		All().Exec()
+		All()
 
 	if err != nil {
 		return nil, err
@@ -75,7 +75,7 @@ func ListObjectsByIDs[T attrs.Definer, T2 any](object T, offset, limit uint64, i
 
 	var results = make([]T, 0, len(ids))
 	for _, obj := range d {
-		results = append(results, obj.Object.(T))
+		results = append(results, obj.Object)
 	}
 
 	return results, nil
@@ -86,11 +86,11 @@ func ListObjectsByIDs[T attrs.Definer, T2 any](object T, offset, limit uint64, i
 // It takes an offset and a limit as parameters and returns a slice of objects of type T.
 func ListObjects[T attrs.Definer](object T, offset, limit uint64, ordering ...string) ([]T, error) {
 	var obj = internal.NewObjectFromIface(object).(T)
-	var d, err = Objects(obj).
+	var d, err = Objects[T](obj).
 		OrderBy(ordering...).
 		Limit(int(limit)).
 		Offset(int(offset)).
-		All().Exec()
+		All()
 
 	if err != nil {
 		return nil, err
@@ -98,7 +98,7 @@ func ListObjects[T attrs.Definer](object T, offset, limit uint64, ordering ...st
 
 	var results = make([]T, 0, len(d))
 	for _, obj := range d {
-		results = append(results, obj.Object.(T))
+		results = append(results, obj.Object)
 	}
 
 	return results, nil
@@ -133,23 +133,23 @@ func GetObject[T attrs.Definer](object T, identifier any) (T, error) {
 		)
 	}
 
-	d, err := Objects(obj).
+	d, err := Objects[T](obj).
 		Filter(
 			fmt.Sprintf("%s__exact", primaryField.Name()),
 			primaryValue,
 		).
-		Get().Exec()
+		Get()
 
 	if err != nil {
 		return obj, err
 	}
 
-	return d.Object.(T), nil
+	return d.Object, nil
 }
 
 // CountObjects counts the number of objects in the database.
 func CountObjects[T attrs.Definer](obj T) (int64, error) {
-	return Objects(obj).Count().Exec()
+	return Objects[T](obj).Count()
 }
 
 // SaveObject saves an object to the database.
@@ -188,7 +188,7 @@ func sendSignal(s signals.Signal[SignalSave], obj attrs.Definer, q QueryCompiler
 func CreateObject[T attrs.Definer](obj T) error {
 	var (
 		definitions = obj.FieldDefs()
-		qs          = Objects(obj).ExplicitSave().Create(obj)
+		qs          = Objects[T](obj).ExplicitSave()
 		compiler    = qs.Compiler()
 		ctx         = context.Background()
 	)
@@ -211,7 +211,7 @@ func CreateObject[T attrs.Definer](obj T) error {
 		goto postSaveSignal
 	}
 
-	d, err = qs.Exec()
+	d, err = qs.Create(obj)
 	if err != nil {
 		return err
 	}
@@ -262,9 +262,8 @@ func UpdateObject[T attrs.Definer](obj T) (int64, error) {
 	}
 
 	var (
-		qs = Objects(obj).
-			Filter(primary.Name(), primaryVal).
-			Update(obj)
+		qs = Objects[T](obj).
+			Filter(primary.Name(), primaryVal)
 		compiler = qs.Compiler()
 	)
 
@@ -285,7 +284,7 @@ func UpdateObject[T attrs.Definer](obj T) (int64, error) {
 		return 1, nil
 	}
 
-	d, err = qs.Exec()
+	d, err = qs.Update(obj)
 	if err != nil {
 		return 0, err
 	}
@@ -323,9 +322,9 @@ func DeleteObject[T attrs.Definer](obj T) (int64, error) {
 		return 1, nil
 	}
 
-	d, err := Objects(obj).
+	d, err := Objects[T](obj).
 		Filter(primary.Name(), primaryVal).
-		Delete().Exec()
+		Delete()
 	if err != nil {
 		return 0, err
 	}

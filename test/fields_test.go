@@ -238,18 +238,17 @@ func TestVirtualFieldsQuerySetSingleObjectTestStruct(t *testing.T) {
 		t.Fatalf("Failed to create object: %v, %T", err, err)
 	}
 
-	var qs = queries.Objects(test)
+	var qs = queries.Objects[attrs.Definer](test)
 	qs = qs.Select("*")
 	qs = qs.Filter("ID", test.ID)
 	qs = qs.Filter("TestNameLower", "test1")
 	qs = qs.Filter("TestNameUpper", "TEST1")
 	qs = qs.OrderBy("-TestNameText")
 
-	var a = qs.Get()
+	var obj, err = qs.Get()
 	var (
-		sql      = a.SQL()
-		args     = a.Args()
-		obj, err = a.Exec()
+		sql  = qs.LatestQuery().SQL()
+		args = qs.LatestQuery().Args()
 	)
 	if err != nil {
 		t.Fatalf("Failed to execute query: %v, (%s)", err, sql)
@@ -302,18 +301,17 @@ func TestVirtualFieldsQuerySetSingleObjectTestStructNoObject(t *testing.T) {
 		t.Fatalf("Failed to create object: %v, %T", err, err)
 	}
 
-	var qs = queries.Objects(test)
+	var qs = queries.Objects[attrs.Definer](test)
 	qs = qs.Select("*")
 	qs = qs.Filter("ID", test.ID)
 	qs = qs.Filter("TestNameLower", "test1")
 	qs = qs.Filter("TestNameUpper", "TEST1")
 	qs = qs.OrderBy("-TestNameText")
 
-	var a = qs.Get()
+	var obj, err = qs.Get()
 	var (
-		sql      = a.SQL()
-		args     = a.Args()
-		obj, err = a.Exec()
+		sql  = qs.LatestQuery().SQL()
+		args = qs.LatestQuery().Args()
 	)
 	if err != nil {
 		t.Fatalf("Failed to execute query: %v", err)
@@ -369,15 +367,14 @@ func Test_Annotate_With_GroupBy(t *testing.T) {
 	}
 
 	// Run query
-	var a = queries.Objects(&TestStruct{}).
+	var qs = queries.Objects[attrs.Definer](&TestStruct{}).
 		Select("Name").
 		GroupBy("Name").
-		Annotate("TextCount", expr.Raw("COUNT(![Text])")).
-		All()
+		Annotate("TextCount", expr.Raw("COUNT(![Text])"))
+	var rows, err = qs.All()
 
-	t.Logf("SQL: %s %v", a.SQL(), a.Args())
+	t.Logf("SQL: %s %v", qs.LatestQuery().SQL(), qs.LatestQuery().Args())
 
-	var rows, err = a.Exec()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,11 +395,10 @@ func Test_Annotate_With_GroupBy(t *testing.T) {
 
 func Test_Annotate_Only(t *testing.T) {
 	// Query only virtual field, not full model
-	var rows, err = queries.Objects(&TestStruct{}).
+	var rows, err = queries.Objects[attrs.Definer](&TestStruct{}).
 		Annotate("UpperName", expr.Raw("UPPER(![Name])")).
 		Limit(1).
-		All().
-		Exec()
+		All()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +423,7 @@ func Test_Annotated_Get(t *testing.T) {
 		t.Fatalf("Failed to create object: %v", err)
 	}
 
-	qs := queries.Objects(&TestStruct{}).
+	qs := queries.Objects[attrs.Definer](&TestStruct{}).
 		Select("*").
 		Filter("Name", "test1").
 		Annotate("LowerName", &expr.RawExpr{
@@ -442,7 +438,7 @@ func Test_Annotated_Get(t *testing.T) {
 			Statement: "UPPER(%s) || ' ' || %s",
 			Fields:    []string{"Name", "Text"},
 		})
-	row, err := qs.Get().Exec()
+	row, err := qs.Get()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,13 +493,13 @@ func Test_Annotated_Get(t *testing.T) {
 }
 
 func Test_Annotated_ValuesList(t *testing.T) {
-	qs := queries.Objects(&TestStruct{}).
+	qs := queries.Objects[attrs.Definer](&TestStruct{}).
 		Annotate("Combined", &expr.RawExpr{
 			Statement: "%s || ' ' || %s",
 			Fields:    []string{"Name", "Text"},
 		}).
 		Select("ID", "Name")
-	values, err := qs.ValuesList("ID", "Combined").Exec()
+	values, err := qs.ValuesList("ID", "Combined")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -527,13 +523,13 @@ func Test_Aggregate(t *testing.T) {
 		}
 	}
 
-	result, err := queries.Objects(&TestStruct{}).
+	result, err := queries.Objects[attrs.Definer](&TestStruct{}).
 		Filter("Name", "agg").
 		Aggregate(map[string]expr.Expression{
 			"Total": &expr.RawExpr{
 				Statement: "COUNT(*)",
 			},
-		}).Exec()
+		})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -554,13 +550,13 @@ func Test_MultiAggregate(t *testing.T) {
 		}
 	}
 
-	res, err := queries.Objects(&TestStruct{}).
+	res, err := queries.Objects[attrs.Definer](&TestStruct{}).
 		Filter("Name", "multiagg").
 		Aggregate(map[string]expr.Expression{
 			"Total": &expr.RawExpr{Statement: "COUNT(*)"},
 			"MinID": &expr.RawExpr{Statement: "MIN(id)"},
 			"MaxID": &expr.RawExpr{Statement: "MAX(id)"},
-		}).Exec()
+		})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,7 +618,7 @@ func Test_Annotate_With_Relation(t *testing.T) {
 		}
 	}
 
-	qs := queries.Objects(&Book{}).
+	qs := queries.Objects[attrs.Definer](&Book{}).
 		Select("Author.Name").
 		GroupBy("Author.Name").
 		Annotate("BookCount", &expr.RawExpr{
@@ -630,10 +626,9 @@ func Test_Annotate_With_Relation(t *testing.T) {
 			Fields:    []string{"ID"},
 		})
 
-	var a = qs.All()
-	rows, err := a.Exec()
+	var rows, err = qs.All()
 	if err != nil {
-		t.Fatalf("failed to execute query: %v (%s)", err, a.SQL())
+		t.Fatalf("failed to execute query: %v (%s)", err, qs.LatestQuery().SQL())
 	}
 
 	if len(rows) != 1 {
@@ -648,7 +643,7 @@ func Test_Annotate_With_Relation(t *testing.T) {
 		t.Fatalf("failed to delete author: %v", err)
 	}
 
-	if _, err := queries.Objects(&Book{}).Delete().Exec(); err != nil {
+	if _, err := queries.Objects[attrs.Definer](&Book{}).Delete(); err != nil {
 		t.Fatalf("failed to delete books: %v", err)
 	}
 }
@@ -669,7 +664,7 @@ func Test_Annotate_Relation(t *testing.T) {
 		}
 	}
 
-	qs := queries.Objects(&Book{}).
+	qs := queries.Objects[attrs.Definer](&Book{}).
 		Select("Title", "Author.*").
 		GroupBy("Title").
 		Annotate("AuthorCount", &expr.RawExpr{
@@ -677,10 +672,9 @@ func Test_Annotate_Relation(t *testing.T) {
 			Fields:    []string{"Author.Name"},
 		})
 
-	var a = qs.All()
-	rows, err := a.Exec()
+	var rows, err = qs.All()
 	if err != nil {
-		t.Fatalf("failed to execute query: %v (%s)", err, a.SQL())
+		t.Fatalf("failed to execute query: %v (%s)", err, qs.LatestQuery().SQL())
 	}
 
 	if len(rows) != 3 {
@@ -697,7 +691,7 @@ func Test_Annotate_Relation(t *testing.T) {
 		t.Fatalf("failed to delete author: %v", err)
 	}
 
-	if _, err := queries.Objects(&Book{}).Delete().Exec(); err != nil {
+	if _, err := queries.Objects[attrs.Definer](&Book{}).Delete(); err != nil {
 		t.Fatalf("failed to delete books: %v", err)
 	}
 }
@@ -718,20 +712,20 @@ func Test_Aggregate_With_Join(t *testing.T) {
 		}
 	}
 
-	a := queries.Objects(&Book{}).
+	var qs = queries.Objects[attrs.Definer](&Book{}).
 		Select("*", "Author.*").
-		Filter("Author.Name", "Rowling").
-		Aggregate(map[string]expr.Expression{
-			"Author": &expr.RawExpr{
-				Statement: "%s",
-				Fields:    []string{"Author.Name"},
-			},
-			"CountBooks": &expr.RawExpr{Statement: "COUNT(*)"},
-		})
+		Filter("Author.Name", "Rowling")
 
-	res, err := a.Exec()
+	var res, err = qs.Aggregate(map[string]expr.Expression{
+		"Author": &expr.RawExpr{
+			Statement: "%s",
+			Fields:    []string{"Author.Name"},
+		},
+		"CountBooks": &expr.RawExpr{Statement: "COUNT(*)"},
+	})
+
 	if err != nil {
-		t.Fatalf("failed to execute query: %v (%s)", err, a.SQL())
+		t.Fatalf("failed to execute query: %v (%s)", err, qs.LatestQuery().SQL())
 	}
 
 	if res["Author"] != "Rowling" {
@@ -746,7 +740,7 @@ func Test_Aggregate_With_Join(t *testing.T) {
 		t.Fatalf("failed to delete author: %v", err)
 	}
 
-	if _, err := queries.Objects(&Book{}).Delete().Exec(); err != nil {
+	if _, err := queries.Objects[attrs.Definer](&Book{}).Delete(); err != nil {
 		t.Fatalf("failed to delete books: %v", err)
 	}
 }
@@ -761,16 +755,15 @@ func TestAnnotatedValuesListWithSelectExpressions(t *testing.T) {
 		t.Fatalf("Failed to create object: %v", err)
 	}
 
-	var a = queries.Objects(test).
+	var qs = queries.Objects[attrs.Definer](test).
 		Filter("ID", test.ID).
-		Annotate("Combined", expr.Raw("![Name] || ' ' || ![Text]")).
-		ValuesList(
-			"ID",
-			"Combined",
-			expr.F("LOWER(![Text]) || ' ' || ?", "testSelectExpressions"),
-		)
+		Annotate("Combined", expr.Raw("![Name] || ' ' || ![Text]"))
 
-	var rows, err = a.Exec()
+	var rows, err = qs.ValuesList(
+		"ID",
+		"Combined",
+		expr.F("LOWER(![Text]) || ' ' || ?", "testSelectExpressions"),
+	)
 	if err != nil {
 		t.Fatalf("Failed to execute query: %v", err)
 	}
@@ -793,5 +786,45 @@ func TestAnnotatedValuesListWithSelectExpressions(t *testing.T) {
 
 	if rows[0][2] != "testannotatedvalueslistwithselectexpressions2 testSelectExpressions" {
 		t.Errorf("expected Text = 'testannotatedvalueslistwithselectexpressions2 testSelectExpressions', got %v", rows[0][2])
+	}
+}
+
+func TestWhereFilterVirtualFieldAliassed(t *testing.T) {
+	var test = &TestStruct{
+		Name: "TestWhereFilterVirtualFieldAliassed",
+		Text: "TestWhereFilterVirtualFieldAliassed",
+	}
+
+	if err := queries.CreateObject(test); err != nil {
+		t.Fatalf("Failed to create object: %v", err)
+	}
+
+	var qs = queries.Objects[attrs.Definer](test).
+		Select("*").
+		Filter(expr.F("UPPER(![TestNameText]) = ?", "TESTWHEREFILTERVIRTUALFIELDALIASSED TESTWHEREFILTERVIRTUALFIELDALIASSED TEST"))
+	var rows, err = qs.All()
+
+	if err != nil {
+		t.Fatalf("Failed to execute query: %v", err)
+	}
+
+	if len(rows) == 0 {
+		t.Fatal("expected at least one result")
+	}
+
+	if rows[0].Object.(*TestStruct).ID != test.ID {
+		t.Errorf("expected ID = %d, got %d", test.ID, rows[0].Object.(*TestStruct).ID)
+	}
+
+	if rows[0].Object.(*TestStruct).Name != test.Name {
+		t.Errorf("expected Name = %q, got %q", test.Name, rows[0].Object.(*TestStruct).Name)
+	}
+
+	if rows[0].Object.(*TestStruct).Text != test.Text {
+		t.Errorf("expected Text = %q, got %q", test.Text, rows[0].Object.(*TestStruct).Text)
+	}
+
+	if rows[0].Annotations["TestNameText"] != "TestWhereFilterVirtualFieldAliassed TestWhereFilterVirtualFieldAliassed test" {
+		t.Errorf("expected TestNameText = 'TestWhereFilterVirtualFieldAliassed TestWhereFilterVirtualFieldAliassed test', got %v", rows[0].Annotations["TestNameText"])
 	}
 }

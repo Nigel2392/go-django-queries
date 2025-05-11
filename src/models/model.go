@@ -52,6 +52,7 @@ func (m *Model) Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinit
 	if model.Kind() == reflect.Ptr {
 		model = model.Elem()
 	}
+
 	var self, ok = model.FieldByName("Model")
 	if !ok {
 		panic("model does not have a Model field, did you forget to embed the Model struct?")

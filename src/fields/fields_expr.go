@@ -34,8 +34,8 @@ func (f *ExpressionField[T]) SQL(d driver.Driver, m attrs.Definer, quote string)
 	if f.expr == nil {
 		return "", nil
 	}
-	var expr = f.expr.With(d, m, quote)
+	var expr = f.expr.Resolve(d, m, quote)
 	var sb strings.Builder
-	expr.SQL(&sb)
-	return sb.String(), expr.Args()
+	var args = expr.SQL(&sb)
+	return sb.String(), args
 }

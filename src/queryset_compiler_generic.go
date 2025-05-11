@@ -96,7 +96,7 @@ func (g *genericQueryBuilder) SupportsReturning() SupportsReturning {
 
 func (g *genericQueryBuilder) BuildSelectQuery(
 	ctx context.Context,
-	qs *QuerySet,
+	qs *GenericQuerySet,
 	fields []FieldInfo,
 	where []expr.LogicalExpression,
 	having []expr.LogicalExpression,
@@ -107,7 +107,7 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 	offset int,
 	forUpdate bool,
 	distinct bool,
-) Query[[][]interface{}] {
+) CompiledQuery[[][]interface{}] {
 	var (
 		query = new(strings.Builder)
 		args  []any
@@ -192,13 +192,13 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 
 func (g *genericQueryBuilder) BuildCountQuery(
 	ctx context.Context,
-	qs *QuerySet,
+	qs *GenericQuerySet,
 	where []expr.LogicalExpression,
 	joins []JoinDef,
 	groupBy []FieldInfo,
 	limit int,
 	offset int,
-) CountQuery {
+) CompiledQuery[int64] {
 
 	var model = qs.Model()
 	var query = new(strings.Builder)
@@ -229,11 +229,11 @@ func (g *genericQueryBuilder) BuildCountQuery(
 
 func (g *genericQueryBuilder) BuildCreateQuery(
 	ctx context.Context,
-	qs *QuerySet,
+	qs *GenericQuerySet,
 	fields FieldInfo,
 	primary attrs.Field,
 	values []any,
-) Query[[]interface{}] {
+) CompiledQuery[[]interface{}] {
 	var model = qs.Model()
 	var query = new(strings.Builder)
 	query.WriteString("INSERT INTO ")
@@ -362,13 +362,13 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 
 func (g *genericQueryBuilder) BuildUpdateQuery(
 	ctx context.Context,
-	qs *QuerySet,
+	qs *GenericQuerySet,
 	fields FieldInfo,
 	where []expr.LogicalExpression,
 	joins []JoinDef,
 	groupBy []FieldInfo,
 	values []any,
-) CountQuery {
+) CompiledQuery[int64] {
 	var model = qs.Model()
 	var query = new(strings.Builder)
 	query.WriteString("UPDATE ")
@@ -423,11 +423,11 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 
 func (g *genericQueryBuilder) BuildDeleteQuery(
 	ctx context.Context,
-	qs *QuerySet,
+	qs *GenericQuerySet,
 	where []expr.LogicalExpression,
 	joins []JoinDef,
 	groupBy []FieldInfo,
-) CountQuery {
+) CompiledQuery[int64] {
 	var model = qs.Model()
 	var query = new(strings.Builder)
 	query.WriteString("DELETE FROM ")
@@ -579,12 +579,12 @@ func (g *genericQueryBuilder) writeLimitOffset(sb *strings.Builder, limit int, o
 func buildWhereClause(b *strings.Builder, d driver.Driver, model attrs.Definer, quote string, exprs []expr.LogicalExpression) []any {
 	var args = make([]any, 0)
 	for i, e := range exprs {
-		e := e.With(d, model, quote)
-		e.SQL(b)
+		e := e.Resolve(d, model, quote)
+		var a = e.SQL(b)
 		if i < len(exprs)-1 {
 			b.WriteString(" AND ")
 		}
-		args = append(args, e.Args()...)
+		args = append(args, a...)
 	}
 
 	return args

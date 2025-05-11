@@ -18,4 +18,9 @@ const (
 	ErrTransactionStarted     errs.Error = "Transaction already started"
 	ErrFailedStartTransaction errs.Error = "Failed to start transaction"
 	ErrNoTransaction          errs.Error = "Transaction was not started"
+
+	// Returned when a Query[T] is executed twice, the result should
+	// be cached, and the second call should return the cached result,
+	// along with this error.
+	ErrAlreadyExecuted errs.Error = "Query already executed"
 )

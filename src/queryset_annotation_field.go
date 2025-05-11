@@ -28,9 +28,9 @@ func newQueryField[T any](name string, expr expr.Expression) *queryField[T] {
 func (q *queryField[T]) Alias() string { return q.name }
 func (q *queryField[T]) SQL(d driver.Driver, m attrs.Definer, quote string) (string, []any) {
 	var sqlBuilder = &strings.Builder{}
-	var expr = q.expr.With(d, m, quote)
-	expr.SQL(sqlBuilder)
-	return sqlBuilder.String(), expr.Args()
+	var expr = q.expr.Resolve(d, m, quote)
+	var args = expr.SQL(sqlBuilder)
+	return sqlBuilder.String(), args
 }
 
 // attrs.Field minimal impl
@@ -72,7 +72,7 @@ type exprField struct {
 
 func (e *exprField) SQL(d driver.Driver, m attrs.Definer, quote string) (string, []any) {
 	var sqlBuilder = &strings.Builder{}
-	var expr = e.expr.With(d, m, quote)
-	expr.SQL(sqlBuilder)
-	return sqlBuilder.String(), expr.Args()
+	var expr = e.expr.Resolve(d, m, quote)
+	var args = expr.SQL(sqlBuilder)
+	return sqlBuilder.String(), args
 }

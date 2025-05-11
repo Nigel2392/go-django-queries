@@ -33,7 +33,7 @@ type VirtualField interface {
 
 type InjectorField interface {
 	attrs.Field
-	Inject(qs *QuerySet) *QuerySet
+	Inject(qs *QuerySet[attrs.Definer]) *QuerySet[attrs.Definer]
 }
 
 type ForUseInQueriesField interface {
@@ -70,7 +70,7 @@ type DataModel interface {
 type QuerySetDefiner interface {
 	attrs.Definer
 
-	GetQuerySet() *QuerySet
+	GetQuerySet() *QuerySet[attrs.Definer]
 }
 
 type QuerySetDatabaseDefiner interface {
@@ -91,13 +91,21 @@ type Transaction interface {
 	Rollback() error
 }
 
-type Query[T1 any] interface {
+type QueryInfo interface {
 	SQL() string
 	Args() []any
 	Model() attrs.Definer
-	Exec() (T1, error)
 	Compiler() QueryCompiler
 }
+
+type CompiledQuery[T1 any] interface {
+	QueryInfo
+	Exec() (T1, error)
+}
+
+type CompiledCountQuery CompiledQuery[int64]
+type CompiledExistsQuery CompiledQuery[bool]
+type CompiledValuesListQuery CompiledQuery[[][]any]
 
 type QueryCompiler interface {
 	// DB returns the database connection used by the query compiler.
@@ -134,7 +142,7 @@ type QueryCompiler interface {
 	// BuildSelectQuery builds a select query with the given parameters.
 	BuildSelectQuery(
 		ctx context.Context,
-		qs *QuerySet,
+		qs *QuerySet[attrs.Definer],
 		fields []FieldInfo,
 		where []expr.LogicalExpression,
 		having []expr.LogicalExpression,
@@ -145,47 +153,47 @@ type QueryCompiler interface {
 		offset int,
 		forUpdate bool,
 		distinct bool,
-	) Query[[][]interface{}]
+	) CompiledQuery[[][]interface{}]
 
 	// BuildCountQuery builds a count query with the given parameters.
 	BuildCountQuery(
 		ctx context.Context,
-		qs *QuerySet,
+		qs *QuerySet[attrs.Definer],
 		where []expr.LogicalExpression,
 		joins []JoinDef,
 		groupBy []FieldInfo,
 		limit int,
 		offset int,
-	) CountQuery
+	) CompiledQuery[int64]
 
 	// BuildCreateQuery builds a create query with the given parameters.
 	BuildCreateQuery(
 		ctx context.Context,
-		qs *QuerySet,
+		qs *QuerySet[attrs.Definer],
 		fields FieldInfo,
 		primary attrs.Field,
 		values []any,
-	) Query[[]interface{}]
+	) CompiledQuery[[]interface{}]
 
 	// BuildValuesListQuery builds a values list query with the given parameters.
 	BuildUpdateQuery(
 		ctx context.Context,
-		qs *QuerySet,
+		qs *QuerySet[attrs.Definer],
 		fields FieldInfo,
 		where []expr.LogicalExpression,
 		joins []JoinDef,
 		groupBy []FieldInfo,
 		values []any,
-	) CountQuery
+	) CompiledQuery[int64]
 
 	// BuildUpdateQuery builds an update query with the given parameters.
 	BuildDeleteQuery(
 		ctx context.Context,
-		qs *QuerySet,
+		qs *QuerySet[attrs.Definer],
 		where []expr.LogicalExpression,
 		joins []JoinDef,
 		groupBy []FieldInfo,
-	) CountQuery
+	) CompiledQuery[int64]
 }
 
 var compilerRegistry = make(map[reflect.Type]func(model attrs.Definer, defaultDB string) QueryCompiler)

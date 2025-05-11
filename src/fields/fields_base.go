@@ -16,7 +16,7 @@ var _ attrs.Field = &DataModelField[any]{}
 
 type DataModelField[T any] struct {
 	// model is the model that this field belongs to
-	Model attrs.Definer
+	Model any
 
 	// dataModel is the model that contains the data for this field
 	//
@@ -31,7 +31,7 @@ type DataModelField[T any] struct {
 	resultType reflect.Type
 }
 
-func NewDataModelField[T any](forModel attrs.Definer, dst any, name string) *DataModelField[T] {
+func NewDataModelField[T any](forModel any, dst any, name string) *DataModelField[T] {
 	if forModel == nil || dst == nil {
 		panic("NewDataModelField: model is nil")
 	}
@@ -288,7 +288,13 @@ func (e *DataModelField[T]) GetDefault() interface{} {
 }
 
 func (e *DataModelField[T]) Instance() attrs.Definer {
-	return e.Model
+	if e.Model == nil {
+		panic("model is nil")
+	}
+	if def, ok := e.Model.(attrs.Definer); ok {
+		return def
+	}
+	panic(fmt.Errorf("model %T does not implement attrs.Definer", e.Model))
 }
 
 func (e *DataModelField[T]) Rel() attrs.Relation {

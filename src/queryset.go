@@ -504,6 +504,7 @@ func (qs *QuerySet[T]) unpackFields(fields ...string) (infos []FieldInfo, hasRel
 	if len(info.Fields) > 0 {
 		infos = append(infos, info)
 	}
+
 	return infos, hasRelated
 }
 
@@ -635,6 +636,12 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 	var targetTable = targetDefs.TableName()
 
 	front, back := qs.compiler.Quote()
+	var parentAlias string
+	if len(aliases) > 1 {
+		parentAlias = aliases[len(aliases)-2]
+	} else {
+		parentAlias = parentDefs.TableName()
+	}
 	alias := aliases[len(aliases)-1]
 	aliasThrough := fmt.Sprintf("%s_through", alias)
 
@@ -647,7 +654,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 		},
 		ConditionA: fmt.Sprintf(
 			"%s%s%s.%s%s%s",
-			front, parentDefs.TableName(), back,
+			front, parentAlias, back,
 			front, parentField.ColumnName(), back,
 		),
 		Logic: "=",
@@ -1156,23 +1163,16 @@ type Row[T attrs.Definer] struct {
 	Annotations map[string]any
 }
 
-// All is used to retrieve all rows from the database.
-//
-// It returns a Query that can be executed to get the results, which is a slice of Row objects.
-//
-// Each Row object contains the model object and a map of annotations.
-//
-// If no fields are provided, it selects all fields from the model, see `Select()` for more details.
-func (qs *QuerySet[T]) All() ([]*Row[T], error) {
-	if qs.cached != nil && qs.useCache {
-		return qs.cached.([]*Row[T]), nil
-	}
-
+func (qs *QuerySet[T]) queryAll(fields ...any) CompiledQuery[[][]interface{}] {
 	// Select all fields if no fields are provided
 	//
 	// Override the pointer to the original QuerySet with the Select("*") QuerySet
-	if len(qs.internals.Fields) == 0 {
+	if len(qs.internals.Fields) == 0 && len(fields) == 0 {
 		*qs = *qs.Select("*")
+	}
+
+	if len(fields) > 0 {
+		*qs = *qs.Select(fields...)
 	}
 
 	var resultQuery = qs.compiler.BuildSelectQuery(
@@ -1191,6 +1191,71 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 	)
 	qs.latestQuery = resultQuery
 
+	var query = qs.compiler.BuildSelectQuery(
+		context.Background(),
+		ChangeObjectsType[T, attrs.Definer](qs),
+		qs.internals.Fields,
+		qs.internals.Where,
+		qs.internals.Having,
+		qs.internals.Joins,
+		qs.internals.GroupBy,
+		qs.internals.OrderBy,
+		qs.internals.Limit,
+		qs.internals.Offset,
+		qs.internals.ForUpdate,
+		qs.internals.Distinct,
+	)
+	qs.latestQuery = query
+
+	return query
+}
+
+func (qs *QuerySet[T]) queryAggregate() CompiledQuery[[][]interface{}] {
+	var query = qs.compiler.BuildSelectQuery(
+		context.Background(),
+		ChangeObjectsType[T, attrs.Definer](qs),
+		qs.internals.Fields,
+		qs.internals.Where,
+		qs.internals.Having,
+		qs.internals.Joins,
+		qs.internals.GroupBy,
+		nil,   // no order
+		1,     // just one row
+		0,     // no offset
+		false, // not for update
+		false, // not distinct
+	)
+	qs.latestQuery = query
+	return query
+}
+
+func (qs *QuerySet[T]) queryCount() CompiledQuery[int64] {
+	var q = qs.compiler.BuildCountQuery(
+		context.Background(),
+		ChangeObjectsType[T, attrs.Definer](qs),
+		qs.internals.Where,
+		qs.internals.Joins,
+		qs.internals.GroupBy,
+		qs.internals.Limit,
+		qs.internals.Offset,
+	)
+	qs.latestQuery = q
+	return q
+}
+
+// All is used to retrieve all rows from the database.
+//
+// It returns a Query that can be executed to get the results, which is a slice of Row objects.
+//
+// Each Row object contains the model object and a map of annotations.
+//
+// If no fields are provided, it selects all fields from the model, see `Select()` for more details.
+func (qs *QuerySet[T]) All() ([]*Row[T], error) {
+	if qs.cached != nil && qs.useCache {
+		return qs.cached.([]*Row[T]), nil
+	}
+
+	var resultQuery = qs.queryAll()
 	var results, err = resultQuery.Exec()
 	if err != nil {
 		return nil, err
@@ -1252,26 +1317,7 @@ func (qs *QuerySet[T]) ValuesList(fields ...any) ([][]interface{}, error) {
 		return qs.cached.([][]any), nil
 	}
 
-	if len(fields) > 0 {
-		*qs = *qs.Select(fields...)
-	}
-
-	var resultQuery = qs.compiler.BuildSelectQuery(
-		context.Background(),
-		ChangeObjectsType[T, attrs.Definer](qs),
-		qs.internals.Fields,
-		qs.internals.Where,
-		qs.internals.Having,
-		qs.internals.Joins,
-		qs.internals.GroupBy,
-		qs.internals.OrderBy,
-		qs.internals.Limit,
-		qs.internals.Offset,
-		qs.internals.ForUpdate,
-		qs.internals.Distinct,
-	)
-	qs.latestQuery = resultQuery
-
+	var resultQuery = qs.queryAll(fields...)
 	var results, err = resultQuery.Exec()
 	if err != nil {
 		return nil, err
@@ -1328,22 +1374,7 @@ func (qs *QuerySet[T]) Aggregate(annotations map[string]expr.Expression) (map[st
 		})
 	}
 
-	var query = qs.compiler.BuildSelectQuery(
-		context.Background(),
-		ChangeObjectsType[T, attrs.Definer](qs),
-		qs.internals.Fields,
-		qs.internals.Where,
-		qs.internals.Having,
-		qs.internals.Joins,
-		qs.internals.GroupBy,
-		nil,   // no order
-		1,     // just one row
-		0,     // no offset
-		false, // not for update
-		false, // not distinct
-	)
-	qs.latestQuery = query
-
+	var query = qs.queryAggregate()
 	var results, err = query.Exec()
 	if err != nil {
 		return nil, err
@@ -1530,17 +1561,7 @@ func (qs *QuerySet[T]) Exists() (bool, error) {
 //
 // It returns a CountQuery that can be executed to get the result, which is an int64 indicating the number of rows.
 func (qs *QuerySet[T]) Count() (int64, error) {
-	var q = qs.compiler.BuildCountQuery(
-		context.Background(),
-		ChangeObjectsType[T, attrs.Definer](qs),
-		qs.internals.Where,
-		qs.internals.Joins,
-		qs.internals.GroupBy,
-		qs.internals.Limit,
-		qs.internals.Offset,
-	)
-	qs.latestQuery = q
-
+	var q = qs.queryCount()
 	var count, err = q.Exec()
 	if err != nil {
 		return 0, err

@@ -406,7 +406,6 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 		g.writeWhereClause(query, model, where)...,
 	)
 
-	fmt.Println("args", args)
 	return &QueryObject[int64]{
 		sql:   g.queryInfo.DBX.Rebind(query.String()),
 		model: model,
@@ -472,12 +471,14 @@ func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) {
 		sb.WriteString(g.quote)
 		sb.WriteString(join.Table.Name)
 		sb.WriteString(g.quote)
+
 		if join.Table.Alias != "" {
 			sb.WriteString(" AS ")
 			sb.WriteString(g.quote)
 			sb.WriteString(join.Table.Alias)
 			sb.WriteString(g.quote)
 		}
+
 		sb.WriteString(" ON ")
 		sb.WriteString(join.ConditionA)
 		sb.WriteString(" ")

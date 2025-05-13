@@ -197,6 +197,10 @@ func (e *RawNamedExpression) Resolve(d driver.Driver, m attrs.Definer, quote str
 	var nE = e.Clone().(*RawNamedExpression)
 	nE.used = true
 
+	//if len(nE.Params) > 0 {
+	//	nE.Params = ResolveExpressionArgs(d, m, nE.Params, quote)
+	//}
+
 	for i, field := range nE.Fields {
 		nE.Fields[i] = ResolveExpressionField(m, field, quote, e.forUpdate)
 	}

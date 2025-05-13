@@ -647,56 +647,127 @@ func TestOneToOneWithThroughReverseIntoForward(t *testing.T) {
 	}
 }
 
-//
-//func TestOneToOneWithThroughNested(t *testing.T) {
-//	target := &OneToOneWithThrough_Target{
-//		Name: "NestedTarget",
-//		Age:  25,
-//	}
-//	if err := queries.CreateObject(target); err != nil {
-//		t.Fatalf("create target: %v", err)
-//	}
-//
-//	main := &OneToOneWithThrough{
-//		Title: "NestedMain",
-//	}
-//	if err := queries.CreateObject(main); err != nil {
-//		t.Fatalf("create main: %v", err)
-//	}
-//
-//	through := &OneToOneWithThrough_Through{
-//		SourceModel: main,
-//		TargetModel: target,
-//	}
-//	if err := queries.CreateObject(through); err != nil {
-//		t.Fatalf("create through: %v", err)
-//	}
-//
-//	// Nested: Target → Reverse → Target
-//	result, err := queries.Objects[attrs.Definer](&OneToOneWithThrough_Target{}).
-//		Select("ID", "Name", "TargetReverse.*", "TargetReverse.Target.*").
-//		Filter("ID", target.ID).
-//		First().
-//		Exec()
-//
-//	if err != nil {
-//		t.Fatalf("nested query failed: %v", err)
-//	}
-//
-//	obj := result.Object.(*OneToOneWithThrough_Target)
-//
-//	reverse, ok := obj.RelatedField("TargetReverse")
-//	if !ok || reverse == nil {
-//		t.Fatalf("expected Reverse relation")
-//	}
-//	mainObj := reverse.GetValue().(*OneToOneWithThrough)
-//	if mainObj == nil {
-//		t.Fatalf("expected main from reverse")
-//	}
-//
-//	relatedTarget := mainObj.Through
-//	if relatedTarget == nil || relatedTarget.ID != target.ID {
-//		t.Errorf("expected reloaded target ID %d, got %v", target.ID, relatedTarget)
-//	}
-//}
-//
+func TestOneToOneWithThroughNested(t *testing.T) {
+	target := &OneToOneWithThrough_Target{
+		Name: "NestedTarget",
+		Age:  25,
+	}
+	if err := queries.CreateObject(target); err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	main := &OneToOneWithThrough{
+		Title: "NestedMain",
+	}
+	if err := queries.CreateObject(main); err != nil {
+		t.Fatalf("create main: %v", err)
+	}
+
+	through := &OneToOneWithThrough_Through{
+		SourceModel: main,
+		TargetModel: target,
+	}
+	if err := queries.CreateObject(through); err != nil {
+		t.Fatalf("create through: %v", err)
+	}
+
+	// Nested: Target → Reverse → Target
+	result, err := queries.Objects[attrs.Definer](&OneToOneWithThrough_Target{}).
+		Select("ID", "Name", "TargetReverse.*", "TargetReverse.Target.*").
+		Filter("ID", target.ID).
+		First()
+
+	if err != nil {
+		t.Fatalf("nested query failed: %v", err)
+	}
+
+	obj := result.Object.(*OneToOneWithThrough_Target)
+
+	reverse, ok := obj.RelatedField("TargetReverse")
+	if !ok || reverse == nil {
+		t.Fatalf("expected Reverse relation")
+	}
+	mainObj := reverse.GetValue().(*OneToOneWithThrough)
+	if mainObj == nil {
+		t.Fatalf("expected main from reverse")
+	}
+
+	relatedTarget := mainObj.Through
+	if relatedTarget == nil || relatedTarget.ID != target.ID {
+		t.Errorf("expected reloaded target ID %d, got %v", target.ID, relatedTarget)
+	}
+}
+
+func TestOneToOneWithThroughDoubleNested(t *testing.T) {
+	target := &OneToOneWithThrough_Target{
+		Name: "DoubleNestedTarget",
+		Age:  25,
+	}
+	if err := queries.CreateObject(target); err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	main := &OneToOneWithThrough{
+		Title: "DoubleNestedMain",
+	}
+	if err := queries.CreateObject(main); err != nil {
+		t.Fatalf("create main: %v", err)
+	}
+
+	through := &OneToOneWithThrough_Through{
+		SourceModel: main,
+		TargetModel: target,
+	}
+	if err := queries.CreateObject(through); err != nil {
+		t.Fatalf("create through: %v", err)
+	}
+
+	// Nested: Target → Reverse → Target
+	result, err := queries.Objects[attrs.Definer](&OneToOneWithThrough_Target{}).
+		Select("ID", "Name",
+			"TargetReverse.*",
+			"TargetReverse.Target.*",
+			"TargetReverse.Target.TargetReverse.*",
+			"TargetReverse.Target.TargetReverse.Target.*",
+		).
+		Filter("ID", target.ID).
+		First()
+
+	if err != nil {
+		t.Fatalf("nested query failed: %v", err)
+	}
+
+	obj := result.Object.(*OneToOneWithThrough_Target)
+
+	reverse, ok := obj.RelatedField("TargetReverse")
+	if !ok || reverse == nil {
+		t.Fatalf("expected Reverse relation")
+	}
+	mainObj := reverse.GetValue().(*OneToOneWithThrough)
+	if mainObj == nil {
+		t.Fatalf("expected main from reverse")
+	}
+
+	relatedTarget := mainObj.Through
+	if relatedTarget == nil || relatedTarget.ID != target.ID {
+		t.Errorf("expected reloaded target ID %d, got %v", target.ID, relatedTarget)
+	}
+
+	relatedReverse, ok := relatedTarget.RelatedField("TargetReverse")
+	if !ok || relatedReverse == nil {
+		t.Fatalf("expected Reverse relation")
+		return
+	}
+
+	relatedMain := relatedReverse.GetValue().(*OneToOneWithThrough)
+	if relatedMain == nil {
+		t.Fatalf("expected main from reverse")
+		return
+	}
+
+	relatedRelatedTarget := relatedMain.Through
+	if relatedRelatedTarget == nil || relatedRelatedTarget.ID != target.ID {
+		t.Errorf("expected reloaded target ID %d, got %v", target.ID, relatedRelatedTarget)
+		return
+	}
+}

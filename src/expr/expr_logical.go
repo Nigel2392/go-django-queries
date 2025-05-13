@@ -75,6 +75,7 @@ func (e *ExprNode) Resolve(d driver.Driver, m attrs.Definer, quote string) Expre
 		)
 		err error
 	)
+	// nE.args = ResolveExpressionArgs(d, m, nE.args, quote)
 	nE.sql, nE.args, err = typeLookups.lookup(
 		d, col, nE.lookup, slices.Clone(nE.args),
 	)

@@ -78,6 +78,25 @@ const (
     FOREIGN KEY(source_id) REFERENCES onetoonewiththrough(id),
     FOREIGN KEY(target_id) REFERENCES onetoonewiththrough_target(id)
 )`
+	createTableModelManyToMany = `CREATE TABLE model_manytomany (
+    id INTEGER PRIMARY KEY,
+    title TEXT,
+	user_id INTEGER
+)`
+
+	createTableModelManyToMany_target = `CREATE TABLE model_manytomany_target (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    age INTEGER
+)`
+
+	createTableModelManyToMany_through = `CREATE TABLE model_manytomany_through (
+    id INTEGER PRIMARY KEY,
+    source_id INTEGER NOT NULL,
+    target_id INTEGER NOT NULL,
+    FOREIGN KEY(source_id) REFERENCES model_manytomany(id),
+    FOREIGN KEY(target_id) REFERENCES model_manytomany_target(id)
+)`
 
 	selectTodo = `SELECT id, title, description, done, user_id FROM todos WHERE id = ?`
 )
@@ -314,6 +333,84 @@ func (t *OneToOneWithThrough_Target) FieldDefs() attrs.Definitions {
 	).WithTableName("onetoonewiththrough_target")
 }
 
+type ModelManyToMany struct {
+	models.Model
+	ID      int64
+	Title   string
+	Through *ModelManyToMany_Target
+	User    *User
+}
+
+func (t *ModelManyToMany) FieldDefs() attrs.Definitions {
+	return t.Model.Define(t,
+		attrs.NewField(t, "ID", &attrs.FieldConfig{
+			Column:  "id",
+			Primary: true,
+		}),
+		attrs.NewField(t, "Title", &attrs.FieldConfig{
+			Column: "title",
+		}),
+		fields.NewOneToOneField[*ModelManyToMany_Target](t, &t.Through, "Target", "TargetReverse", "id", attrs.Relate(
+			&ModelManyToMany_Target{},
+			"", &attrs.ThroughModel{
+				This:   &ModelManyToMany_Target{},
+				Source: "SourceModel",
+				Target: "TargetModel",
+			},
+		)),
+		attrs.NewField(t, "User", &attrs.FieldConfig{
+			Column:        "user_id",
+			RelForeignKey: attrs.Relate(&User{}, "", nil),
+		}),
+	).WithTableName("model_manytomany")
+}
+
+type ModelManyToMany_Through struct {
+	models.Model
+	ID          int64
+	SourceModel *ModelManyToMany
+	TargetModel *ModelManyToMany_Target
+}
+
+func (t *ModelManyToMany_Through) FieldDefs() attrs.Definitions {
+	return t.Model.Define(t,
+		attrs.NewField(t, "ID", &attrs.FieldConfig{
+			Column:  "id",
+			Primary: true,
+		}),
+		attrs.NewField(t, "SourceModel", &attrs.FieldConfig{
+			Column: "source_id",
+			Null:   false,
+		}),
+		attrs.NewField(t, "TargetModel", &attrs.FieldConfig{
+			Column: "target_id",
+			Null:   false,
+		}),
+	).WithTableName("model_manytomany_through")
+}
+
+type ModelManyToMany_Target struct {
+	models.Model
+	ID   int64
+	Name string
+	Age  int
+}
+
+func (t *ModelManyToMany_Target) FieldDefs() attrs.Definitions {
+	return t.Model.Define(t,
+		attrs.NewField(t, "ID", &attrs.FieldConfig{
+			Column:  "id",
+			Primary: true,
+		}),
+		attrs.NewField(t, "Name", &attrs.FieldConfig{
+			Column: "name",
+		}),
+		attrs.NewField(t, "Age", &attrs.FieldConfig{
+			Column: "age",
+		}),
+	).WithTableName("model_manytomany_target")
+}
+
 func init() {
 	// make db globally available
 	var db, err = sql.Open("sqlite3", "file:queries_memory?mode=memory&cache=shared")
@@ -361,15 +458,32 @@ func init() {
 		panic(fmt.Sprint("failed to create table onetoonewiththrough_through ", err))
 	}
 
+	if _, err = db.Exec(createTableModelManyToMany); err != nil {
+		panic(fmt.Sprint("failed to create table model_manytomany ", err))
+	}
+
+	if _, err = db.Exec(createTableModelManyToMany_target); err != nil {
+		panic(fmt.Sprint("failed to create table model_manytomany_target ", err))
+	}
+
+	if _, err = db.Exec(createTableModelManyToMany_through); err != nil {
+		panic(fmt.Sprint("failed to create table model_manytomany_through ", err))
+	}
+
 	attrs.RegisterModel(&User{})
 	attrs.RegisterModel(&Todo{})
 	attrs.RegisterModel(&Profile{})
 	attrs.RegisterModel(&Image{})
 	attrs.RegisterModel(&ObjectWithMultipleRelations{})
 	attrs.RegisterModel(&Category{})
+
 	attrs.RegisterModel(&OneToOneWithThrough{})
 	attrs.RegisterModel(&OneToOneWithThrough_Through{})
 	attrs.RegisterModel(&OneToOneWithThrough_Target{})
+
+	attrs.RegisterModel(&ModelManyToMany{})
+	attrs.RegisterModel(&ModelManyToMany_Through{})
+	attrs.RegisterModel(&ModelManyToMany_Target{})
 
 	logger.Setup(&logger.Logger{
 		Level:       logger.DBG,

@@ -158,6 +158,11 @@ func (l *_lookups[T1]) lookup(driver driver.Driver, col T1, lookup string, value
 	}
 
 	if l.onBeforeLookup != nil {
+		var err error
+		col, value, err = l.onBeforeLookup(col, lookup, value)
+		if err != nil {
+			return "", nil, err
+		}
 	}
 
 	var sql, args, err = fn(col, value)
@@ -195,14 +200,14 @@ func RegisterLookup(lookup string, fn func(col string, value []any) (sql string,
 var funcLookups = &_lookups[any]{
 	m:   make(map[string]func(col any, value []any) (sql string, args []any, err error)),
 	d_m: make(map[reflect.Type]map[string]func(col any, value []any) (sql string, args []any, err error)),
-	onBeforeLookup: func(col any, lookup string, value []any) (any, []any, error) {
+	onBeforeLookup: func(col any, _ string, value []any) (any, []any, error) {
 		switch c := col.(type) {
 		case string:
 			return c, value, nil
 		case Expression:
 			var sb strings.Builder
 			var args = c.SQL(&sb)
-			return sb.String(), args, nil
+			return sb.String(), append(args, value...), nil
 		default:
 			return "", nil, fmt.Errorf("unsupported column type %T", col)
 		}

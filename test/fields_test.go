@@ -828,3 +828,49 @@ func TestWhereFilterVirtualFieldAliassed(t *testing.T) {
 		t.Errorf("expected TestNameText = 'TestWhereFilterVirtualFieldAliassed TestWhereFilterVirtualFieldAliassed test', got %v", rows[0].Annotations["TestNameText"])
 	}
 }
+
+func TestSubquery(t *testing.T) {
+	var test = &TestStruct{
+		Name: "TestSubquery",
+		Text: "TestSubquery",
+	}
+
+	if err := queries.CreateObject(test); err != nil {
+		t.Fatalf("Failed to create object: %v", err)
+		return
+	}
+
+	var qs = queries.Objects[attrs.Definer](test).
+		Select("Name").Filter("ID", test.ID)
+
+	var rows, err = queries.Objects[attrs.Definer](&TestStruct{}).
+		Select("*").
+		Filter(queries.SubqueryIn("Name", qs)).
+		All()
+
+	if err != nil {
+		t.Fatalf("Failed to execute query: %v", err)
+	}
+
+	if len(rows) == 0 {
+		t.Fatal("expected at least one result")
+		return
+	}
+
+	if rows[0].Object.(*TestStruct).ID != test.ID {
+		t.Errorf("expected ID = %d, got %d", test.ID, rows[0].Object.(*TestStruct).ID)
+		return
+	}
+
+	if rows[0].Object.(*TestStruct).Name != test.Name {
+		t.Errorf("expected Name = %q, got %q", test.Name, rows[0].Object.(*TestStruct).Name)
+		return
+	}
+
+	if rows[0].Object.(*TestStruct).Text != test.Text {
+		t.Errorf("expected Text = %q, got %q", test.Text, rows[0].Object.(*TestStruct).Text)
+		return
+	}
+
+	t.Logf("Row: %#v", rows[0].Object.(*TestStruct))
+}

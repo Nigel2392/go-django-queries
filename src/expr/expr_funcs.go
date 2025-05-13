@@ -106,6 +106,10 @@ func (e *Func) Resolve(d driver.Driver, m attrs.Definer, quote string) Expressio
 		nE.field = ResolveExpressionField(m, nE.field, quote, e.forUpdate)
 	}
 
+	//if len(nE.args) > 0 {
+	//	nE.args = ResolveExpressionArgs(d, m, nE.args, quote)
+	//}
+
 	return nE
 }
 

@@ -11,7 +11,10 @@ import (
 	"github.com/Nigel2392/go-django/src/forms/fields"
 )
 
-var _ VirtualField = &queryField[any]{}
+var (
+	_ VirtualField = &queryField[any]{}
+	_ VirtualField = &exprField{}
+)
 
 type queryField[T any] struct {
 	name  string

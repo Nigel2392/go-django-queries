@@ -1,6 +1,7 @@
 package expr
 
 import (
+	"database/sql/driver"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -15,6 +16,16 @@ var (
 	exprValueRegex = regexp.MustCompile(`\?\[([^\]][0-9]*)\]`)
 )
 
+// The statement should contain placeholders for the fields and values, which will be replaced with the actual values.
+//
+// The placeholders for fields should be in the format ![FieldName], and the placeholders for values should be in the format ?[Index],
+// or the values should use the regular SQL placeholder directly (database driver dependent).
+//
+// Example usage:
+//
+//	 # sets the field name to the first field found in the statement, I.E. ![Field1]:
+//
+//		stmt, fields, values := ParseExprStatement("![Field1] = ![Age] + ?[1] + ![Height] + ?[2] * ?[1]", 3, 4)
 func ParseExprStatement(statement string, value []any) (newStatement string, fields []string, values []any) {
 	fields = make([]string, 0)
 	for _, m := range exprFieldRegex.FindAllStringSubmatch(statement, -1) {
@@ -77,6 +88,30 @@ func Express(key interface{}, vals ...interface{}) []LogicalExpression {
 	default:
 		panic(fmt.Errorf("unsupported type %T", key))
 	}
+}
+
+func ResolveExpressionArgs(d driver.Driver, m attrs.Definer, arguments []any, quote string) []any {
+	var args = make([]any, 0, len(arguments))
+
+	for _, arg := range arguments {
+
+		if expr, ok := arg.(Expression); ok {
+			var (
+				sb    strings.Builder
+				exCpy = expr.Resolve(d, m, quote)
+				extra = exCpy.SQL(&sb)
+				sql   = sb.String()
+			)
+
+			args = append(args, sql)
+			args = append(args, extra...)
+			continue
+		}
+
+		args = append(args, arg)
+	}
+
+	return args
 }
 
 func ResolveExpressionField(m attrs.Definer, field string, quote string, forUpdate bool) string {

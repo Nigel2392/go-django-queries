@@ -352,6 +352,12 @@ func (qs *QuerySet[T]) Clone() *QuerySet[T] {
 	}
 }
 
+// Prefix sets the prefix for the alias generator
+func (qs *QuerySet[T]) Prefix(prefix string) *QuerySet[T] {
+	qs.AliasGen.Prefix = prefix
+	return qs
+}
+
 // Return the string representation of the QuerySet.
 func (w *QuerySet[T]) String() string {
 	var sb = strings.Builder{}

@@ -115,6 +115,10 @@ func init() {
 		col := c.(string)
 		return fmt.Sprintf("UPPER(%s)", col), value, nil
 	})
+	RegisterFunc("LOWER", func(c any, value []any) (sql string, args []any, err error) {
+		col := c.(string)
+		return fmt.Sprintf("LOWER(%s)", col), value, nil
+	})
 	RegisterFunc("LENGTH", func(c any, value []any) (sql string, args []any, err error) {
 		col := c.(string)
 		return fmt.Sprintf("LENGTH(%s)", col), value, nil

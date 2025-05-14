@@ -30,6 +30,7 @@ func NewGenerator() *Generator {
 
 func (a *Generator) Clone() *Generator {
 	return &Generator{
+		Prefix:  a.Prefix,
 		counter: a.counter,
 		mapping: maps.Clone(a.mapping),
 	}
@@ -70,18 +71,19 @@ func (a *Generator) GetTableAlias(currentTable string, chainorKey any) string {
 		panic(fmt.Sprintf("unsupported type %T for (*Generator).GetAlias(...)", v))
 	}
 
-	if key == "" && currentTable != "" {
-		return currentTable
-	}
-
-	if alias, ok := a.mapping[key]; ok {
-		return alias
-	}
-
 	var aliasBuilder strings.Builder
 	if a.Prefix != "" {
 		aliasBuilder.WriteString(a.Prefix)
 		aliasBuilder.WriteString("_")
+	}
+
+	if key == "" && currentTable != "" {
+		aliasBuilder.WriteString(currentTable)
+		return aliasBuilder.String()
+	}
+
+	if alias, ok := a.mapping[key]; ok {
+		return alias
 	}
 
 	if currentTable != "" {

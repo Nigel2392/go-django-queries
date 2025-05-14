@@ -169,6 +169,10 @@ func FuncUpper(expr any) *Func {
 	return newFunc("UPPER", []any{}, expr)
 }
 
+func FuncLower(expr any) *Func {
+	return newFunc("LOWER", []any{}, expr)
+}
+
 func FuncLength(expr any) *Func {
 	return newFunc("LENGTH", []any{}, expr)
 }

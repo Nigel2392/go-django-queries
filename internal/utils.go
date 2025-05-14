@@ -98,7 +98,7 @@ func NewJoinAlias(field attrs.Field, tableName string, chain []string) string {
 }
 
 // generate an alias for fields.AliasField
-func NewAlias(tableAlias, alias string) string {
+func NewFieldAlias(tableAlias, alias string) string {
 	if tableAlias == "" {
 		return alias
 	}

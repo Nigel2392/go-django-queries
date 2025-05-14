@@ -112,6 +112,11 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 		query = new(strings.Builder)
 		args  []any
 		model = qs.Model()
+		inf   = &expr.ExpressionInfo{
+			Driver: g.driver,
+			Model:  qs.Model(),
+			Quote:  g.quote,
+		}
 	)
 
 	query.WriteString("SELECT ")
@@ -127,15 +132,15 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 
 		args = append(
 			args, info.WriteFields(
-				query, g.driver, model, g.quote)...)
+				query, inf)...)
 	}
 
 	query.WriteString(" FROM ")
 	g.writeTableName(query)
 	g.writeJoins(query, joins)
-	args = append(args, g.writeWhereClause(query, model, where)...)
-	g.writeGroupBy(query, groupBy)
-	args = append(args, g.writeHaving(query, model, having)...)
+	args = append(args, g.writeWhereClause(query, inf, where)...)
+	g.writeGroupBy(query, inf, groupBy)
+	args = append(args, g.writeHaving(query, inf, having)...)
 	g.writeOrderBy(query, orderBy)
 	args = append(args, g.writeLimitOffset(query, limit, offset)...)
 
@@ -199,14 +204,18 @@ func (g *genericQueryBuilder) BuildCountQuery(
 	limit int,
 	offset int,
 ) CompiledQuery[int64] {
-
+	var inf = &expr.ExpressionInfo{
+		Driver: g.driver,
+		Model:  qs.Model(),
+		Quote:  g.quote,
+	}
 	var model = qs.Model()
 	var query = new(strings.Builder)
 	query.WriteString("SELECT COUNT(*) FROM ")
 	g.writeTableName(query)
 	g.writeJoins(query, joins)
-	args := g.writeWhereClause(query, model, where)
-	g.writeGroupBy(query, groupBy)
+	args := g.writeWhereClause(query, inf, where)
+	g.writeGroupBy(query, inf, groupBy)
 	args = append(args, g.writeLimitOffset(query, limit, offset)...)
 
 	return &QueryObject[int64]{
@@ -369,6 +378,11 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 	groupBy []FieldInfo,
 	values []any,
 ) CompiledQuery[int64] {
+	var inf = &expr.ExpressionInfo{
+		Driver: g.driver,
+		Model:  qs.Model(),
+		Quote:  g.quote,
+	}
 	var model = qs.Model()
 	var query = new(strings.Builder)
 	query.WriteString("UPDATE ")
@@ -386,7 +400,7 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 		}
 
 		var a, isSQL, ok = fields.WriteField(
-			query, g.driver, model, g.quote, field, true,
+			query, inf, field, true,
 		)
 		written = ok || written
 		if !ok {
@@ -403,7 +417,7 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 
 	args = append(
 		args,
-		g.writeWhereClause(query, model, where)...,
+		g.writeWhereClause(query, inf, where)...,
 	)
 
 	return &QueryObject[int64]{
@@ -427,6 +441,11 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 	joins []JoinDef,
 	groupBy []FieldInfo,
 ) CompiledQuery[int64] {
+	var inf = &expr.ExpressionInfo{
+		Driver: g.driver,
+		Model:  qs.Model(),
+		Quote:  g.quote,
+	}
 	var model = qs.Model()
 	var query = new(strings.Builder)
 	query.WriteString("DELETE FROM ")
@@ -438,10 +457,10 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 	var args = make([]any, 0)
 	args = append(
 		args,
-		g.writeWhereClause(query, model, where)...,
+		g.writeWhereClause(query, inf, where)...,
 	)
 
-	g.writeGroupBy(query, groupBy)
+	g.writeGroupBy(query, inf, groupBy)
 
 	return &QueryObject[int64]{
 		sql:   g.queryInfo.DBX.Rebind(query.String()),
@@ -488,18 +507,18 @@ func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) {
 	}
 }
 
-func (g *genericQueryBuilder) writeWhereClause(sb *strings.Builder, model attrs.Definer, where []expr.LogicalExpression) []any {
+func (g *genericQueryBuilder) writeWhereClause(sb *strings.Builder, inf *expr.ExpressionInfo, where []expr.LogicalExpression) []any {
 	var args = make([]any, 0)
 	if len(where) > 0 {
 		sb.WriteString(" WHERE ")
 		args = append(
-			args, buildWhereClause(sb, g.driver, model, g.quote, where)...,
+			args, buildWhereClause(sb, inf, where)...,
 		)
 	}
 	return args
 }
 
-func (g *genericQueryBuilder) writeGroupBy(sb *strings.Builder, groupBy []FieldInfo) {
+func (g *genericQueryBuilder) writeGroupBy(sb *strings.Builder, inf *expr.ExpressionInfo, groupBy []FieldInfo) {
 	if len(groupBy) > 0 {
 		sb.WriteString(" GROUP BY ")
 		for i, info := range groupBy {
@@ -507,17 +526,17 @@ func (g *genericQueryBuilder) writeGroupBy(sb *strings.Builder, groupBy []FieldI
 				sb.WriteString(", ")
 			}
 
-			info.WriteFields(sb, g.driver, nil, g.quote)
+			info.WriteFields(sb, inf)
 		}
 	}
 }
 
-func (g *genericQueryBuilder) writeHaving(sb *strings.Builder, model attrs.Definer, having []expr.LogicalExpression) []any {
+func (g *genericQueryBuilder) writeHaving(sb *strings.Builder, inf *expr.ExpressionInfo, having []expr.LogicalExpression) []any {
 	var args = make([]any, 0)
 	if len(having) > 0 {
 		sb.WriteString(" HAVING ")
 		args = append(
-			args, buildWhereClause(sb, g.driver, model, g.quote, having)...,
+			args, buildWhereClause(sb, inf, having)...,
 		)
 	}
 	return args
@@ -577,10 +596,10 @@ func (g *genericQueryBuilder) writeLimitOffset(sb *strings.Builder, limit int, o
 // Helpers
 // -----------------------------------------------------------------------------
 
-func buildWhereClause(b *strings.Builder, d driver.Driver, model attrs.Definer, quote string, exprs []expr.LogicalExpression) []any {
+func buildWhereClause(b *strings.Builder, inf *expr.ExpressionInfo, exprs []expr.LogicalExpression) []any {
 	var args = make([]any, 0)
 	for i, e := range exprs {
-		e := e.Resolve(d, model, quote)
+		e := e.Resolve(inf)
 		var a = e.SQL(b)
 		if i < len(exprs)-1 {
 			b.WriteString(" AND ")

@@ -28,7 +28,7 @@ type AliasField interface {
 }
 
 type VirtualField interface {
-	SQL(d driver.Driver, m attrs.Definer, quote string) (string, []any)
+	SQL(inf *expr.ExpressionInfo) (string, []any)
 }
 
 type InjectorField interface {

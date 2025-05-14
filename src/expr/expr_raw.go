@@ -1,12 +1,9 @@
 package expr
 
 import (
-	"database/sql/driver"
 	"fmt"
 	"slices"
 	"strings"
-
-	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
 // RawExpr is a function expression for SQL queries.
@@ -189,8 +186,8 @@ func (e *RawNamedExpression) Clone() Expression {
 	}
 }
 
-func (e *RawNamedExpression) Resolve(d driver.Driver, m attrs.Definer, quote string) Expression {
-	if m == nil || e.used {
+func (e *RawNamedExpression) Resolve(inf *ExpressionInfo) Expression {
+	if inf.Model == nil || e.used {
 		return e
 	}
 
@@ -202,7 +199,7 @@ func (e *RawNamedExpression) Resolve(d driver.Driver, m attrs.Definer, quote str
 	//}
 
 	for i, field := range nE.Fields {
-		nE.Fields[i] = ResolveExpressionField(m, field, quote, e.forUpdate)
+		nE.Fields[i] = ResolveExpressionField(inf, field, e.forUpdate)
 	}
 
 	return nE

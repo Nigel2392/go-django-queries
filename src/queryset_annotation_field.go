@@ -29,9 +29,9 @@ func newQueryField[T any](name string, expr expr.Expression) *queryField[T] {
 // VirtualField
 
 func (q *queryField[T]) Alias() string { return q.name }
-func (q *queryField[T]) SQL(d driver.Driver, m attrs.Definer, quote string) (string, []any) {
+func (q *queryField[T]) SQL(inf *expr.ExpressionInfo) (string, []any) {
 	var sqlBuilder = &strings.Builder{}
-	var expr = q.expr.Resolve(d, m, quote)
+	var expr = q.expr.Resolve(inf)
 	var args = expr.SQL(sqlBuilder)
 	return sqlBuilder.String(), args
 }
@@ -73,9 +73,9 @@ type exprField struct {
 	expr expr.Expression
 }
 
-func (e *exprField) SQL(d driver.Driver, m attrs.Definer, quote string) (string, []any) {
+func (e *exprField) SQL(inf *expr.ExpressionInfo) (string, []any) {
 	var sqlBuilder = &strings.Builder{}
-	var expr = e.expr.Resolve(d, m, quote)
+	var expr = e.expr.Resolve(inf)
 	var args = expr.SQL(sqlBuilder)
 	return sqlBuilder.String(), args
 }

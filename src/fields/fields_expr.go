@@ -1,7 +1,6 @@
 package fields
 
 import (
-	"database/sql/driver"
 	"strings"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
@@ -30,11 +29,11 @@ func (f *ExpressionField[T]) Alias() string {
 	return f.DataModelField.Name()
 }
 
-func (f *ExpressionField[T]) SQL(d driver.Driver, m attrs.Definer, quote string) (string, []any) {
+func (f *ExpressionField[T]) SQL(inf *expr.ExpressionInfo) (string, []any) {
 	if f.expr == nil {
 		return "", nil
 	}
-	var expr = f.expr.Resolve(d, m, quote)
+	var expr = f.expr.Resolve(inf)
 	var sb strings.Builder
 	var args = expr.SQL(&sb)
 	return sb.String(), args

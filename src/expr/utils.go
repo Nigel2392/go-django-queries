@@ -1,14 +1,12 @@
 package expr
 
 import (
-	"database/sql/driver"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/internal"
-	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
 var (
@@ -90,7 +88,7 @@ func Express(key interface{}, vals ...interface{}) []LogicalExpression {
 	}
 }
 
-func ResolveExpressionArgs(d driver.Driver, m attrs.Definer, arguments []any, quote string) []any {
+func ResolveExpressionArgs(inf *ExpressionInfo, arguments []any) []any {
 	var args = make([]any, 0, len(arguments))
 
 	for _, arg := range arguments {
@@ -98,7 +96,7 @@ func ResolveExpressionArgs(d driver.Driver, m attrs.Definer, arguments []any, qu
 		if expr, ok := arg.(Expression); ok {
 			var (
 				sb    strings.Builder
-				exCpy = expr.Resolve(d, m, quote)
+				exCpy = expr.Resolve(inf)
 				extra = exCpy.SQL(&sb)
 				sql   = sb.String()
 			)
@@ -114,13 +112,13 @@ func ResolveExpressionArgs(d driver.Driver, m attrs.Definer, arguments []any, qu
 	return args
 }
 
-func ResolveExpressionField(m attrs.Definer, field string, quote string, forUpdate bool) string {
-	var current, _, f, _, aliases, isRelated, err = internal.WalkFields(m, field)
+func ResolveExpressionField(inf *ExpressionInfo, field string, forUpdate bool) string {
+	var current, _, f, chain, aliases, isRelated, err = internal.WalkFields(inf.Model, field)
 	if err != nil {
 		panic(err)
 	}
 
-	if (!forUpdate) || (isRelated || len(aliases) > 0) {
+	if (!forUpdate) || (isRelated || len(chain) > 0) {
 		var aliasStr string
 		if len(aliases) > 0 {
 			aliasStr = aliases[len(aliases)-1]
@@ -132,13 +130,15 @@ func ResolveExpressionField(m attrs.Definer, field string, quote string, forUpda
 		if vF, ok := f.(interface{ Alias() string }); ok {
 			col = fmt.Sprintf(
 				"%s%s%s",
-				quote, internal.NewAlias(aliasStr, vF.Alias()), quote,
+				inf.Quote,
+				internal.NewFieldAlias(aliasStr, vF.Alias()),
+				inf.Quote,
 			)
 		} else {
 			col = fmt.Sprintf(
 				"%s%s%s.%s%s%s",
-				quote, aliasStr, quote,
-				quote, f.ColumnName(), quote,
+				inf.Quote, aliasStr, inf.Quote,
+				inf.Quote, f.ColumnName(), inf.Quote,
 			)
 		}
 		return col
@@ -146,7 +146,7 @@ func ResolveExpressionField(m attrs.Definer, field string, quote string, forUpda
 
 	return fmt.Sprintf(
 		"%s%s%s",
-		quote, f.ColumnName(), quote,
+		inf.Quote, f.ColumnName(), inf.Quote,
 	)
 }
 

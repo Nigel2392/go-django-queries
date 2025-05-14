@@ -1,12 +1,9 @@
 package expr
 
 import (
-	"database/sql/driver"
 	"fmt"
 	"slices"
 	"strings"
-
-	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
 type Func struct {
@@ -80,8 +77,8 @@ func (e *Func) Clone() Expression {
 	}
 }
 
-func (e *Func) Resolve(d driver.Driver, m attrs.Definer, quote string) Expression {
-	if m == nil || e.used {
+func (e *Func) Resolve(inf *ExpressionInfo) Expression {
+	if inf.Model == nil || e.used {
 		return e
 	}
 
@@ -90,20 +87,20 @@ func (e *Func) Resolve(d driver.Driver, m attrs.Definer, quote string) Expressio
 
 	if len(nE.inner) > 0 {
 		for i, inner := range nE.inner {
-			nE.inner[i] = inner.Resolve(d, m, quote)
+			nE.inner[i] = inner.Resolve(inf)
 		}
 	}
 
 	var ok bool
 	nE.sql, ok = funcLookups.lookupFunc(
-		d, nE.funcLookup,
+		inf.Driver, nE.funcLookup,
 	)
 	if !ok {
 		panic(fmt.Errorf("could not resolve SQL function %s", nE.funcLookup))
 	}
 
 	if nE.field != "" {
-		nE.field = ResolveExpressionField(m, nE.field, quote, e.forUpdate)
+		nE.field = ResolveExpressionField(inf, nE.field, e.forUpdate)
 	}
 
 	//if len(nE.args) > 0 {

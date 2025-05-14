@@ -7,10 +7,16 @@ import (
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
+type ExpressionInfo struct {
+	Driver driver.Driver
+	Model  attrs.Definer
+	Quote  string
+}
+
 type Expression interface {
 	SQL(sb *strings.Builder) []any
 	Clone() Expression
-	Resolve(d driver.Driver, model attrs.Definer, quote string) Expression
+	Resolve(inf *ExpressionInfo) Expression
 }
 
 type LogicalExpression interface {

@@ -2,7 +2,6 @@ package queries
 
 import (
 	"context"
-	"database/sql/driver"
 	"fmt"
 	"maps"
 	"reflect"
@@ -58,7 +57,7 @@ type OrderBy struct {
 	Desc  bool
 }
 
-func (f *FieldInfo) WriteFields(sb *strings.Builder, d driver.Driver, m attrs.Definer, quote string) []any {
+func (f *FieldInfo) WriteFields(sb *strings.Builder, inf *expr.ExpressionInfo) []any {
 	var args = make([]any, 0, len(f.Fields))
 	var written bool
 	for _, field := range f.Fields {
@@ -66,7 +65,7 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, d driver.Driver, m attrs.De
 			sb.WriteString(", ")
 		}
 
-		var a, _, ok = f.WriteField(sb, d, m, quote, field, false)
+		var a, _, ok = f.WriteField(sb, inf, field, false)
 		written = ok || written
 		if !ok {
 			continue
@@ -78,7 +77,7 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, d driver.Driver, m attrs.De
 	return args
 }
 
-func (f *FieldInfo) WriteUpdateFields(sb *strings.Builder, d driver.Driver, m attrs.Definer, quote string) []any {
+func (f *FieldInfo) WriteUpdateFields(sb *strings.Builder, inf *expr.ExpressionInfo) []any {
 	var args = make([]any, 0, len(f.Fields))
 	var written bool
 	for _, field := range f.Fields {
@@ -86,7 +85,7 @@ func (f *FieldInfo) WriteUpdateFields(sb *strings.Builder, d driver.Driver, m at
 			sb.WriteString(", ")
 		}
 
-		var a, _, ok = f.WriteField(sb, d, m, quote, field, true)
+		var a, _, ok = f.WriteField(sb, inf, field, true)
 		written = ok || written
 		if !ok {
 			continue
@@ -98,10 +97,10 @@ func (f *FieldInfo) WriteUpdateFields(sb *strings.Builder, d driver.Driver, m at
 	return args
 }
 
-func (f *FieldInfo) WriteField(sb *strings.Builder, d driver.Driver, m attrs.Definer, quote string, field attrs.Field, forUpdate bool) (args []any, isSQL, written bool) {
-	var alias string
+func (f *FieldInfo) WriteField(sb *strings.Builder, inf *expr.ExpressionInfo, field attrs.Field, forUpdate bool) (args []any, isSQL, written bool) {
+	var fieldAlias string
 	if ve, ok := field.(AliasField); ok && !forUpdate {
-		alias = ve.Alias()
+		fieldAlias = ve.Alias()
 	}
 
 	var tableAlias string
@@ -111,21 +110,21 @@ func (f *FieldInfo) WriteField(sb *strings.Builder, d driver.Driver, m attrs.Def
 		tableAlias = f.Table.Alias
 	}
 
-	if ve, ok := field.(VirtualField); ok && m != nil {
-		var sql, a = ve.SQL(d, m, quote)
+	if ve, ok := field.(VirtualField); ok && inf.Model != nil {
+		var sql, a = ve.SQL(inf)
 		if sql == "" {
 			return nil, true, false
 		}
 
 		sb.WriteString(sql)
 
-		if alias != "" && !forUpdate {
+		if fieldAlias != "" && !forUpdate {
 			sb.WriteString(" AS ")
-			sb.WriteString(quote)
-			sb.WriteString(internal.NewAlias(
-				tableAlias, alias,
+			sb.WriteString(inf.Quote)
+			sb.WriteString(internal.NewFieldAlias(
+				tableAlias, fieldAlias,
 			))
-			sb.WriteString(quote)
+			sb.WriteString(inf.Quote)
 		}
 
 		args = append(args, a...)
@@ -133,7 +132,7 @@ func (f *FieldInfo) WriteField(sb *strings.Builder, d driver.Driver, m attrs.Def
 	}
 
 	if !forUpdate {
-		sb.WriteString(quote)
+		sb.WriteString(inf.Quote)
 
 		if f.Table.Alias == "" {
 			sb.WriteString(f.Table.Name)
@@ -141,13 +140,13 @@ func (f *FieldInfo) WriteField(sb *strings.Builder, d driver.Driver, m attrs.Def
 			sb.WriteString(f.Table.Alias)
 		}
 
-		sb.WriteString(quote)
+		sb.WriteString(inf.Quote)
 		sb.WriteString(".")
 	}
 
-	sb.WriteString(quote)
+	sb.WriteString(inf.Quote)
 	sb.WriteString(field.ColumnName())
-	sb.WriteString(quote)
+	sb.WriteString(inf.Quote)
 
 	if forUpdate {
 		sb.WriteString(" = ?")
@@ -1023,7 +1022,7 @@ func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
 
 		var alias string
 		if vF, ok := field.(AliasField); ok {
-			alias = internal.NewAlias(
+			alias = internal.NewFieldAlias(
 				tableAlias, vF.Alias(),
 			)
 		}

@@ -1,7 +1,6 @@
 package expr
 
 import (
-	"database/sql/driver"
 	"slices"
 	"strings"
 
@@ -55,10 +54,10 @@ func Expr(field string, operation string, value ...any) *ExprNode {
 	}
 }
 
-func (e *ExprNode) Resolve(d driver.Driver, m attrs.Definer, quote string) Expression {
+func (e *ExprNode) Resolve(inf *ExpressionInfo) Expression {
 	var nE = e.Clone().(*ExprNode)
 
-	if m == nil {
+	if inf.Model == nil {
 		panic("model is nil")
 	}
 
@@ -67,17 +66,17 @@ func (e *ExprNode) Resolve(d driver.Driver, m attrs.Definer, quote string) Expre
 	}
 
 	nE.used = true
-	nE.model = m
+	nE.model = inf.Model
 
 	var (
 		col = ResolveExpressionField(
-			m, nE.field, quote, false,
+			inf, nE.field, false,
 		)
 		err error
 	)
 	// nE.args = ResolveExpressionArgs(d, m, nE.args, quote)
 	nE.sql, nE.args, err = typeLookups.lookup(
-		d, col, nE.lookup, slices.Clone(nE.args),
+		inf.Driver, col, nE.lookup, slices.Clone(nE.args),
 	)
 
 	if err != nil {
@@ -182,10 +181,10 @@ func (g *ExprGroup) Clone() Expression {
 	}
 }
 
-func (g *ExprGroup) Resolve(d driver.Driver, m attrs.Definer, quote string) Expression {
+func (g *ExprGroup) Resolve(inf *ExpressionInfo) Expression {
 	var gClone = g.Clone().(*ExprGroup)
 	for i, e := range gClone.children {
-		gClone.children[i] = e.Resolve(d, m, quote)
+		gClone.children[i] = e.Resolve(inf)
 	}
 	return gClone
 }

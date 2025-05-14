@@ -8,3 +8,4 @@ src/fields/queryset_fields_rel_registry.go
 src/fields/queryset_fields_rel_o2o.go
 src/fields/queryset_fields_rel_m2m.go
 src/fields/queryset_fields_rel_fk.go
+exclude/*

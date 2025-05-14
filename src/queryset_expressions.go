@@ -1,14 +1,12 @@
 package queries
 
 import (
-	"database/sql/driver"
 	"fmt"
 	"strings"
 
 	_ "unsafe"
 
 	"github.com/Nigel2392/go-django-queries/src/expr"
-	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
 //go:linkname newFunc github.com/Nigel2392/go-django-queries/src/expr.newFunc
@@ -75,8 +73,8 @@ func (s *subqueryExpr) Clone() expr.Expression {
 	}
 }
 
-func (s *subqueryExpr) Resolve(d driver.Driver, m attrs.Definer, quote string) expr.Expression {
-	if m == nil || s.used {
+func (s *subqueryExpr) Resolve(inf *expr.ExpressionInfo) expr.Expression {
+	if inf.Model == nil || s.used {
 		return s
 	}
 
@@ -84,7 +82,7 @@ func (s *subqueryExpr) Resolve(d driver.Driver, m attrs.Definer, quote string) e
 	nE.used = true
 
 	if nE.field != nil {
-		nE.field = nE.field.Resolve(d, m, quote)
+		nE.field = nE.field.Resolve(inf)
 	}
 
 	return nE

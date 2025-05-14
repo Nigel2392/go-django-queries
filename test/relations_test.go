@@ -1,9 +1,11 @@
 package queries_test
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
+	"github.com/Nigel2392/go-django-queries/internal"
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
@@ -770,4 +772,175 @@ func TestOneToOneWithThroughDoubleNested(t *testing.T) {
 		t.Errorf("expected reloaded target ID %d, got %v", target.ID, relatedRelatedTarget)
 		return
 	}
+}
+
+func createObjects[T attrs.Definer, T2 any](t *testing.T, objects ...T) (ids []T2, delete func() error) {
+	var primaryName string
+	for _, object := range objects {
+		var err = queries.CreateObject(object)
+		if err != nil {
+			t.Fatalf("Failed to create object: %v", err)
+			return nil, nil
+		}
+		var fieldDefs = object.FieldDefs()
+		var primaryField = fieldDefs.Primary()
+		ids = append(ids, primaryField.GetValue().(T2))
+
+		if primaryName == "" {
+			primaryName = primaryField.Name()
+		}
+	}
+
+	return ids, func() error {
+		var anyIDs = make([]any, len(objects))
+		for i, id := range ids {
+			anyIDs[i] = id
+		}
+
+		var newObj = internal.NewDefiner[T]()
+		var deleted, err = queries.Objects[T](newObj).
+			Filter(fmt.Sprintf("%s__in", primaryName), anyIDs...).
+			Delete()
+		if err != nil {
+			t.Fatalf("Failed to delete objects: %v", err)
+			return err
+		}
+		if int(deleted) != len(objects) {
+			t.Fatalf("Expected %d objects to be deleted, got %d", len(objects), deleted)
+			return nil
+		}
+		return nil
+	}
+}
+
+type ManyToManyTest struct {
+	Name string
+	Test func(t *testing.T, userID int, m2m_sourceIDs []int64, m2m_targetIDs []int64, m2m_throughIDs []int64)
+}
+
+var manyToManyTests = []ManyToManyTest{
+	//{
+	//	Name: "TestManyToOne_Reverse",
+	//	Test: func(t *testing.T, userID int, m2m_sourceIDs []int64, m2m_targetIDs []int64, m2m_throughIDs []int64) {
+	//		var user_with_m2m_source, err = queries.Objects[*User](&User{}).
+	//			Select("*", "ModelManyToManySet.*").
+	//			Filter("ID", userID).
+	//			Get()
+	//		if err != nil {
+	//			t.Fatalf("Failed to get objects: %v\n\t%s", err, user_with_m2m_source.QuerySet.LatestQuery().SQL())
+	//		}
+	//
+	//		var fieldDefs = user_with_m2m_source.Object.FieldDefs()
+	//		for _, field := range fieldDefs.Fields() {
+	//			t.Logf("Field: %s (%T)", field.Name(), field)
+	//		}
+	//
+	//		var modelsList, ok = user_with_m2m_source.Object.GetQueryValue("ModelManyToManySet")
+	//		if !ok {
+	//			t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", user_with_m2m_source.Object.Model, user_with_m2m_source.QuerySet.LatestQuery().SQL())
+	//		}
+	//
+	//		var models = modelsList.([]*ModelManyToMany)
+	//		if len(models) != len(m2m_sourceIDs) {
+	//			t.Fatalf("Expected %d objects, got %d", len(m2m_sourceIDs), len(models))
+	//		}
+	//	},
+	//},
+	//{
+	//	Name: "TestManyToMany_Forward_1",
+	//	Test: func(t *testing.T, userID int, m2m_sourceIDs []int64, m2m_targetIDs []int64, m2m_throughIDs []int64) {
+	//
+	//	},
+	//},
+}
+
+func TestManyToMany(t *testing.T) {
+
+	var user_ids, user_delete = createObjects[*User, int](t,
+		&User{
+			Name: "TestManyToManyUser",
+		},
+	)
+
+	var m2m_source_ids, m2m_source_delete = createObjects[*ModelManyToMany, int64](t,
+		&ModelManyToMany{
+			Title: "TestManyToMany1",
+			User:  &User{ID: int(user_ids[0])},
+		},
+		&ModelManyToMany{
+			Title: "TestManyToMany2",
+			User:  &User{ID: int(user_ids[0])},
+		},
+		&ModelManyToMany{
+			Title: "TestManyToMany3",
+			User:  &User{ID: int(user_ids[0])},
+		},
+	)
+
+	var m2m_target_ids, m2m_target_delete = createObjects[*ModelManyToMany_Target, int64](t,
+		&ModelManyToMany_Target{
+			Name: "TestManyToMany_Target1",
+			Age:  25,
+		},
+		&ModelManyToMany_Target{
+			Name: "TestManyToMany_Target2",
+			Age:  25,
+		},
+		&ModelManyToMany_Target{
+			Name: "TestManyToMany_Target3",
+			Age:  25,
+		},
+		&ModelManyToMany_Target{
+			Name: "TestOneToOne_Target4",
+			Age:  30,
+		},
+	)
+
+	var m2m_through_ids, m2m_through_delete = createObjects[*ModelManyToMany_Through, int64](t,
+		&ModelManyToMany_Through{
+			SourceModel: &ModelManyToMany{
+				ID: m2m_source_ids[0],
+			},
+			TargetModel: &ModelManyToMany_Target{
+				ID: m2m_target_ids[0],
+			},
+		},
+		&ModelManyToMany_Through{
+			SourceModel: &ModelManyToMany{
+				ID: m2m_source_ids[1],
+			},
+			TargetModel: &ModelManyToMany_Target{
+				ID: m2m_target_ids[1],
+			},
+		},
+		&ModelManyToMany_Through{
+			SourceModel: &ModelManyToMany{
+				ID: m2m_source_ids[2],
+			},
+			TargetModel: &ModelManyToMany_Target{
+				ID: m2m_target_ids[2],
+			},
+		},
+		&ModelManyToMany_Through{
+			SourceModel: &ModelManyToMany{
+				ID: m2m_source_ids[2],
+			},
+			TargetModel: &ModelManyToMany_Target{
+				ID: m2m_target_ids[3],
+			},
+		},
+	)
+
+	for _, test := range manyToManyTests {
+		t.Run(test.Name, func(t *testing.T) {
+			test.Test(t, user_ids[0], m2m_source_ids, m2m_target_ids, m2m_through_ids)
+		})
+	}
+
+	defer func() {
+		m2m_target_delete()
+		m2m_source_delete()
+		m2m_through_delete()
+		user_delete()
+	}()
 }

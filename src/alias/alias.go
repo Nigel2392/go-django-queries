@@ -86,15 +86,18 @@ func (a *Generator) GetTableAlias(currentTable string, chainorKey any) string {
 		return alias
 	}
 
-	if currentTable != "" {
-		aliasBuilder.WriteString(currentTable)
-		aliasBuilder.WriteString("_")
+	aliasBuilder.WriteString("T")
+
+	if a.counter > 0 {
+		aliasBuilder.WriteString(strconv.Itoa(
+			a.counter,
+		))
 	}
 
-	aliasBuilder.WriteString("T")
-	aliasBuilder.WriteString(strconv.Itoa(
-		a.counter,
-	))
+	if currentTable != "" {
+		aliasBuilder.WriteString("_")
+		aliasBuilder.WriteString(currentTable)
+	}
 
 	var alias = aliasBuilder.String()
 	a.mapping[key] = alias

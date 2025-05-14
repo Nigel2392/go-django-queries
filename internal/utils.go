@@ -125,8 +125,8 @@ func WalkFields(
 	chain = make([]string, 0, len(parts)-1)
 	aliases = make([]string, 0, len(parts)-1)
 
+	defs := current.FieldDefs()
 	for i, part := range parts {
-		defs := current.FieldDefs()
 		f, ok := defs.Field(part)
 		if !ok {
 			return nil, nil, nil, nil, nil, false, fmt.Errorf("field %q not found in %T", part, current)
@@ -137,18 +137,19 @@ func WalkFields(
 			break
 		}
 
-		chain = append(chain, part)
-		aliases = append(aliases, aliasGen.GetTableAlias(
-			defs.TableName(), strings.Join(chain, "."),
-		))
-		parent = current
-
 		var rel = f.Rel()
 		if rel == nil {
 			return nil, nil, nil, nil, nil, false, fmt.Errorf("field %q is not a relation", part)
 		}
 
+		parent = current
 		current = rel.Model()
+		defs = current.FieldDefs()
+		chain = append(chain, part)
+		aliases = append(aliases, aliasGen.GetTableAlias(
+			defs.TableName(), strings.Join(chain, "."),
+		))
+
 		if current == nil {
 			return nil, nil, nil, nil, nil, false, fmt.Errorf("field %q has no related model", part)
 		}

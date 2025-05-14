@@ -839,9 +839,10 @@ func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 		// this must be in line with alias generation in internal.WalkFields!!!
 		if (rel != nil) && allFields {
 			chain = append(chain, field.Name())
-			var tbl = rel.Model().FieldDefs().TableName()
+			var meta = attrs.GetModelMeta(rel.Model())
+			var defs = meta.Definitions()
 			aliases = append(aliases, qs.AliasGen.GetTableAlias(
-				tbl, selectedField,
+				defs.TableName(), selectedField,
 			))
 			parent = current
 			isRelated = true
@@ -874,7 +875,7 @@ func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 			case attrs.RelManyToMany:
 				infos, join = qs.addJoinForM2M(rel, parentDefs, parentField, field, chain, aliases, allFields, qs.internals.joinsMap)
 			case attrs.RelOneToMany:
-
+				infos, join = qs.addJoinForFK(rel, parentDefs, parentField, field, chain, aliases, allFields, qs.internals.joinsMap)
 			default:
 				panic(fmt.Errorf("field %q is not a relation", field.Name()))
 			}
@@ -1110,6 +1111,7 @@ func (qs *QuerySet[T]) Annotate(aliasOrAliasMap interface{}, exprs ...expr.Expre
 type Row[T attrs.Definer] struct {
 	Object      T
 	Annotations map[string]any
+	QuerySet    *QuerySet[T]
 }
 
 func (qs *QuerySet[T]) queryAll(fields ...any) CompiledQuery[[][]interface{}] {
@@ -1246,6 +1248,7 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 		}
 
 		list[i] = &Row[T]{
+			QuerySet:    qs,
 			Object:      obj.(T),
 			Annotations: annotations,
 		}

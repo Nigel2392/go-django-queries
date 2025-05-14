@@ -113,7 +113,7 @@ func ResolveExpressionArgs(inf *ExpressionInfo, arguments []any) []any {
 }
 
 func ResolveExpressionField(inf *ExpressionInfo, field string, forUpdate bool) string {
-	var current, _, f, chain, aliases, isRelated, err = internal.WalkFields(inf.Model, field)
+	var current, _, f, chain, aliases, isRelated, err = internal.WalkFields(inf.Model, field, inf.AliasGen)
 	if err != nil {
 		panic(err)
 	}
@@ -131,7 +131,7 @@ func ResolveExpressionField(inf *ExpressionInfo, field string, forUpdate bool) s
 			col = fmt.Sprintf(
 				"%s%s%s",
 				inf.Quote,
-				internal.NewFieldAlias(aliasStr, vF.Alias()),
+				inf.AliasGen.GetFieldAlias(aliasStr, vF.Alias()),
 				inf.Quote,
 			)
 		} else {

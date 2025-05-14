@@ -113,9 +113,10 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 		args  []any
 		model = qs.Model()
 		inf   = &expr.ExpressionInfo{
-			Driver: g.driver,
-			Model:  qs.Model(),
-			Quote:  g.quote,
+			Driver:   g.driver,
+			Model:    qs.Model(),
+			AliasGen: qs.AliasGen,
+			Quote:    g.quote,
 		}
 	)
 
@@ -205,9 +206,10 @@ func (g *genericQueryBuilder) BuildCountQuery(
 	offset int,
 ) CompiledQuery[int64] {
 	var inf = &expr.ExpressionInfo{
-		Driver: g.driver,
-		Model:  qs.Model(),
-		Quote:  g.quote,
+		Driver:   g.driver,
+		Model:    qs.Model(),
+		AliasGen: qs.AliasGen,
+		Quote:    g.quote,
 	}
 	var model = qs.Model()
 	var query = new(strings.Builder)
@@ -379,9 +381,10 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 	values []any,
 ) CompiledQuery[int64] {
 	var inf = &expr.ExpressionInfo{
-		Driver: g.driver,
-		Model:  qs.Model(),
-		Quote:  g.quote,
+		Driver:   g.driver,
+		Model:    qs.Model(),
+		AliasGen: qs.AliasGen,
+		Quote:    g.quote,
 	}
 	var model = qs.Model()
 	var query = new(strings.Builder)
@@ -442,9 +445,10 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 	groupBy []FieldInfo,
 ) CompiledQuery[int64] {
 	var inf = &expr.ExpressionInfo{
-		Driver: g.driver,
-		Model:  qs.Model(),
-		Quote:  g.quote,
+		Driver:   g.driver,
+		Model:    qs.Model(),
+		AliasGen: qs.AliasGen,
+		Quote:    g.quote,
 	}
 	var model = qs.Model()
 	var query = new(strings.Builder)

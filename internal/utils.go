@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/Nigel2392/go-django-queries/src/alias"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -85,26 +86,6 @@ func NewObjectFromIface(obj attrs.Definer) attrs.Definer {
 	return reflect.New(objTyp.Elem()).Interface().(attrs.Definer)
 }
 
-// safer alias generator
-func NewJoinAlias(field attrs.Field, tableName string, chain []string) string {
-	if field == nil {
-		return tableName
-	}
-	var l = len(chain)
-	return fmt.Sprintf("%s_%s_%d", field.ColumnName(), tableName, l-1)
-	//	if l > 1 {
-	//}
-	//return fmt.Sprintf("%s_%s", field.ColumnName(), tableName)
-}
-
-// generate an alias for fields.AliasField
-func NewFieldAlias(tableAlias, alias string) string {
-	if tableAlias == "" {
-		return alias
-	}
-	return fmt.Sprintf("%s_%s", tableAlias, alias)
-}
-
 type walkFieldsResult struct {
 	definer   attrs.Definer
 	parent    attrs.Definer
@@ -119,6 +100,7 @@ var walkFieldsCache = make(map[string]walkFieldsResult)
 func WalkFields(
 	m attrs.Definer,
 	column string,
+	aliasGen *alias.Generator,
 ) (
 	definer attrs.Definer,
 	parent attrs.Definer,
@@ -156,8 +138,9 @@ func WalkFields(
 		}
 
 		chain = append(chain, part)
-		alias := NewJoinAlias(f, defs.TableName(), chain)
-		aliases = append(aliases, alias)
+		aliases = append(aliases, aliasGen.GetTableAlias(
+			defs.TableName(), strings.Join(chain, "."),
+		))
 		parent = current
 
 		var rel = f.Rel()

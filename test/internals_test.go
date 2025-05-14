@@ -5,6 +5,7 @@ import (
 	"testing"
 	_ "unsafe"
 
+	"github.com/Nigel2392/go-django-queries/src/alias"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
@@ -15,6 +16,7 @@ func newObjectFromIface(obj attrs.Definer) attrs.Definer
 func walkFields(
 	m attrs.Definer,
 	column string,
+	aliasGen *alias.Generator,
 ) (
 	definer attrs.Definer,
 	parent attrs.Definer,
@@ -44,6 +46,7 @@ func TestNewObjectFromIface(t *testing.T) {
 }
 
 type walkFieldsExpected struct {
+	column    string
 	definer   attrs.Definer
 	parent    attrs.Definer
 	field     attrs.Field
@@ -56,8 +59,7 @@ type walkFieldsExpected struct {
 type walkFieldsTest struct {
 	name     string
 	model    attrs.Definer
-	column   string
-	expected walkFieldsExpected
+	expected []walkFieldsExpected
 }
 
 func getField(m attrs.Definer, field string) attrs.Field {
@@ -80,10 +82,10 @@ func fieldEquals(f1, f2 attrs.Field) bool {
 
 var walkFieldsTests = []walkFieldsTest{
 	{
-		name:   "TestTodoID",
-		model:  &Todo{},
-		column: "ID",
-		expected: walkFieldsExpected{
+		name:  "TestTodoID",
+		model: &Todo{},
+		expected: []walkFieldsExpected{{
+			column:    "ID",
 			definer:   &Todo{},
 			parent:    nil,
 			field:     getField(&Todo{}, "ID"),
@@ -91,13 +93,13 @@ var walkFieldsTests = []walkFieldsTest{
 			aliases:   []string{},
 			isRelated: false,
 			err:       nil,
-		},
+		}},
 	},
 	{
-		name:   "TestTodoUser",
-		model:  &Todo{},
-		column: "User",
-		expected: walkFieldsExpected{
+		name:  "TestTodoUser",
+		model: &Todo{},
+		expected: []walkFieldsExpected{{
+			column:    "User",
 			definer:   &Todo{},
 			parent:    nil,
 			field:     getField(&Todo{}, "User"),
@@ -105,132 +107,135 @@ var walkFieldsTests = []walkFieldsTest{
 			aliases:   []string{},
 			isRelated: false,
 			err:       nil,
-		},
+		}},
 	},
 	{
-		name:   "TestTodoUserWithID",
-		model:  &Todo{},
-		column: "User.ID",
-		expected: walkFieldsExpected{
+		name:  "TestTodoUserWithID",
+		model: &Todo{},
+		expected: []walkFieldsExpected{{
+			column:    "User.ID",
 			definer:   &User{},
 			parent:    &Todo{},
 			field:     getField(&User{}, "ID"),
 			chain:     []string{"User"},
-			aliases:   []string{"user_id_todos_0"},
+			aliases:   []string{"todos_T0"},
 			isRelated: true,
 			err:       nil,
+		}},
+	},
+	{
+		name:  "TestObjectWithMultipleRelationsID1",
+		model: &ObjectWithMultipleRelations{},
+		expected: []walkFieldsExpected{
+			{
+				column:    "Obj1.ID",
+				definer:   &User{},
+				parent:    &ObjectWithMultipleRelations{},
+				field:     getField(&User{}, "ID"),
+				chain:     []string{"Obj1"},
+				aliases:   []string{"object_with_multiple_relations_T0"},
+				isRelated: true,
+				err:       nil,
+			},
+			{
+				column:    "Obj2.ID",
+				definer:   &User{},
+				parent:    &ObjectWithMultipleRelations{},
+				field:     getField(&User{}, "ID"),
+				chain:     []string{"Obj2"},
+				aliases:   []string{"object_with_multiple_relations_T1"},
+				isRelated: true,
+				err:       nil,
+			},
 		},
 	},
 	{
-		name:   "TestObjectWithMultipleRelationsID1",
-		model:  &ObjectWithMultipleRelations{},
-		column: "Obj1.ID",
-		expected: walkFieldsExpected{
-			definer:   &User{},
-			parent:    &ObjectWithMultipleRelations{},
-			field:     getField(&User{}, "ID"),
-			chain:     []string{"Obj1"},
-			aliases:   []string{"obj1_id_object_with_multiple_relations_0"},
-			isRelated: true,
-			err:       nil,
-		},
-	},
-	{
-		name:   "TestObjectWithMultipleRelationsID2",
-		model:  &ObjectWithMultipleRelations{},
-		column: "Obj2.ID",
-		expected: walkFieldsExpected{
-			definer:   &User{},
-			parent:    &ObjectWithMultipleRelations{},
-			field:     getField(&User{}, "ID"),
-			chain:     []string{"Obj2"},
-			aliases:   []string{"obj2_id_object_with_multiple_relations_0"},
-			isRelated: true,
-			err:       nil,
-		},
-	},
-	{
-		name:   "TestNestedCategoriesParent",
-		model:  &Category{},
-		column: "Parent.Parent",
-		expected: walkFieldsExpected{
+		name:  "TestNestedCategoriesParent",
+		model: &Category{},
+		expected: []walkFieldsExpected{{
+			column:    "Parent.Parent",
 			definer:   &Category{},
 			parent:    &Category{},
 			field:     getField(&Category{}, "Parent"),
 			chain:     []string{"Parent"},
-			aliases:   []string{"parent_id_categories_0"},
+			aliases:   []string{"categories_T0"},
 			isRelated: true,
 			err:       nil,
-		},
+		}},
 	},
 	{
-		name:   "TestNestedCategoriesName",
-		model:  &Category{},
-		column: "Parent.Parent.Name",
-		expected: walkFieldsExpected{
+		name:  "TestNestedCategoriesName",
+		model: &Category{},
+		expected: []walkFieldsExpected{{
+			column:    "Parent.Parent.Name",
 			definer:   &Category{},
 			parent:    &Category{},
 			field:     getField(&Category{}, "Name"),
 			chain:     []string{"Parent", "Parent"},
-			aliases:   []string{"parent_id_categories_0", "parent_id_categories_1"},
+			aliases:   []string{"categories_T0", "categories_T1"},
 			isRelated: true,
 			err:       nil,
-		},
+		}},
 	},
 }
 
 func TestWalkFields(t *testing.T) {
 	for _, test := range walkFieldsTests {
 		t.Run(test.name, func(t *testing.T) {
-			var (
-				definer, parent, field, chain, aliases, isRelated, err = walkFields(test.model, test.column)
-			)
+			var aliasGen = alias.NewGenerator()
 
-			if reflect.TypeOf(definer) != reflect.TypeOf(test.expected.definer) {
-				t.Errorf("expected definer %T, got %T", test.expected.definer, definer)
-			}
+			for _, expected := range test.expected {
+				var (
+					definer, parent, field, chain, aliases, isRelated, err = walkFields(test.model, expected.column, aliasGen)
+				)
 
-			if test.expected.parent != nil {
-				if reflect.TypeOf(parent) != reflect.TypeOf(test.expected.parent) {
-					t.Errorf("expected parent %T, got %T", test.expected.parent, parent)
+				if reflect.TypeOf(definer) != reflect.TypeOf(expected.definer) {
+					t.Errorf("expected definer %T, got %T", expected.definer, definer)
 				}
-			}
 
-			if test.expected.parent == nil && parent != nil {
-				t.Errorf("expected parent nil, got %T", parent)
-			}
-
-			if !fieldEquals(field, test.expected.field) {
-				t.Errorf("expected field %T.%s, got %T.%s", test.expected.field.Instance(), test.expected.field.Name(), field.Instance(), field.Name())
-			}
-
-			if len(chain) != len(test.expected.chain) {
-				t.Errorf("expected chain length %d, got %d", len(test.expected.chain), len(chain))
-			} else {
-				for i := range chain {
-					if chain[i] != test.expected.chain[i] {
-						t.Errorf("expected chain %s, got %s", test.expected.chain[i], chain[i])
+				if expected.parent != nil {
+					if reflect.TypeOf(parent) != reflect.TypeOf(expected.parent) {
+						t.Errorf("expected parent %T, got %T", expected.parent, parent)
 					}
 				}
-			}
 
-			if len(aliases) != len(test.expected.aliases) {
-				t.Errorf("expected aliases length %d, got %d", len(test.expected.aliases), len(aliases))
-			} else {
-				for i := range aliases {
-					if aliases[i] != test.expected.aliases[i] {
-						t.Errorf("expected alias %s, got %s", test.expected.aliases[i], aliases[i])
+				if expected.parent == nil && parent != nil {
+					t.Errorf("expected parent nil, got %T", parent)
+				}
+
+				if !fieldEquals(field, expected.field) {
+					t.Errorf("expected field %T.%s, got %T.%s", expected.field.Instance(), expected.field.Name(), field.Instance(), field.Name())
+				}
+
+				if len(chain) != len(expected.chain) {
+					t.Errorf("expected chain length %d, got %d", len(expected.chain), len(chain))
+				} else {
+					for i := range chain {
+						if chain[i] != expected.chain[i] {
+							t.Errorf("expected chain %s, got %s", expected.chain[i], chain[i])
+						}
 					}
+				}
+
+				if len(aliases) != len(expected.aliases) {
+					t.Errorf("expected aliases length %d, got %d", len(expected.aliases), len(aliases))
+				} else {
+					for i := range aliases {
+						if aliases[i] != expected.aliases[i] {
+							t.Errorf("expected alias %s, got %s", expected.aliases[i], aliases[i])
+						}
+					}
+				}
+
+				if isRelated != expected.isRelated {
+					t.Errorf("expected isRelated %v, got %v", expected.isRelated, isRelated)
+				}
+
+				if err != nil && err.Error() != expected.err.Error() {
+					t.Errorf("expected error %v, got %v", expected.err.Error(), err.Error())
 				}
 			}
 
-			if isRelated != test.expected.isRelated {
-				t.Errorf("expected isRelated %v, got %v", test.expected.isRelated, isRelated)
-			}
-
-			if err != nil && err.Error() != test.expected.err.Error() {
-				t.Errorf("expected error %v, got %v", test.expected.err.Error(), err.Error())
-			}
 		})
 	}
 }

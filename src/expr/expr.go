@@ -4,13 +4,15 @@ import (
 	"database/sql/driver"
 	"strings"
 
+	"github.com/Nigel2392/go-django-queries/src/alias"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
 type ExpressionInfo struct {
-	Driver driver.Driver
-	Model  attrs.Definer
-	Quote  string
+	Driver   driver.Driver
+	Model    attrs.Definer
+	AliasGen *alias.Generator
+	Quote    string
 }
 
 type Expression interface {

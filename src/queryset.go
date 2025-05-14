@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/internal"
+	"github.com/Nigel2392/go-django-queries/src/alias"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	django "github.com/Nigel2392/go-django/src"
@@ -121,7 +122,7 @@ func (f *FieldInfo) WriteField(sb *strings.Builder, inf *expr.ExpressionInfo, fi
 		if fieldAlias != "" && !forUpdate {
 			sb.WriteString(" AS ")
 			sb.WriteString(inf.Quote)
-			sb.WriteString(internal.NewFieldAlias(
+			sb.WriteString(inf.AliasGen.GetFieldAlias(
 				tableAlias, fieldAlias,
 			))
 			sb.WriteString(inf.Quote)
@@ -187,6 +188,7 @@ type QuerySet[T attrs.Definer] struct {
 	internals    *QuerySetInternals
 	model        attrs.Definer
 	compiler     QueryCompiler
+	AliasGen     *alias.Generator
 	explicitSave bool
 	useCache     bool
 	latestQuery  QueryInfo
@@ -259,6 +261,7 @@ func Objects[T attrs.Definer](model attrs.Definer, database ...string) *QuerySet
 	var qs = &QuerySet[T]{
 		model:     model,
 		queryInfo: queryInfo,
+		AliasGen:  alias.NewGenerator(),
 		internals: &QuerySetInternals{
 			Annotations: make(map[string]*queryField[any]),
 			Where:       make([]expr.LogicalExpression, 0),
@@ -281,6 +284,7 @@ func Objects[T attrs.Definer](model attrs.Definer, database ...string) *QuerySet
 
 func ChangeObjectsType[OldT, NewT attrs.Definer](qs *QuerySet[OldT]) *QuerySet[NewT] {
 	return &QuerySet[NewT]{
+		AliasGen:     qs.AliasGen,
 		queryInfo:    qs.queryInfo,
 		model:        qs.model,
 		compiler:     qs.compiler,
@@ -327,6 +331,7 @@ func (qs *QuerySet[T]) Clone() *QuerySet[T] {
 	return &QuerySet[T]{
 		model:     qs.model,
 		queryInfo: qs.queryInfo,
+		AliasGen:  qs.AliasGen.Clone(),
 		internals: &QuerySetInternals{
 			Annotations: maps.Clone(qs.internals.Annotations),
 			Fields:      slices.Clone(qs.internals.Fields),
@@ -460,7 +465,7 @@ func (qs *QuerySet[T]) unpackFields(fields ...string) (infos []FieldInfo, hasRel
 
 	for _, selectedField := range fields {
 		var current, _, field, chain, aliases, isRelated, err = internal.WalkFields(
-			qs.model, selectedField,
+			qs.model, selectedField, qs.AliasGen,
 		)
 		if err != nil {
 			field, ok := qs.internals.Annotations[selectedField]
@@ -794,7 +799,7 @@ func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 		}
 
 		var current, parent, field, chain, aliases, isRelated, err = internal.WalkFields(
-			qs.model, selectedField,
+			qs.model, selectedField, qs.AliasGen,
 		)
 		if err != nil {
 			field, ok := qs.internals.Annotations[selectedField]
@@ -824,10 +829,12 @@ func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 
 		// If all fields of the relation are requested, we need to add the relation
 		// to the join list. We also need to add the parent field to the chain.
+		//
+		// this must be in line with alias generation in internal.WalkFields!!!
 		if (rel != nil) && allFields {
 			chain = append(chain, field.Name())
-			aliases = append(aliases, internal.NewJoinAlias(
-				field, current.FieldDefs().TableName(), chain,
+			aliases = append(aliases, qs.AliasGen.GetTableAlias(
+				current.FieldDefs().TableName(), selectedField,
 			))
 			parent = current
 			isRelated = true
@@ -904,7 +911,7 @@ func (qs *QuerySet[T]) Join(relationFields ...string) *QuerySet[T] {
 	for _, selectedField := range relationFields {
 
 		var _, parent, field, chain, aliases, isRelated, err = internal.WalkFields(
-			qs.model, selectedField,
+			qs.model, selectedField, qs.AliasGen,
 		)
 		if err != nil {
 			panic(err)
@@ -1005,7 +1012,7 @@ func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
 		}
 
 		var obj, _, field, _, aliases, _, err = internal.WalkFields(
-			qs.model, ord,
+			qs.model, ord, qs.AliasGen,
 		)
 
 		if err != nil {
@@ -1022,7 +1029,7 @@ func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
 
 		var alias string
 		if vF, ok := field.(AliasField); ok {
-			alias = internal.NewFieldAlias(
+			alias = qs.AliasGen.GetFieldAlias(
 				tableAlias, vF.Alias(),
 			)
 		}

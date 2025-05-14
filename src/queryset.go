@@ -839,8 +839,9 @@ func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 		// this must be in line with alias generation in internal.WalkFields!!!
 		if (rel != nil) && allFields {
 			chain = append(chain, field.Name())
+			var tbl = rel.Model().FieldDefs().TableName()
 			aliases = append(aliases, qs.AliasGen.GetTableAlias(
-				current.FieldDefs().TableName(), selectedField,
+				tbl, selectedField,
 			))
 			parent = current
 			isRelated = true
@@ -894,74 +895,6 @@ func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 			Fields: []attrs.Field{field},
 			Chain:  chain,
 		})
-	}
-
-	return qs
-}
-
-// Join is used to join related models to the current queryset.
-//
-// It can be useful in some instances, but in most cases the select
-// method will automatically add the required joins for you.
-func (qs *QuerySet[T]) Join(relationFields ...string) *QuerySet[T] {
-	qs = qs.Clone()
-
-	if qs.internals.joinsMap == nil {
-		qs.internals.joinsMap = make(map[string]bool, len(relationFields))
-	}
-
-	if len(relationFields) == 0 {
-		return qs
-	}
-
-	for _, selectedField := range relationFields {
-
-		var _, parent, field, chain, aliases, isRelated, err = internal.WalkFields(
-			qs.model, selectedField, qs.AliasGen,
-		)
-		if err != nil {
-			panic(err)
-		}
-
-		var rel = field.Rel()
-		if (rel != nil) || (len(chain) > 0 || isRelated) {
-
-			var join []JoinDef
-			var parentDefs = parent.FieldDefs()
-			var parentField, ok = parentDefs.Field(chain[len(chain)-1])
-			if !ok {
-				panic(fmt.Errorf("field %q not found in %T", chain[len(chain)-1], parent))
-			}
-
-			if rel == nil {
-				rel = parentField.Rel()
-			}
-
-			switch rel.Type() {
-			case attrs.RelManyToOne:
-				_, join = qs.addJoinForFK(
-					rel, parentDefs, parentField, field, chain, aliases, false, qs.internals.joinsMap,
-				)
-			case attrs.RelOneToOne:
-				_, join = qs.addJoinForO2O(
-					rel, parentDefs, parentField, field, chain, aliases, false, qs.internals.joinsMap,
-				)
-			case attrs.RelManyToMany:
-				_, join = qs.addJoinForM2M(
-					rel, parentDefs, parentField, field, chain, aliases, false, qs.internals.joinsMap,
-				)
-			case attrs.RelOneToMany:
-
-			default:
-				panic(fmt.Errorf("field %q is not a relation", field.Name()))
-			}
-
-			if len(join) > 0 {
-				qs.internals.Joins = append(qs.internals.Joins, join...)
-			}
-
-			continue
-		}
 	}
 
 	return qs
@@ -1022,7 +955,11 @@ func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
 		)
 
 		if err != nil {
-			panic(err)
+			var ok bool
+			field, ok = qs.internals.Annotations[ord]
+			if !ok {
+				panic(err)
+			}
 		}
 
 		var defs = obj.FieldDefs()

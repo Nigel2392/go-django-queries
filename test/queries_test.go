@@ -2333,3 +2333,25 @@ func TestRecursiveAliasConflict(t *testing.T) {
 		t.Fatalf("Expected Name to be 'Grandchild', got %q", dbObj.Name)
 	}
 }
+
+func TestAggregateCount(t *testing.T) {
+	var agg, err = queries.Objects[*Todo](&Todo{}).
+		Aggregate(map[string]expr.Expression{
+			"Count": expr.FuncCount("ID"),
+		})
+
+	if err != nil {
+		t.Fatalf("failed to aggregate: %v", err)
+		return
+	}
+
+	if agg["Count"] == nil {
+		t.Fatalf("expected Count to be not nil")
+		return
+	}
+
+	if agg["Count"].(int64) == 0 {
+		t.Fatalf("expected Count to be not 0")
+		return
+	}
+}

@@ -239,7 +239,7 @@ func TestContentTypesDefinitions(t *testing.T) {
 			t.Fatalf("expected %d objects, got %d", len(ids), len(objectsByID))
 		}
 
-		for i, _ := range ids {
+		for i := range ids {
 			if *(objectsByID[i].(*User)) != *users[i+1] {
 				t.Fatalf("object by ID does not match")
 			}
@@ -257,7 +257,7 @@ func TestContentTypesDefinitions(t *testing.T) {
 			t.Fatalf("expected 3 instances, got %d", len(instances))
 		}
 
-		for i, _ := range instances {
+		for i := range instances {
 			if *(instances[i].(*User)) != *users[i] {
 				t.Fatalf("instance does not match")
 			}

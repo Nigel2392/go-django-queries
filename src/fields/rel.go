@@ -11,7 +11,6 @@ import (
 var (
 	_ queries.ForUseInQueriesField = (*RelationField[any])(nil)
 	_ attrs.CanRelatedName         = (*RelationField[any])(nil)
-	_ queries.InjectorField        = (*RelationField[any])(nil)
 )
 
 type RelationField[T any] struct {
@@ -145,8 +144,4 @@ func (r *RelationField[T]) Rel() attrs.Relation {
 			field: r,
 		},
 	}
-}
-
-func (r *RelationField[T]) Inject(qs *queries.GenericQuerySet) *queries.GenericQuerySet {
-	return qs
 }

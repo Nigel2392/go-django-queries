@@ -77,13 +77,13 @@ func (m *Model) Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinit
 
 			switch typ {
 			case attrs.RelOneToOne: // OneToOne
-				field = fields.NewOneToOneReverseField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
+				field = fields.NewRelatedField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
 			case attrs.RelManyToOne: // ForeignKey, ForeignKey
-				field = fields.NewForeignKeyField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
+				field = fields.NewRelatedField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
 			case attrs.RelOneToMany: // ForeignKeyReverse, ForeignKeyReverse
-				field = fields.NewForeignKeyReverseField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
+				field = fields.NewRelatedField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
 			case attrs.RelManyToMany: // ManyToMany
-				field = fields.NewManyToManyField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
+				field = fields.NewRelatedField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
 			}
 
 			if field != nil {

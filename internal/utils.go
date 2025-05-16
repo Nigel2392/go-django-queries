@@ -12,6 +12,8 @@ import (
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/jmoiron/sqlx"
+
+	_ "unsafe"
 )
 
 type SupportsReturning string
@@ -32,6 +34,17 @@ type driverData struct {
 const (
 	CACHE_TRAVERSAL_RESULTS = false
 )
+
+//go:linkname getRelatedName github.com/Nigel2392/go-django/src/core/attrs.getRelatedName
+func getRelatedName(f attrs.Field, default_ string) string
+
+func GetRelatedName(f attrs.Field, default_ string) string {
+	if isReverser, ok := f.(interface{ IsReverse() bool }); ok && isReverser.IsReverse() {
+		return getRelatedName(f, default_)
+	}
+
+	return f.Name()
+}
 
 func RegisterDriver(driver driver.Driver, database string, supportsReturning ...SupportsReturning) {
 	var s SupportsReturning

@@ -45,6 +45,8 @@ type RelatedField interface {
 
 	// This is used to determine the column name for the field, for example for a through table.
 	GetTargetField() attrs.Field
+
+	RelatedName() string
 }
 
 // ForUseInQueriesField is an interface that can be implemented by fields to indicate

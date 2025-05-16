@@ -335,10 +335,9 @@ func (t *OneToOneWithThrough_Target) FieldDefs() attrs.Definitions {
 
 type ModelManyToMany struct {
 	models.Model
-	ID      int64
-	Title   string
-	Through *ModelManyToMany_Target
-	User    *User
+	ID    int64
+	Title string
+	User  *User
 }
 
 func (t *ModelManyToMany) FieldDefs() attrs.Definitions {
@@ -350,10 +349,10 @@ func (t *ModelManyToMany) FieldDefs() attrs.Definitions {
 		attrs.NewField(t, "Title", &attrs.FieldConfig{
 			Column: "title",
 		}),
-		fields.NewOneToOneField[*ModelManyToMany_Target](t, &t.Through, "Target", "TargetReverse", "id", attrs.Relate(
+		fields.NewRelatedField[attrs.Definer](t, t, "Target", "TargetReverse", "id", attrs.Relate(
 			&ModelManyToMany_Target{},
 			"", &attrs.ThroughModel{
-				This:   &ModelManyToMany_Target{},
+				This:   &ModelManyToMany_Through{},
 				Source: "SourceModel",
 				Target: "TargetModel",
 			},
@@ -1582,16 +1581,12 @@ func TestQueryGet(t *testing.T) {
 }
 
 func TestQueryGetErrNoRows(t *testing.T) {
-	var todo, err = queries.Objects[attrs.Definer](&Todo{}).
+	var _, err = queries.Objects[attrs.Definer](&Todo{}).
 		Select("*").
 		Filter("Title", "NonExistentTitle").
 		Get()
 	if err == nil {
 		t.Fatalf("Expected an error, got nil")
-	}
-
-	if todo != nil {
-		t.Fatalf("Expected a nil todo, got %+v", todo)
 	}
 
 	if !errors.Is(err, query_errors.ErrNoRows) {
@@ -1614,16 +1609,12 @@ func TestQueryGetMultipleRows(t *testing.T) {
 		}
 	}
 
-	var todo, err = queries.Objects[attrs.Definer](&Todo{}).
+	var _, err = queries.Objects[attrs.Definer](&Todo{}).
 		Select("*").
 		Filter("Title__icontains", "TestQueryGetMultipleRows").
 		Get()
 	if err == nil {
 		t.Fatalf("Expected an error, got nil")
-	}
-
-	if todo != nil {
-		t.Fatalf("Expected a nil todo, got %+v", todo)
 	}
 
 	if !errors.Is(err, query_errors.ErrMultipleRows) {

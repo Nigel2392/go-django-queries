@@ -46,6 +46,7 @@ type JoinDef struct {
 type FieldInfo struct {
 	SourceField attrs.Field
 	Model       attrs.Definer
+	RelType     attrs.RelationType
 	Table       Table
 	Chain       []string
 	Fields      []attrs.Field
@@ -470,7 +471,7 @@ func (qs *QuerySet[T]) unpackFields(fields ...string) (infos []FieldInfo, hasRel
 	}
 
 	for _, selectedField := range fields {
-		var current, _, field, chain, aliases, isRelated, err = internal.WalkFields(
+		var current, parent, field, chain, aliases, isRelated, err = internal.WalkFields(
 			qs.model, selectedField, qs.AliasGen,
 		)
 		if err != nil {
@@ -492,11 +493,25 @@ func (qs *QuerySet[T]) unpackFields(fields ...string) (infos []FieldInfo, hasRel
 		var rel = field.Rel()
 
 		if (rel != nil) || (len(chain) > 0 || isRelated) {
+			var relType attrs.RelationType
+			if rel != nil {
+				relType = rel.Type()
+			} else {
+				var parentMeta = attrs.GetModelMeta(parent)
+				var parentDefs = parentMeta.Definitions()
+				var parentField, ok = parentDefs.Field(chain[len(chain)-1])
+				if !ok {
+					panic(fmt.Errorf("field %q not found in %T", chain[len(chain)-1], parent))
+				}
+				relType = parentField.Rel().Type()
+			}
+
 			var relDefs = current.FieldDefs()
 			var tableName = relDefs.TableName()
 			infos = append(infos, FieldInfo{
 				SourceField: field,
 				Model:       current,
+				RelType:     relType,
 				Table: Table{
 					Name:  tableName,
 					Alias: aliases[len(aliases)-1],
@@ -600,6 +615,7 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 	}
 
 	var info = FieldInfo{
+		RelType:     foreignKey.Type(),
 		SourceField: field,
 		Table: Table{
 			Name:  targetTable,
@@ -638,8 +654,14 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 	var throughDefs = throughModel.FieldDefs()
 	var throughTable = throughDefs.TableName()
 
-	sourceField, _ := throughDefs.Field(through.SourceField())
-	targetField, _ := throughDefs.Field(through.TargetField())
+	sourceField, ok := throughDefs.Field(through.SourceField())
+	if !ok {
+		panic(fmt.Errorf("field %q not found in %T", through.SourceField(), throughModel))
+	}
+	targetField, ok := throughDefs.Field(through.TargetField())
+	if !ok {
+		panic(fmt.Errorf("field %q not found in %T", through.TargetField(), throughModel))
+	}
 
 	var target = manyToMany.Model()
 	var targetDefs = target.FieldDefs()
@@ -717,6 +739,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 	}
 
 	return []FieldInfo{{
+		RelType:     manyToMany.Type(),
 		SourceField: field,
 		Model:       target,
 		Table: Table{
@@ -1194,6 +1217,88 @@ func (qs *QuerySet[T]) queryCount() CompiledQuery[int64] {
 	return q
 }
 
+type rootMap struct {
+	models        map[any]map[string]map[any]attrs.Definer
+	rootScannable *scannableField
+}
+
+func (r *rootMap) has(possibleDuplicate *scannableField, scannables []*scannableField) bool {
+	if r.rootScannable == nil {
+		panic("primary key is required to be selected for deduplication")
+	}
+
+	var pk = scannables[r.rootScannable.idx].field.GetValue()
+	if pk == nil {
+		return false
+	}
+
+	var (
+		chainMap map[string]map[any]attrs.Definer
+		modelMap map[any]attrs.Definer
+		ok       bool
+	)
+
+	if chainMap, ok = r.models[pk]; !ok {
+		return false
+	}
+
+	if modelMap, ok = chainMap[""]; !ok {
+		return false
+	}
+
+	if _, ok = modelMap[pk]; !ok {
+		return false
+	}
+
+	var subject = scannables[possibleDuplicate.idx]
+	if modelMap, ok = chainMap[subject.chainKey]; !ok {
+		return false
+	}
+
+	_, ok = modelMap[subject.field.GetValue()]
+	return ok
+}
+
+func (r *rootMap) add(dup *scannableField, scannables []*scannableField) {
+	if r.rootScannable == nil {
+		panic("primary key is required to be selected for deduplication")
+	}
+
+	var pk = scannables[r.rootScannable.idx].field.GetValue()
+	if pk == nil {
+		return
+	}
+
+	var (
+		scannable = scannables[dup.idx]
+		objPk     = scannable.field.GetValue()
+		obj       = scannable.field.Instance()
+
+		chainMap map[string]map[any]attrs.Definer
+		modelMap map[any]attrs.Definer
+		ok       bool
+	)
+
+	if chainMap, ok = r.models[pk]; !ok {
+		chainMap = make(map[string]map[any]attrs.Definer)
+		chainMap[dup.chainKey] = make(map[any]attrs.Definer)
+		chainMap[dup.chainKey][objPk] = obj
+		r.models[pk] = chainMap
+		return
+	}
+
+	if modelMap, ok = chainMap[dup.chainKey]; !ok {
+		modelMap = make(map[any]attrs.Definer)
+		modelMap[objPk] = obj
+		chainMap[dup.chainKey] = modelMap
+		return
+	}
+
+	if _, ok = modelMap[objPk]; !ok {
+		modelMap[objPk] = obj
+	}
+}
+
 // All is used to retrieve all rows from the database.
 //
 // It returns a Query that can be executed to get the results, which is a slice of Row objects.
@@ -1212,17 +1317,43 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 		return nil, err
 	}
 
-	var list = make([]*Row[T], len(results))
+	var possibleDuplicates = make([]*scannableField, 0)
+	var scannables = getScannableFields(
+		qs.internals.Fields, internal.NewObjectFromIface(qs.model),
+	)
 
-	for i, row := range results {
+	var rootScannable *scannableField
+	for _, scannable := range scannables {
+		if (scannable.relType == attrs.RelManyToMany || scannable.relType == attrs.RelOneToMany) && scannable.field.IsPrimary() {
+			possibleDuplicates = append(possibleDuplicates, scannable)
+		}
+		if scannable.relType == -1 && scannable.field.IsPrimary() {
+			rootScannable = scannable
+		}
+	}
+
+	if len(possibleDuplicates) > 0 && rootScannable != nil {
+		possibleDuplicates = append(possibleDuplicates, rootScannable)
+	}
+
+	var dedupe = &rootMap{
+		models:        make(map[any]map[string]map[any]attrs.Definer),
+		rootScannable: rootScannable,
+	}
+
+	var list = make([]*Row[T], 0, len(results))
+	var prev []*scannableField
+	for _, row := range results {
 		obj := internal.NewObjectFromIface(qs.model)
 		scannables := getScannableFields(qs.internals.Fields, obj)
 
-		annotations := make(map[string]any)
-		var annotator, _ = obj.(DataModel)
+		var (
+			annotator, _ = obj.(DataModel)
+			annotations  = make(map[string]any)
+		)
 
 		for j, field := range scannables {
-			f := field.(attrs.Field)
+			f := field.field
 			val := row[j]
 
 			if err := f.Scan(val); err != nil {
@@ -1247,11 +1378,81 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 			}
 		}
 
-		list[i] = &Row[T]{
+		// basically just skip the first iteration
+		var newRow = true
+		for _, possibleDuplicate := range possibleDuplicates {
+			var (
+				actualField = scannables[possibleDuplicate.idx]
+				workingObj  attrs.Definer
+			)
+
+			var has = dedupe.has(possibleDuplicate, scannables)
+
+			fmt.Printf(
+				"Has: %v, %d, %s, %v, %p\n",
+				has, possibleDuplicate.idx, actualField.chainKey, scannables[possibleDuplicate.idx].field.GetValue(), scannables[possibleDuplicate.idx].field.Instance(),
+			)
+
+			if has {
+				newRow = false
+			}
+
+			if !has {
+
+				dedupe.add(possibleDuplicate, scannables)
+
+				if actualField.chainKey == "" {
+					continue
+				}
+
+				if prev != nil && prev[rootScannable.idx].field.GetValue() == scannables[rootScannable.idx].field.GetValue() {
+					workingObj = prev[possibleDuplicate.idx].srcField.Instance()
+				} else {
+					workingObj = actualField.srcField.Instance()
+				}
+
+				var relatedName = internal.GetRelatedName(actualField.srcField, "")
+				if relatedName == "" {
+					relatedName = actualField.srcField.Name()
+				}
+
+				var dataModel = workingObj.(DataModel)
+				existing, _ := dataModel.GetQueryValue(relatedName)
+
+				var slice []attrs.Definer
+				switch v := existing.(type) {
+				case nil:
+					slice = []attrs.Definer{}
+				case attrs.Definer:
+					slice = make([]attrs.Definer, 0)
+				case []attrs.Definer:
+					slice = v
+				default:
+					panic(fmt.Errorf("unexpected type for relatedName %s: %T", relatedName, existing))
+				}
+
+				slice = append(
+					slice, actualField.object,
+				)
+
+				fmt.Printf("Setting (%s) %s to %+v\n", actualField.chainKey, relatedName, slice)
+
+				if err := dataModel.SetQueryValue(relatedName, slice); err != nil {
+					panic(err)
+				}
+			}
+		}
+
+		if !newRow {
+			continue
+		}
+
+		prev = scannables
+		list = append(list, &Row[T]{
 			QuerySet:    qs,
 			Object:      obj.(T),
 			Annotations: annotations,
-		}
+		})
 	}
 
 	if qs.useCache {
@@ -1281,7 +1482,7 @@ func (qs *QuerySet[T]) ValuesList(fields ...any) ([][]interface{}, error) {
 		var fields = getScannableFields(qs.internals.Fields, obj)
 		var values = make([]any, len(fields))
 		for j, field := range fields {
-			var f = field.(attrs.Field)
+			var f = field.field
 			var val = row[j]
 
 			if err = f.Scan(val); err != nil {
@@ -1340,7 +1541,7 @@ func (qs *QuerySet[T]) Aggregate(annotations map[string]expr.Expression) (map[st
 	var out = make(map[string]any)
 
 	for i, field := range scannables {
-		if vf, ok := field.(AliasField); ok {
+		if vf, ok := field.field.(AliasField); ok {
 			if err := vf.Scan(row[i]); err != nil {
 				return nil, err
 			}
@@ -1375,15 +1576,19 @@ func (qs *QuerySet[T]) Get() (*Row[T], error) {
 		return qs.cached.(*Row[T]), nil
 	}
 
+	var nillRow = &Row[T]{
+		QuerySet: qs,
+	}
+
 	*qs = *qs.Limit(MAX_GET_RESULTS)
 	var results, err = qs.All()
 	if err != nil {
-		return nil, err
+		return nillRow, err
 	}
 
 	var resCnt = len(results)
 	if resCnt == 0 {
-		return nil, query_errors.ErrNoRows
+		return nillRow, query_errors.ErrNoRows
 	}
 
 	if resCnt > 1 {
@@ -1394,7 +1599,7 @@ func (qs *QuerySet[T]) Get() (*Row[T], error) {
 			errResCnt = strconv.Itoa(MAX_GET_RESULTS-1) + "+"
 		}
 
-		return nil, errors.Wrapf(
+		return nillRow, errors.Wrapf(
 			query_errors.ErrMultipleRows,
 			"multiple rows returned for %T: %s rows",
 			qs.model, errResCnt,
@@ -1685,7 +1890,7 @@ func (qs *QuerySet[T]) Create(value T) (T, error) {
 		}
 
 		for i, field := range scannables {
-			var f = field.(attrs.Field)
+			var f = field.field
 			var val = results[i+idx]
 
 			if err := f.Scan(val); err != nil {
@@ -1836,22 +2041,40 @@ func (qs *QuerySet[T]) Delete() (int64, error) {
 	return resultQuery.Exec()
 }
 
-func getScannableFields(fields []FieldInfo, root attrs.Definer) []any {
+type scannableField struct {
+	idx      int
+	object   attrs.Definer
+	field    attrs.Field
+	srcField attrs.Field
+	relType  attrs.RelationType
+	chainKey string
+}
+
+func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableField {
 	var listSize = 0
 	for _, info := range fields {
 		listSize += len(info.Fields)
 	}
 
-	var scannables = make([]any, 0, listSize)
-	var instances = map[string]attrs.Definer{"": root}
+	var (
+		scannables = make([]*scannableField, 0, listSize)
+		instances  = make(map[string]attrs.Definer)
+	)
+
+	instances[""] = root
+	var idx = 0
 	for _, info := range fields {
 		if info.SourceField == nil {
 			defs := root.FieldDefs()
 			for _, f := range info.Fields {
-
 				if _, ok := f.(VirtualField); ok && info.Model == nil {
 					// If field is virtual and not bound to a model, just scan it directly
-					scannables = append(scannables, f)
+					scannables = append(scannables, &scannableField{
+						idx:     idx,
+						field:   f,
+						relType: -1,
+					})
+					idx++
 					continue
 				}
 
@@ -1859,17 +2082,28 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []any {
 				if !ok {
 					panic(fmt.Errorf("field %q not found in %T", f.Name(), root))
 				}
-				scannables = append(scannables, field)
+
+				scannables = append(scannables, &scannableField{
+					idx:      idx,
+					field:    field,
+					chainKey: strings.Join(info.Chain, "."),
+					relType:  -1,
+				})
+
+				idx++
 			}
 			continue
 		}
 
 		// Walk chain
 		var parentKey string
+		var parentField attrs.Field
 		for i, name := range info.Chain {
-			key := strings.Join(info.Chain[:i+1], ".")
-			parent := instances[parentKey]
-			defs := parent.FieldDefs()
+			var (
+				key    = strings.Join(info.Chain[:i+1], ".")
+				parent = instances[parentKey]
+				defs   = parent.FieldDefs()
+			)
 
 			field, ok := defs.Field(name)
 			if !ok {
@@ -1883,12 +2117,17 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []any {
 				} else {
 					obj = internal.NewObjectFromIface(field.Rel().Model())
 				}
+
+				// if !(info.RelType == attrs.RelManyToMany || info.RelType == attrs.RelOneToMany) {
 				if err := field.SetValue(obj, true); err != nil {
 					panic(fmt.Errorf("failed to set relation %q: %w", field.Name(), err))
 				}
+				// }
+
 				instances[key] = obj
 			}
 
+			parentField = field
 			parentKey = key
 		}
 
@@ -1899,7 +2138,16 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []any {
 			if !ok {
 				panic(fmt.Errorf("field %q not found in %T", f.Name(), final))
 			}
-			scannables = append(scannables, field)
+
+			scannables = append(scannables, &scannableField{
+				idx:      idx,
+				chainKey: strings.Join(info.Chain, "."),
+				object:   final,
+				relType:  info.RelType,
+				field:    field,
+				srcField: parentField,
+			})
+			idx++
 		}
 	}
 

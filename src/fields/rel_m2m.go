@@ -41,15 +41,14 @@ import (
 //
 //}
 
-type ManyToManyField[T any] struct {
-	*RelationField[T]
+type ManyToManyField struct {
+	*MultipleRelationField
 }
 
-func NewManyToManyField[T any](forModel attrs.Definer, dst any, name string, reverseName string, columnName string, rel attrs.Relation) *ManyToManyField[T] {
-	var f = &ManyToManyField[T]{
-		RelationField: NewRelatedField[T](
+func NewManyToManyField(forModel attrs.Definer, dst any, name string, reverseName string, columnName string, rel attrs.Relation) *ManyToManyField {
+	var f = &ManyToManyField{
+		MultipleRelationField: NewMultipleRelatedField(
 			forModel,
-			dst,
 			name,
 			reverseName,
 			columnName,

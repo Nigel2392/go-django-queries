@@ -162,8 +162,7 @@ func (e *DataModelField[T]) GetValue() interface{} {
 
 	var val, ok = e.getQueryValue()
 	if !ok || val == nil {
-		var t = reflect.TypeOf((*T)(nil)).Elem()
-		return reflect.New(t).Interface()
+		return *new(T)
 	}
 
 	valTyped, ok := val.(T)
@@ -268,8 +267,16 @@ func (e *DataModelField[T]) SetValue(v interface{}, _ bool) error {
 		return nil
 	}
 
-	return fmt.Errorf("value %v (%T) is not of type %T", v, v, *new(T))
+	var typName string = e.resultType.Name()
+	if typName == "" {
+		typName = fmt.Sprintf("%T", *(new(T)))
+	} else {
+		typName = e.resultType.Name()
+	}
+
+	return fmt.Errorf("value %v (%T) is not of type %s", v, v, typName)
 }
+
 func (e *DataModelField[T]) Value() (driver.Value, error) {
 	var val = e.GetValue()
 	if val == nil {

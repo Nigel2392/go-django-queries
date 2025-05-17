@@ -1466,8 +1466,9 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 			Annotations: annotations,
 		})
 
-		fmt.Println()
-
+		if len(possibleDuplicates) > 0 {
+			fmt.Println()
+		}
 	}
 
 	if qs.useCache {

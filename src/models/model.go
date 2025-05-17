@@ -1,7 +1,9 @@
 package models
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/fields"
@@ -12,31 +14,45 @@ var _ queries.DataModel = &Model{}
 
 type mapDataStore map[string]interface{}
 
-func (m mapDataStore) set(key string, value any) error {
+func (m mapDataStore) String() string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	var i = 0
+	for k, v := range m {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		fmt.Fprintf(&sb, "%q: %v", k, v)
+		i++
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func (m mapDataStore) HasValue(key string) bool {
+	_, ok := m[key]
+	return ok
+}
+
+func (m mapDataStore) SetValue(key string, value any) error {
 	m[key] = value
 	return nil
 }
 
-func (m mapDataStore) get(key string) (any, bool) {
+func (m mapDataStore) GetValue(key string) (any, bool) {
 	if v, ok := m[key]; ok {
 		return v, true
 	}
 	return nil, false
 }
 
-func (m mapDataStore) delete(key string) error {
+func (m mapDataStore) DeleteValue(key string) error {
 	delete(m, key)
 	return nil
 }
 
-type datastore interface {
-	set(key string, value any) error
-	get(key string) (any, bool)
-	delete(key string) error
-}
-
 type Model struct {
-	data  datastore
+	data  queries.ModelDataStore
 	_meta attrs.ModelMeta
 	_defs *attrs.ObjectDefinitions
 }
@@ -101,6 +117,17 @@ func (m *Model) Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinit
 	return m._defs
 }
 
+//
+//func (m *Model) String() string {
+//	var rTyp = reflect.TypeOf(m._defs.Object)
+//	if rTyp.Kind() == reflect.Ptr {
+//		rTyp = rTyp.Elem()
+//	}
+//	var prim = m._defs.Primary()
+//	var primaryVal, _ = prim.Value()
+//	return fmt.Sprintf("%s(%v)%v", rTyp.Name(), primaryVal, m.data)
+//}
+
 func (m *Model) ModelMeta() attrs.ModelMeta {
 	if m._meta == nil {
 		m._meta = attrs.GetModelMeta(m._defs.Object)
@@ -122,28 +149,11 @@ func (m *Model) RelatedField(name string) (attrs.Field, bool) {
 	return nil, false
 }
 
-func (m *Model) HasQueryValue(key string) bool {
-	if m.data == nil {
-		return false
-	}
-	_, ok := m.data.get(key)
-	return ok
-}
-
-func (m *Model) GetQueryValue(key string) (any, bool) {
-	if m.data == nil {
-		return nil, false
-	}
-	var val, ok = m.data.get(key)
-	return val, ok
-}
-
-func (m *Model) SetQueryValue(key string, value any) error {
+func (m *Model) ModelDataStore() queries.ModelDataStore {
 	if m.data == nil {
 		m.data = make(mapDataStore)
 	}
-	m.data.set(key, value)
-	return nil
+	return m.data
 }
 
 func (m *Model) SaveFields() error {

@@ -340,6 +340,23 @@ type ModelManyToMany struct {
 	User  *User
 }
 
+// func (m *ModelManyToMany) String() string {
+// 	var sb strings.Builder
+// 	sb.WriteString("ModelManyToMany{")
+// 	sb.WriteString("ID: ")
+// 	fmt.Fprintf(&sb, "%d", m.ID)
+// 	sb.WriteString(", Model: ")
+// 	fmt.Fprintf(&sb, "%v", m.Model)
+// 	sb.WriteString(", User: ")
+// 	if m.User != nil {
+// 		fmt.Fprintf(&sb, "%d", m.User.ID)
+// 	} else {
+// 		fmt.Fprintf(&sb, "nil")
+// 	}
+// 	sb.WriteString("}")
+// 	return sb.String()
+// }
+
 func (t *ModelManyToMany) FieldDefs() attrs.Definitions {
 	return t.Model.Define(t,
 		attrs.NewField(t, "ID", &attrs.FieldConfig{
@@ -371,6 +388,21 @@ type ModelManyToMany_Through struct {
 	TargetModel *ModelManyToMany_Target
 }
 
+// func (m *ModelManyToMany_Through) String() string {
+// 	var sb strings.Builder
+// 	sb.WriteString("ModelManyToMany_Through{")
+// 	sb.WriteString("ID: ")
+// 	fmt.Fprintf(&sb, "%d", m.ID)
+// 	sb.WriteString(", Model: ")
+// 	fmt.Fprintf(&sb, "%v", m.Model)
+// 	sb.WriteString(", SourceModel: ")
+// 	fmt.Fprintf(&sb, "%T", m.SourceModel)
+// 	sb.WriteString(", TargetModel: ")
+// 	fmt.Fprintf(&sb, "%T", m.TargetModel)
+// 	sb.WriteString("}")
+// 	return sb.String()
+// }
+
 func (t *ModelManyToMany_Through) FieldDefs() attrs.Definitions {
 	return t.Model.Define(t,
 		attrs.NewField(t, "ID", &attrs.FieldConfig{
@@ -394,6 +426,10 @@ type ModelManyToMany_Target struct {
 	Name string
 	Age  int
 }
+
+// func (t *ModelManyToMany_Target) String() string {
+// 	return fmt.Sprintf("ModelManyToMany_Target(ID=%d, Model=%v)", t.ID, t.Model)
+// }
 
 func (t *ModelManyToMany_Target) FieldDefs() attrs.Definitions {
 	return t.Model.Define(t,

@@ -149,9 +149,9 @@ func TestSetNameTestStruct(t *testing.T) {
 	fUpper.SetValue("test3", false)
 
 	var (
-		textV, _  = test.GetQueryValue("TestNameText")
-		lowerV, _ = test.GetQueryValue("TestNameLower")
-		upperV, _ = test.GetQueryValue("TestNameUpper")
+		textV, _  = test.ModelDataStore().GetValue("TestNameText")
+		lowerV, _ = test.ModelDataStore().GetValue("TestNameLower")
+		upperV, _ = test.ModelDataStore().GetValue("TestNameUpper")
 	)
 
 	if textV != "test1" {
@@ -267,17 +267,17 @@ func TestVirtualFieldsQuerySetSingleObjectTestStruct(t *testing.T) {
 		t.Errorf("Expected Text to be %q, got %q", test.Text, o.Text)
 	}
 
-	var textV, _ = o.Model.GetQueryValue("TestNameText")
+	var textV, _ = o.Model.ModelDataStore().GetValue("TestNameText")
 	if textV != "test1 test2 test" && obj.Annotations["TestNameText"] != "test1 test2 test" {
 		t.Errorf("Expected TestNameText to be 'test1 test2', got %v", textV)
 	}
 
-	var lowerV, _ = o.Model.GetQueryValue("TestNameLower")
+	var lowerV, _ = o.Model.ModelDataStore().GetValue("TestNameLower")
 	if lowerV != "test1" && obj.Annotations["TestNameLower"] != "test1" {
 		t.Errorf("Expected TestNameLower to be 'test1', got %v", lowerV)
 	}
 
-	var upperV, _ = o.Model.GetQueryValue("TestNameUpper")
+	var upperV, _ = o.Model.ModelDataStore().GetValue("TestNameUpper")
 	if upperV != "TEST1" && obj.Annotations["TestNameUpper"] != "TEST1" {
 		t.Errorf("Expected TestNameUpper to be 'TEST1', got %v", upperV)
 	}
@@ -462,9 +462,9 @@ func Test_Annotated_Get(t *testing.T) {
 	}
 
 	var (
-		lowerNameV, _ = obj.GetQueryValue("LowerName")
-		upperNameV, _ = obj.GetQueryValue("UpperName")
-		customV, _    = obj.GetQueryValue("CustomAnnotation")
+		lowerNameV, _ = obj.ModelDataStore().GetValue("LowerName")
+		upperNameV, _ = obj.ModelDataStore().GetValue("UpperName")
+		customV, _    = obj.ModelDataStore().GetValue("CustomAnnotation")
 	)
 
 	if lowerNameV != "test1" {

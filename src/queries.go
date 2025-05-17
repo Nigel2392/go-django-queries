@@ -81,15 +81,24 @@ func ForSelectAll(f attrs.Field) bool {
 	return true
 }
 
+// Annotations from the database are stored in the `Row` struct, and if the
+// model has a `ModelDataStore()` method that implements this interface,
+// annotated values will be stored there too.
+//
+// Relations are also stored in the model's data store.
+type ModelDataStore interface {
+	HasValue(key string) bool
+	GetValue(key string) (any, bool)
+	SetValue(key string, value any) error
+	DeleteValue(key string) error
+}
+
 // A model can adhere to this interface to indicate that the queries package
 // should use the model to store and retrieve annotated values.
 //
-// Annotations from the database are stored in the `Row` struct, and if the
-// model implements this interface, annotated values will be stored in the model too.
+// Relations will also be stored here.
 type DataModel interface {
-	HasQueryValue(key string) bool
-	GetQueryValue(key string) (any, bool)
-	SetQueryValue(key string, value any) error
+	ModelDataStore() ModelDataStore
 }
 
 // A model can adhere to this interface to indicate that the queries package

@@ -81,8 +81,10 @@ func NewDataModelField[T any](forModel any, dst any, name string) *DataModelFiel
 
 func (f *DataModelField[T]) getQueryValue() (any, bool) {
 	switch m := f.DataModel.(type) {
+	case queries.ModelDataStore:
+		return m.GetValue(f.name)
 	case queries.DataModel:
-		return m.GetQueryValue(f.name)
+		return m.ModelDataStore().GetValue(f.name)
 	}
 
 	var rVal = reflect.ValueOf(f.DataModel)
@@ -95,8 +97,10 @@ func (f *DataModelField[T]) getQueryValue() (any, bool) {
 
 func (f *DataModelField[T]) setQueryValue(v any) error {
 	switch m := f.DataModel.(type) {
+	case queries.ModelDataStore:
+		return m.SetValue(f.name, v)
 	case queries.DataModel:
-		return m.SetQueryValue(f.name, v)
+		return m.ModelDataStore().SetValue(f.name, v)
 	}
 
 	var rVal = reflect.ValueOf(f.DataModel)

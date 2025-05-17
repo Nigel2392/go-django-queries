@@ -1149,22 +1149,6 @@ func (qs *QuerySet[T]) queryAll(fields ...any) CompiledQuery[[][]interface{}] {
 		*qs = *qs.Select(fields...)
 	}
 
-	var resultQuery = qs.compiler.BuildSelectQuery(
-		context.Background(),
-		ChangeObjectsType[T, attrs.Definer](qs),
-		qs.internals.Fields,
-		qs.internals.Where,
-		qs.internals.Having,
-		qs.internals.Joins,
-		qs.internals.GroupBy,
-		qs.internals.OrderBy,
-		qs.internals.Limit,
-		qs.internals.Offset,
-		qs.internals.ForUpdate,
-		qs.internals.Distinct,
-	)
-	qs.latestQuery = resultQuery
-
 	var query = qs.compiler.BuildSelectQuery(
 		context.Background(),
 		ChangeObjectsType[T, attrs.Definer](qs),
@@ -1218,8 +1202,15 @@ func (qs *QuerySet[T]) queryCount() CompiledQuery[int64] {
 }
 
 type rootMap struct {
-	models        map[any]map[string]map[any]attrs.Definer
+	models        map[any]map[int]map[any]attrs.Definer
 	rootScannable *scannableField
+}
+
+func newRootMap(rootScannable *scannableField) *rootMap {
+	return &rootMap{
+		models:        make(map[any]map[int]map[any]attrs.Definer),
+		rootScannable: rootScannable,
+	}
 }
 
 func (r *rootMap) has(possibleDuplicate *scannableField, scannables []*scannableField) bool {
@@ -1227,31 +1218,23 @@ func (r *rootMap) has(possibleDuplicate *scannableField, scannables []*scannable
 		panic("primary key is required to be selected for deduplication")
 	}
 
-	var pk = scannables[r.rootScannable.idx].field.GetValue()
-	if pk == nil {
+	var rootPk = scannables[r.rootScannable.idx].field.GetValue()
+	if rootPk == nil {
 		return false
 	}
 
 	var (
-		chainMap map[string]map[any]attrs.Definer
+		chainMap map[int]map[any]attrs.Definer
 		modelMap map[any]attrs.Definer
 		ok       bool
 	)
 
-	if chainMap, ok = r.models[pk]; !ok {
-		return false
-	}
-
-	if modelMap, ok = chainMap[""]; !ok {
-		return false
-	}
-
-	if _, ok = modelMap[pk]; !ok {
+	if chainMap, ok = r.models[rootPk]; !ok {
 		return false
 	}
 
 	var subject = scannables[possibleDuplicate.idx]
-	if modelMap, ok = chainMap[subject.chainKey]; !ok {
+	if modelMap, ok = chainMap[subject.idx]; !ok {
 		return false
 	}
 
@@ -1274,23 +1257,23 @@ func (r *rootMap) add(dup *scannableField, scannables []*scannableField) {
 		objPk     = scannable.field.GetValue()
 		obj       = scannable.field.Instance()
 
-		chainMap map[string]map[any]attrs.Definer
+		chainMap map[int]map[any]attrs.Definer
 		modelMap map[any]attrs.Definer
 		ok       bool
 	)
 
 	if chainMap, ok = r.models[pk]; !ok {
-		chainMap = make(map[string]map[any]attrs.Definer)
-		chainMap[dup.chainKey] = make(map[any]attrs.Definer)
-		chainMap[dup.chainKey][objPk] = obj
+		chainMap = make(map[int]map[any]attrs.Definer)
+		chainMap[dup.idx] = make(map[any]attrs.Definer)
+		chainMap[dup.idx][objPk] = obj
 		r.models[pk] = chainMap
 		return
 	}
 
-	if modelMap, ok = chainMap[dup.chainKey]; !ok {
+	if modelMap, ok = chainMap[dup.idx]; !ok {
 		modelMap = make(map[any]attrs.Definer)
 		modelMap[objPk] = obj
-		chainMap[dup.chainKey] = modelMap
+		chainMap[dup.idx] = modelMap
 		return
 	}
 
@@ -1324,33 +1307,36 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 
 	var rootScannable *scannableField
 	for _, scannable := range scannables {
-		if (scannable.relType == attrs.RelManyToMany || scannable.relType == attrs.RelOneToMany) && scannable.field.IsPrimary() {
+		if (scannable.relType != -1) && scannable.field.IsPrimary() {
 			possibleDuplicates = append(possibleDuplicates, scannable)
 		}
-		if scannable.relType == -1 && scannable.field.IsPrimary() {
+		if scannable.relType == -1 && scannable.field.IsPrimary() && rootScannable == nil {
 			rootScannable = scannable
+			possibleDuplicates = append(possibleDuplicates, rootScannable)
 		}
 	}
 
-	if len(possibleDuplicates) > 0 && rootScannable != nil {
-		possibleDuplicates = append(possibleDuplicates, rootScannable)
-	}
+	var (
+		dedupe = newRootMap(rootScannable)
+		list   = make([]*Row[T], 0, len(results))
+		prev   []*scannableField
+	)
 
-	var dedupe = &rootMap{
-		models:        make(map[any]map[string]map[any]attrs.Definer),
-		rootScannable: rootScannable,
-	}
-
-	var list = make([]*Row[T], 0, len(results))
-	var prev []*scannableField
 	for _, row := range results {
-		obj := internal.NewObjectFromIface(qs.model)
-		scannables := getScannableFields(qs.internals.Fields, obj)
+		var (
+			obj        = internal.NewObjectFromIface(qs.model)
+			scannables = getScannableFields(qs.internals.Fields, obj)
+		)
 
 		var (
 			annotator, _ = obj.(DataModel)
 			annotations  = make(map[string]any)
+			datastore    ModelDataStore
 		)
+
+		if annotator != nil {
+			datastore = annotator.ModelDataStore()
+		}
 
 		for j, field := range scannables {
 			f := field.field
@@ -1372,74 +1358,97 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 
 				annotations[alias] = val
 
-				if annotator != nil {
-					annotator.SetQueryValue(alias, val)
+				if datastore != nil {
+					datastore.SetValue(alias, val)
 				}
 			}
 		}
 
-		// basically just skip the first iteration
 		var newRow = true
 		for _, possibleDuplicate := range possibleDuplicates {
 			var (
 				actualField = scannables[possibleDuplicate.idx]
 				workingObj  attrs.Definer
+				has         = dedupe.has(possibleDuplicate, scannables)
 			)
 
-			var has = dedupe.has(possibleDuplicate, scannables)
+			if actualField.chainKey != "" {
+				var f *scannableField
+				if prev != nil && prev[rootScannable.idx].field.GetValue() == scannables[rootScannable.idx].field.GetValue() {
+					f = prev[possibleDuplicate.idx]
+				} else {
+					f = actualField
+				}
+				fmt.Printf(
+					"Has: %v, %d\n\tSetting %q, %v, %p, %T on %T %v\n",
+					has, possibleDuplicate.idx,
 
-			fmt.Printf(
-				"Has: %v, %d, %s, %v, %p\n",
-				has, possibleDuplicate.idx, actualField.chainKey, scannables[possibleDuplicate.idx].field.GetValue(), scannables[possibleDuplicate.idx].field.Instance(),
-			)
+					actualField.chainKey,
+					scannables[possibleDuplicate.idx].field.GetValue(),
+					scannables[possibleDuplicate.idx].field.Instance(),
+					scannables[possibleDuplicate.idx].field.Instance(),
+
+					f.srcField.Instance(),
+					f.srcField.Instance().FieldDefs().Primary().GetValue(),
+				)
+			} else {
+				fmt.Printf(
+					"Has: %v, %d\n\tWorking on %T %v\n",
+					has, possibleDuplicate.idx,
+					actualField.field.Instance(), actualField.field.GetValue(),
+				)
+			}
 
 			if has {
 				newRow = false
+				continue
 			}
 
-			if !has {
+			dedupe.add(possibleDuplicate, scannables)
 
-				dedupe.add(possibleDuplicate, scannables)
+			// this is either the root value or a relation that cannot have multiple values
+			if actualField.chainKey == "" || (actualField.relType == attrs.RelManyToOne || actualField.relType == attrs.RelOneToOne) {
+				continue
+			}
 
-				if actualField.chainKey == "" {
-					continue
-				}
+			// retrieve the panret object from the last row (if any)
+			if prev != nil && prev[rootScannable.idx].field.GetValue() == scannables[rootScannable.idx].field.GetValue() {
+				workingObj = prev[possibleDuplicate.idx].srcField.Instance()
+			} else {
+				workingObj = actualField.srcField.Instance()
+			}
 
-				if prev != nil && prev[rootScannable.idx].field.GetValue() == scannables[rootScannable.idx].field.GetValue() {
-					workingObj = prev[possibleDuplicate.idx].srcField.Instance()
-				} else {
-					workingObj = actualField.srcField.Instance()
-				}
+			// get the related name
+			var relatedName = internal.GetRelatedName(actualField.srcField, "")
+			if relatedName == "" {
+				relatedName = actualField.srcField.Name()
+			}
 
-				var relatedName = internal.GetRelatedName(actualField.srcField, "")
-				if relatedName == "" {
-					relatedName = actualField.srcField.Name()
-				}
+			// set the value on the [DataModel] as a slice of related objects
+			var dataModel = workingObj.(DataModel)
+			var dataStore = dataModel.ModelDataStore()
+			existing, _ := dataStore.GetValue(relatedName)
 
-				var dataModel = workingObj.(DataModel)
-				existing, _ := dataModel.GetQueryValue(relatedName)
+			var slice []attrs.Definer
+			switch v := existing.(type) {
+			case nil:
+				slice = []attrs.Definer{}
+			case attrs.Definer:
+				// no need to add, if the object is new it will be added
+				// as actualField.object automatically below.
+				slice = make([]attrs.Definer, 0)
+			case []attrs.Definer:
+				slice = v
+			default:
+				panic(fmt.Errorf("unexpected type for relatedName %s: %T", relatedName, existing))
+			}
 
-				var slice []attrs.Definer
-				switch v := existing.(type) {
-				case nil:
-					slice = []attrs.Definer{}
-				case attrs.Definer:
-					slice = make([]attrs.Definer, 0)
-				case []attrs.Definer:
-					slice = v
-				default:
-					panic(fmt.Errorf("unexpected type for relatedName %s: %T", relatedName, existing))
-				}
+			slice = append(
+				slice, actualField.object,
+			)
 
-				slice = append(
-					slice, actualField.object,
-				)
-
-				fmt.Printf("Setting (%s) %s to %+v\n", actualField.chainKey, relatedName, slice)
-
-				if err := dataModel.SetQueryValue(relatedName, slice); err != nil {
-					panic(err)
-				}
+			if err := dataStore.SetValue(relatedName, slice); err != nil {
+				panic(err)
 			}
 		}
 
@@ -1453,6 +1462,9 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 			Object:      obj.(T),
 			Annotations: annotations,
 		})
+
+		fmt.Println()
+
 	}
 
 	if qs.useCache {

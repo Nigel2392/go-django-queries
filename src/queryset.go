@@ -1312,8 +1312,11 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 		}
 		if scannable.relType == -1 && scannable.field.IsPrimary() && rootScannable == nil {
 			rootScannable = scannable
-			possibleDuplicates = append(possibleDuplicates, rootScannable)
 		}
+	}
+
+	if rootScannable != nil && len(possibleDuplicates) > 0 {
+		possibleDuplicates = append(possibleDuplicates, rootScannable)
 	}
 
 	var (

@@ -1307,7 +1307,7 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 
 	var rootScannable *scannableField
 	for _, scannable := range scannables {
-		if (scannable.relType != -1) && scannable.field.IsPrimary() {
+		if (scannable.relType == attrs.RelManyToMany || scannable.relType == attrs.RelOneToMany) && scannable.field.IsPrimary() {
 			possibleDuplicates = append(possibleDuplicates, scannable)
 		}
 		if scannable.relType == -1 && scannable.field.IsPrimary() && rootScannable == nil {
@@ -1406,8 +1406,8 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 
 			dedupe.add(possibleDuplicate, scannables)
 
-			// this is either the root value or a relation that cannot have multiple values
-			if actualField.chainKey == "" || (actualField.relType == attrs.RelManyToOne || actualField.relType == attrs.RelOneToOne) {
+			// this is eithe root value (safe to skip)
+			if actualField.chainKey == "" {
 				continue
 			}
 

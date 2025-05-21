@@ -154,8 +154,8 @@ func (m *User) FieldDefs() attrs.Definitions {
 		}),
 		attrs.NewField(m, "Name", &attrs.FieldConfig{}),
 		attrs.NewField(m, "Profile", &attrs.FieldConfig{
-			RelForeignKey: attrs.Relate(&Profile{}, "", nil),
-			Column:        "profile_id",
+			RelOneToOne: attrs.Relate(&Profile{}, "", nil),
+			Column:      "profile_id",
 			Attributes: map[string]interface{}{
 				attrs.AttrReverseAliasKey: "User",
 			},
@@ -370,7 +370,7 @@ func (t *ModelManyToMany) FieldDefs() attrs.Definitions {
 		attrs.NewField(t, "Title", &attrs.FieldConfig{
 			Column: "title",
 		}),
-		fields.NewRelatedField[attrs.Definer](t, t, "Target", "TargetReverse", "id", attrs.Relate(
+		fields.NewManyToManyField[attrs.Definer](t, t, "Target", "TargetReverse", "id", attrs.Relate(
 			&ModelManyToMany_Target{},
 			"", &attrs.ThroughModel{
 				This:   &ModelManyToMany_Through{},

@@ -663,6 +663,10 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]FieldInfo, []JoinDef) {
 	var through = manyToMany.Through()
 
+	if through == nil {
+		panic(fmt.Errorf("manyToMany relation %T.%s does not have a through table", manyToMany.Model(), field.Name()))
+	}
+
 	// through model info
 	var throughModel = through.Model()
 	var throughDefs = throughModel.FieldDefs()
@@ -914,7 +918,7 @@ func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 			case attrs.RelOneToMany:
 				infos, join = qs.addJoinForFK(rel, parentDefs, parentField, field, chain, aliases, allFields, qs.internals.joinsMap)
 			default:
-				panic(fmt.Errorf("field %q is not a relation", field.Name()))
+				panic(fmt.Errorf("field %q (%T) is not a relation %s", field.Name(), field, rel.Type()))
 			}
 
 			if len(infos) > 0 {
@@ -1215,6 +1219,92 @@ func (qs *QuerySet[T]) queryCount() CompiledQuery[int64] {
 	return q
 }
 
+//type dedupeObject struct {
+//	parent   attrs.Definer
+//	children *orderedmap.OrderedMap[any, attrs.Definer]
+//}
+//
+//type dedupeBuilder struct {
+//	root               *scannableField
+//	possibleDuplicates []*scannableField
+//	// map[chain key] -> map[parent PK] -> object(parent, [](child PK -> child))
+//	parents map[string]map[any]*dedupeObject
+//	objects *orderedmap.OrderedMap[any, attrs.Definer]
+//}
+//
+//func newDedupeBuilder(root *scannableField, possibleDuplicates []*scannableField) *dedupeBuilder {
+//	var parents = make(map[string]map[any]*dedupeObject, len(possibleDuplicates))
+//	for _, scannable := range possibleDuplicates {
+//		parents[scannable.chainPart] = make(map[any]*dedupeObject)
+//	}
+//
+//	return &dedupeBuilder{
+//		root:               root,
+//		possibleDuplicates: possibleDuplicates,
+//		parents:            parents,
+//		objects:            orderedmap.NewOrderedMap[any, attrs.Definer](),
+//	}
+//}
+//
+//func (d *dedupeBuilder) addRow(scannables []*scannableField) {
+//	var (
+//		rootField = scannables[d.root.idx]
+//		rootObj   = rootField.object
+//		rootPk    = rootField.field.GetValue()
+//	)
+//
+//	// Check if we already have this object
+//	if _, ok := d.objects.Get(rootPk); !ok {
+//		d.objects.Set(rootPk, rootObj)
+//	}
+//
+//	// Loop through parents and add them to the appropriate parents
+//	for _, dup := range d.possibleDuplicates {
+//		var (
+//			objectField     = scannables[dup.idx]
+//			parentScannable = objectField.srcField
+//			parentInstance  = parentScannable.object
+//			parentDefs      = parentInstance.FieldDefs()
+//			parentPrimary   = parentDefs.Primary()
+//			parentPk        = parentPrimary.GetValue()
+//			childMap        = d.parents[objectField.chainPart]
+//		)
+//
+//		var (
+//			dedupeObj *dedupeObject
+//			ok        bool
+//		)
+//
+//		if dedupeObj, ok = childMap[parentPk]; !ok {
+//			dedupeObj = &dedupeObject{
+//				parent:   parentInstance,
+//				children: orderedmap.NewOrderedMap[any, attrs.Definer](),
+//			}
+//			childMap[parentPk] = dedupeObj
+//		}
+//
+//		var objectPk = objectField.field.GetValue()
+//		if _, has := dedupeObj.children.Get(objectPk); !has {
+//			dedupeObj.children.Set(
+//				objectField.field.GetValue(), objectField.object,
+//			)
+//		}
+//	}
+//}
+//
+//func (d *dedupeBuilder) build() []*Row[attrs.Definer] {
+//	var out = make([]*Row[attrs.Definer], 0, d.objects.Len())
+//	for head := d.objects.Front(); head != nil; head = head.Next() {
+//		for chainKey, parentMap := range d.parents {
+//			for parentPk, parentObj := range parentMap {
+//
+//			}
+//		}
+//	}
+//
+//	return out
+//}
+
 type dedupeNode struct {
 	children map[string]map[any]*dedupeNode // chain name -> PK -> next node
 	objects  map[any]struct{}               // Only for leaves: PKs we've already seen at this level
@@ -1228,8 +1318,9 @@ func newDedupeNode() *dedupeNode {
 }
 
 type chainPart struct {
-	chain string
-	pk    any
+	chain  string
+	pk     any
+	object attrs.Definer
 }
 
 func (n *dedupeNode) Has(keyParts []chainPart) bool {
@@ -1288,8 +1379,9 @@ func buildChainParts(actualField *scannableField) []chainPart {
 		)
 
 		stack = append(stack, chainPart{
-			chain: cur.chainPart,
-			pk:    primary.GetValue(),
+			chain:  cur.chainPart,
+			pk:     primary.GetValue(),
+			object: inst,
 		})
 	}
 
@@ -2102,7 +2194,8 @@ type scannableField struct {
 	field     attrs.Field
 	srcField  *scannableField
 	relType   attrs.RelationType
-	chainPart string
+	chainPart string // name of the field in the chain
+	chainKey  string // the chain up to this point, joined by "."
 }
 
 func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableField {
@@ -2138,6 +2231,7 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 				var sf = &scannableField{
 					idx:     idx,
 					field:   field,
+					object:  root,
 					relType: -1,
 				}
 
@@ -2183,6 +2277,7 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 				newParent := &scannableField{
 					relType:   rel.Type(),
 					chainPart: name,
+					chainKey:  key,
 					object:    obj,
 					field:     obj.FieldDefs().Primary(),
 					idx:       -1,                      // Not a leaf

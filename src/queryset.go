@@ -209,10 +209,30 @@ type QuerySet[T attrs.Definer] struct {
 // Queries are built internally with the help of the QueryCompiler interface, which is responsible for generating the SQL queries for the database.
 type GenericQuerySet = QuerySet[attrs.Definer]
 
+// GetQuerySet creates a new QuerySet for the given model.
+//
+// If the model implements the QuerySetDefiner interface,
+// it will use the GetQuerySet method to get the initial QuerySet.
+//
+// A model should use Objects[T](model) to get the default QuerySet inside of it's
+// GetQuerySet method. If not, it will recursively call itself.
+//
+// See [Objects] for more details.
+func GetQuerySet[T attrs.Definer](model attrs.Definer) *QuerySet[T] {
+	if m, ok := model.(QuerySetDefiner); ok {
+		var qs = m.GetQuerySet()
+		qs = qs.Clone()
+		return ChangeObjectsType[attrs.Definer, T](qs)
+	}
+
+	return Objects[T](model)
+}
+
 // Objects creates a new QuerySet for the given model.
 //
-// If the model implements the QueryDefiner interface,
-// it will use the GetQuerySet method to get the initial QuerySet.
+// This function should only be called in a model's GetQuerySet method.
+//
+// In other places the [GetQuerySet] function should be used instead.
 //
 // It panics if:
 // - the model is nil
@@ -242,12 +262,6 @@ func Objects[T attrs.Definer](model attrs.Definer, database ...string) *QuerySet
 	// Arguments take precedence over the default database
 	if len(database) == 1 {
 		defaultDb = database[0]
-	}
-
-	if m, ok := model.(QuerySetDefiner); ok {
-		var qs = m.GetQuerySet()
-		qs = qs.Clone()
-		return ChangeObjectsType[attrs.Definer, T](qs)
 	}
 
 	var queryInfo, err = internal.GetBaseQueryInfo(model)

@@ -1412,13 +1412,19 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 		return nil, err
 	}
 
-	var possibleDuplicates = make([]*scannableField, 0)
+	var (
+		possibleDuplicates = make([]*scannableField, 0)
+		relationFields     = make(map[int]*scannableField)
+	)
 	var scannables = getScannableFields(
 		qs.internals.Fields, internal.NewObjectFromIface(qs.model),
 	)
 
 	var rootScannable *scannableField
 	for _, scannable := range scannables {
+		if (scannable.relType != -1 && scannable.relType != attrs.RelNone) && scannable.field.IsPrimary() {
+			relationFields[scannable.idx] = scannable
+		}
 		if (scannable.relType == attrs.RelManyToMany || scannable.relType == attrs.RelOneToMany) && scannable.field.IsPrimary() {
 			possibleDuplicates = append(possibleDuplicates, scannable)
 		}
@@ -1434,7 +1440,8 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 	var (
 		dedupe = newDedupeNode()
 		list   = make([]*Row[T], 0, len(results))
-		prev   []*scannableField
+		// parents = make(map[string]map[any]attrs.Definer) // chain name -> PK -> next node
+		prev []*scannableField
 	)
 
 	for _, row := range results {
@@ -1460,6 +1467,30 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 			if err := f.Scan(val); err != nil {
 				return nil, errors.Wrapf(err, "failed to scan field %q in %T", f.Name(), obj)
 			}
+
+			//	if _, ok := relationFields[field.idx]; ok {
+			//		var cur = field
+			//		for {
+			//			parentMap, ok := parents[cur.chainKey]
+			//			if !ok {
+			//				parentMap = make(map[any]attrs.Definer)
+			//				parents[cur.chainKey] = parentMap
+			//			}
+			//
+			//			var primary = cur.object.FieldDefs().Primary()
+			//			if _, ok := parentMap[primary.GetValue()]; ok {
+			//				break
+			//			}
+			//
+			//			parentMap[primary] = cur.object
+			//
+			//			if cur.srcField == nil {
+			//				break
+			//			}
+			//
+			//			cur = cur.srcField
+			//		}
+			//	}
 
 			// If it's a virtual field not in the model, store as annotation
 			if vf, ok := f.(AliasField); ok {
@@ -1530,6 +1561,9 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 				fmt.Printf("continuing %T %v\n", actualField.field.Instance(), actualField.field.GetValue())
 				continue
 			}
+
+			//parentMap := parents[actualField.srcField.chainKey]
+			//workingObj = parentMap[actualField.srcField.object.FieldDefs().Primary().GetValue()]
 
 			// retrieve the panret object from the last row (if any)
 			if prev != nil && prev[rootScannable.idx].field.GetValue() == scannables[rootScannable.idx].field.GetValue() {

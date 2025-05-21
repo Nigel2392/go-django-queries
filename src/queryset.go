@@ -1566,6 +1566,7 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 			if err := dataStore.SetValue(actualField.chainPart, slice); err != nil {
 				panic(err)
 			}
+			fmt.Println("----------------------------------------------")
 		}
 
 		if !newRow {
@@ -1580,14 +1581,18 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 		})
 
 		if len(possibleDuplicates) > 0 {
-			fmt.Println()
-
-			var sb = &strings.Builder{}
-			printDedupe(sb, dedupe, 0)
-			fmt.Println(sb.String())
-
-			fmt.Println()
+			fmt.Println("_____________________________________________")
 		}
+	}
+
+	if len(possibleDuplicates) > 0 {
+		fmt.Println()
+
+		var sb = &strings.Builder{}
+		printDedupe(sb, dedupe, 0)
+		fmt.Println(sb.String())
+
+		fmt.Println()
 	}
 
 	if qs.useCache {

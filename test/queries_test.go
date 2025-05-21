@@ -117,6 +117,7 @@ func (m *Image) FieldDefs() attrs.Definitions {
 }
 
 type Profile struct {
+	models.Model
 	ID    int
 	Name  string
 	Email string
@@ -124,7 +125,7 @@ type Profile struct {
 }
 
 func (m *Profile) FieldDefs() attrs.Definitions {
-	return attrs.Define(m,
+	return m.Model.Define(m,
 		attrs.NewField(m, "ID", &attrs.FieldConfig{
 			Primary:  true,
 			ReadOnly: true,
@@ -155,6 +156,9 @@ func (m *User) FieldDefs() attrs.Definitions {
 		attrs.NewField(m, "Profile", &attrs.FieldConfig{
 			RelForeignKey: attrs.Relate(&Profile{}, "", nil),
 			Column:        "profile_id",
+			Attributes: map[string]interface{}{
+				attrs.AttrReverseAliasKey: "User",
+			},
 		}),
 	).WithTableName("users")
 }

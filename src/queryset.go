@@ -1407,7 +1407,7 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 					f = actualField
 				}
 				fmt.Printf(
-					"Has: %v, %d\n\tSetting %v, %v, %p, %T on %T %v\n",
+					"Has: %v, %d, Setting %v, %v, %p, %T on %T %v\n",
 					has, possibleDuplicate.idx,
 
 					actualField.chainPart,
@@ -1420,7 +1420,7 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 				)
 			} else {
 				fmt.Printf(
-					"Has: %v, %d\n\tWorking on %T %v\n",
+					"Has: %v, %d, Working on %T %v\n",
 					has, possibleDuplicate.idx,
 					actualField.field.Instance(), actualField.field.GetValue(),
 				)
@@ -2203,8 +2203,6 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 			if !ok {
 				panic(fmt.Errorf("field %q not found in %T", f.Name(), final))
 			}
-
-			fmt.Println(parentScannable.chainPart, info.Chain, parentScannable.srcField)
 
 			var cpy = *parentScannable
 			cpy.idx = idx

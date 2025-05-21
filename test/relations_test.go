@@ -1135,199 +1135,199 @@ var manyToManyTests = []ManyToManyTest{
 			}
 		},
 	},
-	////{
-	////	Name: "TestManyToOne_Reverse_Forward_Reverse",
-	////	Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
-	////		var rows, err = queries.Objects[*User](&User{}).
-	////			Select("*", "ModelManyToManySet.*", "ModelManyToManySet.User.*", "ModelManyToManySet.User.ModelManyToManySet.*").
-	////			Filter("ID__in", users[0].ID, users[1].ID).
-	////			OrderBy("ID").
-	////			All()
-	////		if err != nil {
-	////			t.Fatalf("Failed to get objects: %v", err)
-	////		}
-	////
-	////		// "*"
-	////		var (
-	////			user1      = rows[0].Object
-	////			m2mSet, ok = user1.ModelDataStore().GetValue("ModelManyToManySet")
-	////		)
-	////		if !ok {
-	////			t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", user1.Model, rows[0].QuerySet.LatestQuery().SQL())
-	////		}
-	////
-	////		t.Logf("User 1: %+v", user1)
-	////		t.Logf("ModelManyToManySet 1:  %+v %p %T", m2mSet, m2mSet, m2mSet)
-	////
-	////		var set = m2mSet.([]attrs.Definer)
-	////		if len(set) != 2 {
-	////			t.Errorf("Expected 2 items in set, got %d", len(set))
-	////			for _, obj := range set {
-	////				t.Logf("obj: %+v", obj)
-	////			}
-	////			t.FailNow()
-	////		}
-	////
-	////		// "*", "ModelManyToManySet.*"
-	////		var (
-	////			target1 = set[0].(*ModelManyToMany)
-	////			target2 = set[1].(*ModelManyToMany)
-	////		)
-	////
-	////		if target1.ID != m2m_sources[0].ID {
-	////			t.Fatalf("Expected ModelManyToMany1.ID to be %d, got %d", m2m_sources[0].ID, target1.ID)
-	////		}
-	////
-	////		if target2.ID != m2m_sources[1].ID {
-	////			t.Fatalf("Expected ModelManyToMany2.ID to be %d, got %d", m2m_sources[1].ID, target2.ID)
-	////		}
-	////
-	////		if target1.Title != "TestManyToMany1" {
-	////			t.Fatalf("Expected ModelManyToMany1.Title to be %q, got %q", "TestManyToMany1", target1.Title)
-	////		}
-	////
-	////		if target2.Title != "TestManyToMany2" {
-	////			t.Fatalf("Expected ModelManyToMany2.Title to be %q, got %q", "TestManyToMany2", target2.Title)
-	////		}
-	////
-	////		if target1.User.ID != user1.ID && target1.User.ID != users[0].ID {
-	////			t.Fatalf("Expected ModelManyToMany1.User.ID to be %d, got %d", users[0].ID, target1.User.ID)
-	////		}
-	////
-	////		if target2.User.ID != user1.ID && target2.User.ID != users[0].ID {
-	////			t.Fatalf("Expected ModelManyToMany2.User.ID to be %d, got %d", users[0].ID, target2.User.ID)
-	////		}
-	////
-	////		// "*"
-	////		var user2 = rows[1].Object
-	////		m2mSet, ok = user2.ModelDataStore().GetValue("ModelManyToManySet")
-	////		if !ok {
-	////			t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", user2.Model, rows[1].QuerySet.LatestQuery().SQL())
-	////		}
-	////
-	////		set = m2mSet.([]attrs.Definer)
-	////		if len(set) != 1 {
-	////			t.Errorf("Expected 1 items in set, got %d", len(set))
-	////			for _, obj := range set {
-	////				t.Logf("obj: %+v", obj)
-	////			}
-	////			t.FailNow()
-	////		}
-	////
-	////		// "*", "ModelManyToManySet.*"
-	////		var target3 = set[0].(*ModelManyToMany)
-	////
-	////		if target3.ID != m2m_sources[2].ID {
-	////			t.Fatalf("Expected ModelManyToMany3.ID to be %d, got %d", m2m_sources[2].ID, target3.ID)
-	////			return
-	////		}
-	////
-	////		if target3.Title != "TestManyToMany3" {
-	////			t.Fatalf("Expected ModelManyToMany3.Title to be %q, got %q", "TestManyToMany3", target3.Title)
-	////		}
-	////
-	////		if target3.User.ID != user2.ID && target3.User.ID != users[1].ID {
-	////			t.Fatalf("Expected ModelManyToMany3.User.ID to be %d, got %d", users[1].ID, target3.User.ID)
-	////		}
-	////
-	////		t.Logf("User 2: %+v", user2)
-	////		t.Logf("ModelManyToManySet 2:  %+v %p %T", m2mSet, m2mSet, m2mSet)
-	////
-	////		// "*", "ModelManyToManySet.*", "ModelManyToManySet.User.*"
-	////		var (
-	////			reversedUser1 = target1.User
-	////			reversedUser2 = target2.User
-	////			reversedUser3 = target3.User
-	////		)
-	////
-	////		// "*", "ModelManyToManySet.*", "ModelManyToManySet.User.*", "ModelManyToManySet.User.ModelManyToManySet.*"
-	////		var (
-	////			reversedUser1Set, ok1 = reversedUser1.ModelDataStore().GetValue("ModelManyToManySet")
-	////			reversedUser2Set, ok2 = reversedUser2.ModelDataStore().GetValue("ModelManyToManySet")
-	////			reversedUser3Set, ok3 = reversedUser3.ModelDataStore().GetValue("ModelManyToManySet")
-	////		)
-	////		if !ok1 {
-	////			t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", reversedUser1, rows[0].QuerySet.LatestQuery().SQL())
-	////		}
-	////		if !ok2 {
-	////			t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", reversedUser2, rows[1].QuerySet.LatestQuery().SQL())
-	////		}
-	////		if !ok3 {
-	////			t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", reversedUser3, rows[2].QuerySet.LatestQuery().SQL())
-	////		}
-	////
-	////		t.Logf("Target1: %+v", target1)
-	////		t.Logf("Target2: %+v", target2)
-	////		t.Logf("Target3: %+v", target3)
-	////
-	////		t.Logf("ReversedUser1: %+v", reversedUser1)
-	////		t.Logf("ReversedUser2: %+v", reversedUser2)
-	////		t.Logf("ReversedUser3: %+v", reversedUser3)
-	////
-	////		m2mSet1, ok1 := reversedUser1Set.([]attrs.Definer)
-	////		m2mSet2, ok2 := reversedUser2Set.([]attrs.Definer)
-	////		m2mSet3, ok3 := reversedUser3Set.([]attrs.Definer)
-	////		if !ok1 {
-	////			t.Fatalf("Expected ModelManyToManySet to be []attrs.Definer: %+v\n\t%s", reversedUser1, rows[0].QuerySet.LatestQuery().SQL())
-	////		}
-	////		if !ok2 {
-	////			t.Fatalf("Expected ModelManyToManySet to be []attrs.Definer: %+v\n\t%s", reversedUser2, rows[1].QuerySet.LatestQuery().SQL())
-	////		}
-	////		if !ok3 {
-	////			t.Fatalf("Expected ModelManyToManySet to be []attrs.Definer: %+v\n\t%s", reversedUser3, rows[2].QuerySet.LatestQuery().SQL())
-	////		}
-	////
-	////		if len(m2mSet1) != 3 {
-	////			t.Fatalf("Expected 3 items in set, got %d", len(m2mSet1))
-	////		}
-	////
-	////		if len(m2mSet2) != 3 {
-	////			t.Fatalf("Expected 3 items in set, got %d", len(m2mSet2))
-	////		}
-	////
-	////		if len(m2mSet3) != 3 {
-	////			t.Fatalf("Expected 3 items in set, got %d", len(m2mSet3))
-	////		}
-	////
-	////		if m2mSet1[0].(*ModelManyToMany).ID != m2m_sources[0].ID {
-	////			t.Fatalf("Expected ModelManyToMany1.ID to be %d, got %d", m2m_sources[0].ID, m2mSet1[0].(*ModelManyToMany).ID)
-	////		}
-	////
-	////		if m2mSet1[1].(*ModelManyToMany).ID != m2m_sources[1].ID {
-	////			t.Fatalf("Expected ModelManyToMany2.ID to be %d, got %d", m2m_sources[1].ID, m2mSet1[1].(*ModelManyToMany).ID)
-	////		}
-	////
-	////		if m2mSet1[2].(*ModelManyToMany).ID != m2m_sources[2].ID {
-	////			t.Fatalf("Expected ModelManyToMany3.ID to be %d, got %d", m2m_sources[2].ID, m2mSet1[2].(*ModelManyToMany).ID)
-	////		}
-	////
-	////		if m2mSet2[0].(*ModelManyToMany).ID != m2m_sources[0].ID {
-	////			t.Fatalf("Expected ModelManyToMany1.ID to be %d, got %d", m2m_sources[0].ID, m2mSet2[0].(*ModelManyToMany).ID)
-	////		}
-	////
-	////		if m2mSet2[1].(*ModelManyToMany).ID != m2m_sources[1].ID {
-	////			t.Fatalf("Expected ModelManyToMany2.ID to be %d, got %d", m2m_sources[1].ID, m2mSet2[1].(*ModelManyToMany).ID)
-	////		}
-	////
-	////		if m2mSet2[2].(*ModelManyToMany).ID != m2m_sources[2].ID {
-	////			t.Fatalf("Expected ModelManyToMany3.ID to be %d, got %d", m2m_sources[2].ID, m2mSet2[2].(*ModelManyToMany).ID)
-	////		}
-	////
-	////		if m2mSet3[0].(*ModelManyToMany).ID != m2m_sources[0].ID {
-	////			t.Fatalf("Expected ModelManyToMany1.ID to be %d, got %d", m2m_sources[0].ID, m2mSet3[0].(*ModelManyToMany).ID)
-	////		}
-	////
-	////		if m2mSet3[1].(*ModelManyToMany).ID != m2m_sources[1].ID {
-	////			t.Fatalf("Expected ModelManyToMany2.ID to be %d, got %d", m2m_sources[1].ID, m2mSet3[1].(*ModelManyToMany).ID)
-	////		}
-	////
-	////		if m2mSet3[2].(*ModelManyToMany).ID != m2m_sources[2].ID {
-	////			t.Fatalf("Expected ModelManyToMany3.ID to be %d, got %d", m2m_sources[2].ID, m2mSet3[2].(*ModelManyToMany).ID)
-	////		}
-	////
-	////		t.Logf("________________________________________________________")
-	////	},
-	////},
+	{
+		Name: "TestManyToOne_Reverse_Forward_Reverse",
+		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
+			var rows, err = queries.Objects[*User](&User{}).
+				Select("*", "ModelManyToManySet.*", "ModelManyToManySet.User.*", "ModelManyToManySet.User.ModelManyToManySet.*").
+				Filter("ID__in", users[0].ID, users[1].ID).
+				OrderBy("ID").
+				All()
+			if err != nil {
+				t.Fatalf("Failed to get objects: %v", err)
+			}
+
+			// "*"
+			var (
+				user1      = rows[0].Object
+				m2mSet, ok = user1.ModelDataStore().GetValue("ModelManyToManySet")
+			)
+			if !ok {
+				t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", user1.Model, rows[0].QuerySet.LatestQuery().SQL())
+			}
+
+			t.Logf("User 1: %+v", user1)
+			t.Logf("ModelManyToManySet 1:  %+v %p %T", m2mSet, m2mSet, m2mSet)
+
+			var set = m2mSet.([]attrs.Definer)
+			if len(set) != 2 {
+				t.Errorf("Expected 2 items in set, got %d", len(set))
+				for _, obj := range set {
+					t.Logf("obj: %+v", obj)
+				}
+				t.FailNow()
+			}
+
+			// "*", "ModelManyToManySet.*"
+			var (
+				target1 = set[0].(*ModelManyToMany)
+				target2 = set[1].(*ModelManyToMany)
+			)
+
+			if target1.ID != m2m_sources[0].ID {
+				t.Fatalf("Expected ModelManyToMany1.ID to be %d, got %d", m2m_sources[0].ID, target1.ID)
+			}
+
+			if target2.ID != m2m_sources[1].ID {
+				t.Fatalf("Expected ModelManyToMany2.ID to be %d, got %d", m2m_sources[1].ID, target2.ID)
+			}
+
+			if target1.Title != "TestManyToMany1" {
+				t.Fatalf("Expected ModelManyToMany1.Title to be %q, got %q", "TestManyToMany1", target1.Title)
+			}
+
+			if target2.Title != "TestManyToMany2" {
+				t.Fatalf("Expected ModelManyToMany2.Title to be %q, got %q", "TestManyToMany2", target2.Title)
+			}
+
+			if target1.User.ID != user1.ID && target1.User.ID != users[0].ID {
+				t.Fatalf("Expected ModelManyToMany1.User.ID to be %d, got %d", users[0].ID, target1.User.ID)
+			}
+
+			if target2.User.ID != user1.ID && target2.User.ID != users[0].ID {
+				t.Fatalf("Expected ModelManyToMany2.User.ID to be %d, got %d", users[0].ID, target2.User.ID)
+			}
+
+			// "*"
+			var user2 = rows[1].Object
+			m2mSet, ok = user2.ModelDataStore().GetValue("ModelManyToManySet")
+			if !ok {
+				t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", user2.Model, rows[1].QuerySet.LatestQuery().SQL())
+			}
+
+			set = m2mSet.([]attrs.Definer)
+			if len(set) != 1 {
+				t.Errorf("Expected 1 items in set, got %d", len(set))
+				for _, obj := range set {
+					t.Logf("obj: %+v", obj)
+				}
+				t.FailNow()
+			}
+
+			// "*", "ModelManyToManySet.*"
+			var target3 = set[0].(*ModelManyToMany)
+
+			if target3.ID != m2m_sources[2].ID {
+				t.Fatalf("Expected ModelManyToMany3.ID to be %d, got %d", m2m_sources[2].ID, target3.ID)
+				return
+			}
+
+			if target3.Title != "TestManyToMany3" {
+				t.Fatalf("Expected ModelManyToMany3.Title to be %q, got %q", "TestManyToMany3", target3.Title)
+			}
+
+			if target3.User.ID != user2.ID && target3.User.ID != users[1].ID {
+				t.Fatalf("Expected ModelManyToMany3.User.ID to be %d, got %d", users[1].ID, target3.User.ID)
+			}
+
+			t.Logf("User 2: %+v", user2)
+			t.Logf("ModelManyToManySet 2:  %+v %p %T", m2mSet, m2mSet, m2mSet)
+
+			// "*", "ModelManyToManySet.*", "ModelManyToManySet.User.*"
+			var (
+				reversedUser1 = target1.User
+				reversedUser2 = target2.User
+				reversedUser3 = target3.User
+			)
+
+			// "*", "ModelManyToManySet.*", "ModelManyToManySet.User.*", "ModelManyToManySet.User.ModelManyToManySet.*"
+			var (
+				reversedUser1Set, ok1 = reversedUser1.ModelDataStore().GetValue("ModelManyToManySet")
+				reversedUser2Set, ok2 = reversedUser2.ModelDataStore().GetValue("ModelManyToManySet")
+				reversedUser3Set, ok3 = reversedUser3.ModelDataStore().GetValue("ModelManyToManySet")
+			)
+			if !ok1 {
+				t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", reversedUser1, rows[0].QuerySet.LatestQuery().SQL())
+			}
+			if !ok2 {
+				t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", reversedUser2, rows[1].QuerySet.LatestQuery().SQL())
+			}
+			if !ok3 {
+				t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", reversedUser3, rows[2].QuerySet.LatestQuery().SQL())
+			}
+
+			t.Logf("Target1: %+v", target1)
+			t.Logf("Target2: %+v", target2)
+			t.Logf("Target3: %+v", target3)
+
+			t.Logf("ReversedUser1: %+v", reversedUser1)
+			t.Logf("ReversedUser2: %+v", reversedUser2)
+			t.Logf("ReversedUser3: %+v", reversedUser3)
+
+			m2mSet1, ok1 := reversedUser1Set.([]attrs.Definer)
+			m2mSet2, ok2 := reversedUser2Set.([]attrs.Definer)
+			m2mSet3, ok3 := reversedUser3Set.([]attrs.Definer)
+			if !ok1 {
+				t.Fatalf("Expected ModelManyToManySet to be []attrs.Definer: %+v\n\t%s", reversedUser1, rows[0].QuerySet.LatestQuery().SQL())
+			}
+			if !ok2 {
+				t.Fatalf("Expected ModelManyToManySet to be []attrs.Definer: %+v\n\t%s", reversedUser2, rows[1].QuerySet.LatestQuery().SQL())
+			}
+			if !ok3 {
+				t.Fatalf("Expected ModelManyToManySet to be []attrs.Definer: %+v\n\t%s", reversedUser3, rows[2].QuerySet.LatestQuery().SQL())
+			}
+
+			if len(m2mSet1) != 3 {
+				t.Fatalf("Expected 3 items in set, got %d", len(m2mSet1))
+			}
+
+			if len(m2mSet2) != 3 {
+				t.Fatalf("Expected 3 items in set, got %d", len(m2mSet2))
+			}
+
+			if len(m2mSet3) != 3 {
+				t.Fatalf("Expected 3 items in set, got %d", len(m2mSet3))
+			}
+
+			if m2mSet1[0].(*ModelManyToMany).ID != m2m_sources[0].ID {
+				t.Fatalf("Expected ModelManyToMany1.ID to be %d, got %d", m2m_sources[0].ID, m2mSet1[0].(*ModelManyToMany).ID)
+			}
+
+			if m2mSet1[1].(*ModelManyToMany).ID != m2m_sources[1].ID {
+				t.Fatalf("Expected ModelManyToMany2.ID to be %d, got %d", m2m_sources[1].ID, m2mSet1[1].(*ModelManyToMany).ID)
+			}
+
+			if m2mSet1[2].(*ModelManyToMany).ID != m2m_sources[2].ID {
+				t.Fatalf("Expected ModelManyToMany3.ID to be %d, got %d", m2m_sources[2].ID, m2mSet1[2].(*ModelManyToMany).ID)
+			}
+
+			if m2mSet2[0].(*ModelManyToMany).ID != m2m_sources[0].ID {
+				t.Fatalf("Expected ModelManyToMany1.ID to be %d, got %d", m2m_sources[0].ID, m2mSet2[0].(*ModelManyToMany).ID)
+			}
+
+			if m2mSet2[1].(*ModelManyToMany).ID != m2m_sources[1].ID {
+				t.Fatalf("Expected ModelManyToMany2.ID to be %d, got %d", m2m_sources[1].ID, m2mSet2[1].(*ModelManyToMany).ID)
+			}
+
+			if m2mSet2[2].(*ModelManyToMany).ID != m2m_sources[2].ID {
+				t.Fatalf("Expected ModelManyToMany3.ID to be %d, got %d", m2m_sources[2].ID, m2mSet2[2].(*ModelManyToMany).ID)
+			}
+
+			if m2mSet3[0].(*ModelManyToMany).ID != m2m_sources[0].ID {
+				t.Fatalf("Expected ModelManyToMany1.ID to be %d, got %d", m2m_sources[0].ID, m2mSet3[0].(*ModelManyToMany).ID)
+			}
+
+			if m2mSet3[1].(*ModelManyToMany).ID != m2m_sources[1].ID {
+				t.Fatalf("Expected ModelManyToMany2.ID to be %d, got %d", m2m_sources[1].ID, m2mSet3[1].(*ModelManyToMany).ID)
+			}
+
+			if m2mSet3[2].(*ModelManyToMany).ID != m2m_sources[2].ID {
+				t.Fatalf("Expected ModelManyToMany3.ID to be %d, got %d", m2m_sources[2].ID, m2mSet3[2].(*ModelManyToMany).ID)
+			}
+
+			t.Logf("________________________________________________________")
+		},
+	},
 	//{
 	//	Name: "TestManyToMany_Forward_1",
 	//	Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {

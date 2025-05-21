@@ -81,6 +81,11 @@ func ForSelectAll(f attrs.Field) bool {
 	return true
 }
 
+type Relation interface {
+	Model() attrs.Definer
+	Through() attrs.Through
+}
+
 // Annotations from the database are stored in the `Row` struct, and if the
 // model has a `ModelDataStore()` method that implements this interface,
 // annotated values will be stored there too.

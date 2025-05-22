@@ -71,16 +71,22 @@ Example of unsupported nested relations:
 
 Say we have the following relationship defined:
 
-User (m2m)-> Group (m2m)-> Permissions
+Profile (o2o)-> User (m2m)-> Group (m2m)-> Permissions
 
 We can't query the following:
 
 ```go
 var objects = queries.Objects[*User](&User{}).
-    // invalid, panics to prevent querying nested relations
+    // invalid, panic to prevent querying nested relations
     Select("*", "Group.*", "Group.Permissions.*")
 
 var objects = queries.Objects[*Permission](&Permission{}).
-    // invalid, panics to prevent querying nested relations
+    // invalid, panic to prevent querying nested relations
     Select("*", "GroupSet.*", "GroupSet.UserSet.*")
+
+var objects = queries.Objects[*Profile](&Profile{}).
+    // valid, supported
+    Select("*", "User.*", "User.GroupSet.*")
+    // invalid, panic to prevent querying nested relations
+    Select("*", "User.GroupSet.*", "User.GroupSet.Permissions.*")
 ```

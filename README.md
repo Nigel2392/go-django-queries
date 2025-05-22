@@ -55,11 +55,32 @@ We try to support as many features as possible, but some stuff is either not sup
 * Forward and reverse relations
   * Forward one-to-one relations
   * Reverse one-to-one relations
-  * Forward one-to-one relations with a through model
-  * Reverse one-to-one relations with a through model
-  * Forward foreign key relations
+  * Forward one-to-one relations **with a through model**
+  * Reverse one-to-one relations **with a through model**
+  * Forward foreign key relations (many to one)
+  * Reverse foreign key relations (one to many)
+  * Forward many-to-many relations **with a through model**
+  * Reverse many-to-many relations **with a through model**
 
 **The following features are not supported, tested or probably don't work:**
 
-* Many-to-many relations
-* Reverse foreign key relations (one to many)
+* Nested many-to-many relations
+* Nested one-to-many relations
+
+Example of unsupported nested relations:
+
+Say we have the following relationship defined:
+
+User (m2m)-> Group (m2m)-> Permissions
+
+We can't query the following:
+
+```go
+var objects = queries.Objects[*User](&User{}).
+    // invalid, panics to prevent querying nested relations
+    Select("*", "Group.*", "Group.Permissions.*")
+
+var objects = queries.Objects[*Permission](&Permission{}).
+    // invalid, panics to prevent querying nested relations
+    Select("*", "GroupSet.*", "GroupSet.UserSet.*")
+```

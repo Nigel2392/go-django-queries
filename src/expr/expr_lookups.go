@@ -13,6 +13,30 @@ func init() {
 	RegisterLookup("exact", func(field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s = ?", field), value, nil
 	})
+	RegisterLookup("not", func(field string, value []any) (string, []any, error) {
+		return fmt.Sprintf("%s != ?", field), value, nil
+	})
+	RegisterLookup("bitand", func(field string, value []any) (string, []any, error) {
+		if len(value) != 1 {
+			return "", value, fmt.Errorf("BITAND lookup requires exactly one value, got %d %+v", len(value), value)
+		}
+		value = []any{value[0], value[0]}
+		return fmt.Sprintf("%s & ? = ?", field), value, nil
+	})
+	RegisterLookup("bitor", func(field string, value []any) (string, []any, error) {
+		if len(value) != 1 {
+			return "", value, fmt.Errorf("BITAND lookup requires exactly one value, got %d %+v", len(value), value)
+		}
+		value = []any{value[0], value[0]}
+		return fmt.Sprintf("%s | ? = ?", field), value, nil
+	})
+	RegisterLookup("bitxor", func(field string, value []any) (string, []any, error) {
+		if len(value) != 1 {
+			return "", value, fmt.Errorf("BITAND lookup requires exactly one value, got %d %+v", len(value), value)
+		}
+		value = []any{value[0], value[0]}
+		return fmt.Sprintf("%s ^ ? = ?", field), value, nil
+	})
 	RegisterLookup("iexact", func(field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("LOWER(%s) = LOWER(?)", field), normalizeArgs("iexact", value), nil
 	})

@@ -1324,12 +1324,40 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 
 			dedupeResolver.Add(chainParts)
 
+			if len(actualField.chainPart) > 0 {
+				var f *scannableField
+				if prev != nil && prev[rootScannable.idx].field.GetValue() == scannables[rootScannable.idx].field.GetValue() {
+					f = prev[possibleDuplicate.idx]
+				} else {
+					f = actualField
+				}
+				DebugPrintf(
+					"Has: %v, %d, Setting %v, %v, %p, %T on %T %v\n",
+					has, possibleDuplicate.idx,
+
+					actualField.chainPart,
+					scannables[possibleDuplicate.idx].field.GetValue(),
+					scannables[possibleDuplicate.idx].field.Instance(),
+					scannables[possibleDuplicate.idx].field.Instance(),
+
+					f.srcField.field.Instance(),
+					f.srcField.field.Instance().FieldDefs().Primary().GetValue(),
+				)
+			} else {
+				DebugPrintf(
+					"Has: %v, %d, Working on %T %v\n",
+					has, possibleDuplicate.idx,
+					actualField.field.Instance(), actualField.field.GetValue(),
+				)
+			}
+
 			// this is eithe root value (safe to skip)
 			if actualField.idx == rootScannable.idx {
+				DebugPrintf("continuing %T %v\n", actualField.field.Instance(), actualField.field.GetValue())
 				continue
 			}
 
-			//// retrieve the panret object from the last row (if any)
+			// retrieve the panret object from the last row (if any)
 			if prev != nil && prev[rootScannable.idx].field.GetValue() == scannables[rootScannable.idx].field.GetValue() {
 				workingObj = prev[possibleDuplicate.idx].srcField.field.Instance()
 			} else {
@@ -1362,10 +1390,16 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 			if err := dataStore.SetValue(actualField.chainPart, slice); err != nil {
 				panic(err)
 			}
+
+			DebugPrintln("----------------------------------------------")
 		}
 
 		if !newRow {
 			continue
+		}
+
+		if len(possibleDuplicates) > 0 {
+			DebugPrintln("_____________________________________________")
 		}
 
 		prev = scannables
@@ -1374,6 +1408,16 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 			Object:      obj.(T),
 			Annotations: annotations,
 		})
+	}
+
+	if len(possibleDuplicates) > 0 {
+		DebugPrintln()
+
+		var sb = &strings.Builder{}
+		printDedupe(sb, dedupeResolver, 0)
+		DebugPrintln(sb.String())
+
+		DebugPrintln()
 	}
 
 	if qs.useCache {
@@ -2081,7 +2125,7 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 		}
 
 		// see the variable definition for more info.
-		if multiRelations > 1 {
+		if multiRelations > 1 && !DEBUGGING {
 			panic(fmt.Errorf("nested multiple- relations are not supported: ManyToMany, OneToMany (Reverse FK)"))
 		}
 

@@ -1890,6 +1890,8 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 			t.Fatalf("expected latest query, got nil")
 		}
 
+		t.Log(latest.SQL())
+
 		if _, ok := latest.(queries.CompiledQuery[[][]interface{}]); !ok {
 			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
 		}
@@ -1908,6 +1910,8 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 		if latest == nil {
 			t.Fatalf("expected latest query, got nil")
 		}
+
+		t.Log(latest.SQL())
 
 		if _, ok := latest.(queries.CompiledQuery[[][]any]); !ok {
 			t.Fatalf("expected *QueryObject[[][]any], got %T", latest)
@@ -1938,6 +1942,8 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 			t.Fatalf("expected latest query, got nil")
 		}
 
+		t.Log(latest.SQL())
+
 		if _, ok := latest.(queries.CompiledQuery[[][]interface{}]); !ok {
 			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
 		}
@@ -1956,6 +1962,8 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 		if latest == nil {
 			t.Fatalf("expected latest query, got nil")
 		}
+
+		t.Log(latest.SQL())
 
 		if _, ok := latest.(queries.CompiledQuery[[][]interface{}]); !ok {
 			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
@@ -1983,6 +1991,8 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 				t.Fatalf("expected latest query, got nil")
 			}
 
+			t.Log(latest.SQL())
+
 			if _, ok := latest.(queries.CompiledQuery[[]interface{}]); !ok {
 				t.Fatalf("expected *QueryObject[[]interface{}], got %T", latest)
 			}
@@ -1999,6 +2009,8 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 			if latest == nil {
 				t.Fatalf("expected latest query, got nil")
 			}
+
+			t.Log(latest.SQL())
 
 			if _, ok := latest.(queries.CompiledQuery[[][]interface{}]); !ok {
 				t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
@@ -2026,6 +2038,8 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 			t.Fatalf("expected latest query, got nil")
 		}
 
+		t.Log(latest.SQL())
+
 		if _, ok := latest.(queries.CompiledQuery[[][]interface{}]); !ok {
 			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
 		}
@@ -2046,6 +2060,8 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 			t.Fatalf("expected latest query, got nil")
 		}
 
+		t.Log(latest.SQL())
+
 		if _, ok := latest.(queries.CompiledQuery[[][]interface{}]); !ok {
 			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
 		}
@@ -2065,6 +2081,8 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 			t.Fatalf("expected latest query, got nil")
 		}
 
+		t.Log(latest.SQL())
+
 		if _, ok := latest.(queries.CompiledQuery[int64]); !ok {
 			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
 		}
@@ -2083,6 +2101,8 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 		if latest == nil {
 			t.Fatalf("expected latest query, got nil")
 		}
+
+		t.Log(latest.SQL())
 
 		if _, ok := latest.(queries.CompiledQuery[int64]); !ok {
 			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
@@ -2111,13 +2131,15 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 			t.Fatalf("expected *QueryObject[[]interface{}], got %T", latest)
 		}
 
+		t.Log(latest.SQL())
+
 		queries.DeleteObject(todo)
 	})
 
 	// Test Update(value attrs.Definer, expressions ...expr.NamedExpression) CompiledQuery[int64]
 	t.Run("TestUpdate", func(t *testing.T) {
 		var query = queries.Objects[attrs.Definer](&Todo{}).
-			Select("ID", "Title", "Description", "Done").
+			Select("Title").
 			Filter("Title__icontains", "test").
 			Filter("Done", false)
 
@@ -2131,6 +2153,8 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 		if _, ok := latest.(queries.CompiledQuery[int64]); !ok {
 			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
 		}
+
+		t.Log(latest.SQL())
 	})
 
 	// Test Delete() CompiledQuery[int64]
@@ -2150,6 +2174,8 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 		if _, ok := latest.(queries.CompiledQuery[int64]); !ok {
 			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
 		}
+
+		t.Log(latest.SQL())
 	})
 }
 

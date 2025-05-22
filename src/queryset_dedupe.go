@@ -1,10 +1,27 @@
 package queries
 
-import "github.com/Nigel2392/go-django/src/core/attrs"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/Nigel2392/go-django/src/core/attrs"
+)
 
 type dedupeNode struct {
 	children map[string]map[any]*dedupeNode // chain name -> PK -> next node
 	objects  map[any]attrs.Definer          // Only for leaves: PKs we've already seen at this level
+}
+
+func printDedupe(sb *strings.Builder, dedupe *dedupeNode, depth int) {
+	if dedupe.children != nil {
+		for path, childMap := range dedupe.children {
+			for k, dedupe := range childMap {
+				sb.WriteString(strings.Repeat("\t", depth+1))
+				sb.WriteString(fmt.Sprintf("'%v' (%s): %v\n", k, path, dedupe))
+				printDedupe(sb, dedupe, depth+1)
+			}
+		}
+	}
 }
 
 func newDedupeNode() *dedupeNode {

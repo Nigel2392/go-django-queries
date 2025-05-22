@@ -85,16 +85,20 @@ We can't query the following:
 
 ```go
 var objects = queries.Objects[*User](&User{}).
-    // invalid, panic to prevent querying nested relations
+    // invalid, executing the query will
+    // panic to prevent querying nested relations
     Select("*", "Group.*", "Group.Permissions.*")
 
 var objects = queries.Objects[*Permission](&Permission{}).
-    // invalid, panic to prevent querying nested relations
+    // invalid, executing the query will
+    // panic to prevent querying nested relations
     Select("*", "GroupSet.*", "GroupSet.UserSet.*")
 
 var objects = queries.Objects[*Profile](&Profile{}).
     // valid, supported
     Select("*", "User.*", "User.GroupSet.*")
-    // invalid, panic to prevent querying nested relations
+    
+    // invalid, executing the query will
+    // panic to prevent querying nested relations
     Select("*", "User.GroupSet.*", "User.GroupSet.Permissions.*")
 ```

@@ -2212,10 +2212,19 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 		parentFields[""] = rootScannable
 
 		// Walk chain
-		var parentKey string
-		var parentScannable = rootScannable
-		var parentObj = root
-		var multiRelations int
+		var (
+			parentScannable = rootScannable
+			parentObj       = root
+
+			parentKey string
+
+			// validation to prevent querying nested multiple- relations
+			// this is to prevent undefined behavior when querying nested multiple- relations
+			// e.g. User (m2m)-> Group (m2m)-> Permissions
+			// this is because the current implementation is not entirely correct
+			// for nested multiple- relations
+			multiRelations int
+		)
 		for i, name := range info.Chain {
 			key := strings.Join(info.Chain[:i+1], ".")
 			parent := instances[parentKey]
@@ -2260,6 +2269,7 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 			parentKey = key
 		}
 
+		// see the variable definition for more info.
 		if multiRelations > 1 {
 			panic(fmt.Errorf("nested multiple- relations are not supported: ManyToMany, OneToMany (Reverse FK)"))
 		}

@@ -18,8 +18,8 @@ This library brings Django-style ORM queries to Go-Django, allowing you to:
 * [Defining Models](./docs/models.md)
 * [Interfaces](./docs/interfaces.md)
 * [Querying Objects](./docs/querying.md)
-  * [QuerySet](./docs/querying/queryset.md)
-  * [Writing Queries](./docs/querying/writing_queries.md) (WIP)
+  * [QuerySet](./docs/queryset/queryset.md)
+  * [Writing Queries](./docs/queryset/writing_queries.md) (WIP)
 * [Relations & Joins](./docs/relations/relations.md) (WIP)
 * [Expressions & Lookups](./docs/expressions.md) (WIP)
 * [Advanced: Virtual Fields](./docs/virtual_fields.md) (WIP)
@@ -36,7 +36,7 @@ var todos, err := queries.Objects[*Todo](&Todo{}).
     All()
 ```
 
-Continue with [Getting Started](./getting_started.md)…
+Continue with [Getting Started](./docs/getting_started.md)…
 
 ## ✅ Supported / Unsupported Features
 

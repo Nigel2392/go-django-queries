@@ -1,7 +1,5 @@
 filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
-github.com/Nigel2392/go-django v1.7.1-0.20250520100242-7c38d0b103e4 h1:Ek9Dhhk6PhgaszlG6BiRY0tDfU5xvfDJCoAU2aVnNQ0=
-github.com/Nigel2392/go-django v1.7.1-0.20250520100242-7c38d0b103e4/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
 github.com/Nigel2392/go-django v1.7.1-0.20250521210612-48e95a012bfb h1:d4TIRQADQ4gZnYccVdsnLiQF6bqW66ZW/aNYU3Hjq2c=
 github.com/Nigel2392/go-django v1.7.1-0.20250521210612-48e95a012bfb/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
 github.com/Nigel2392/go-signals v1.0.8 h1:A7WchnawfSVk9FyMer5YtKUyDs5fIdKePnoumD56vgc=

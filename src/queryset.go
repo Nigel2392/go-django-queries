@@ -1219,181 +1219,6 @@ func (qs *QuerySet[T]) queryCount() CompiledQuery[int64] {
 	return q
 }
 
-//type dedupeObject struct {
-//	parent   attrs.Definer
-//	children *orderedmap.OrderedMap[any, attrs.Definer]
-//}
-//
-//type dedupeBuilder struct {
-//	root               *scannableField
-//	possibleDuplicates []*scannableField
-//	// map[chain key] -> map[parent PK] -> object(parent, [](child PK -> child))
-//	parents map[string]map[any]*dedupeObject
-//	objects *orderedmap.OrderedMap[any, attrs.Definer]
-//}
-//
-//func newDedupeBuilder(root *scannableField, possibleDuplicates []*scannableField) *dedupeBuilder {
-//	var parents = make(map[string]map[any]*dedupeObject, len(possibleDuplicates))
-//	for _, scannable := range possibleDuplicates {
-//		parents[scannable.chainPart] = make(map[any]*dedupeObject)
-//	}
-//
-//	return &dedupeBuilder{
-//		root:               root,
-//		possibleDuplicates: possibleDuplicates,
-//		parents:            parents,
-//		objects:            orderedmap.NewOrderedMap[any, attrs.Definer](),
-//	}
-//}
-//
-//func (d *dedupeBuilder) addRow(scannables []*scannableField) {
-//	var (
-//		rootField = scannables[d.root.idx]
-//		rootObj   = rootField.object
-//		rootPk    = rootField.field.GetValue()
-//	)
-//
-//	// Check if we already have this object
-//	if _, ok := d.objects.Get(rootPk); !ok {
-//		d.objects.Set(rootPk, rootObj)
-//	}
-//
-//	// Loop through parents and add them to the appropriate parents
-//	for _, dup := range d.possibleDuplicates {
-//		var (
-//			objectField     = scannables[dup.idx]
-//			parentScannable = objectField.srcField
-//			parentInstance  = parentScannable.object
-//			parentDefs      = parentInstance.FieldDefs()
-//			parentPrimary   = parentDefs.Primary()
-//			parentPk        = parentPrimary.GetValue()
-//			childMap        = d.parents[objectField.chainPart]
-//		)
-//
-//		var (
-//			dedupeObj *dedupeObject
-//			ok        bool
-//		)
-//
-//		if dedupeObj, ok = childMap[parentPk]; !ok {
-//			dedupeObj = &dedupeObject{
-//				parent:   parentInstance,
-//				children: orderedmap.NewOrderedMap[any, attrs.Definer](),
-//			}
-//			childMap[parentPk] = dedupeObj
-//		}
-//
-//		var objectPk = objectField.field.GetValue()
-//		if _, has := dedupeObj.children.Get(objectPk); !has {
-//			dedupeObj.children.Set(
-//				objectField.field.GetValue(), objectField.object,
-//			)
-//		}
-//	}
-//}
-//
-//func (d *dedupeBuilder) build() []*Row[attrs.Definer] {
-//	var out = make([]*Row[attrs.Definer], 0, d.objects.Len())
-//	for head := d.objects.Front(); head != nil; head = head.Next() {
-//		for chainKey, parentMap := range d.parents {
-//			for parentPk, parentObj := range parentMap {
-//
-//			}
-//		}
-//	}
-//
-//	return out
-//}
-
-type dedupeNode struct {
-	children map[string]map[any]*dedupeNode // chain name -> PK -> next node
-	objects  map[any]attrs.Definer          // Only for leaves: PKs we've already seen at this level
-}
-
-func newDedupeNode() *dedupeNode {
-	return &dedupeNode{
-		children: make(map[string]map[any]*dedupeNode),
-		objects:  make(map[any]attrs.Definer),
-	}
-}
-
-type chainPart struct {
-	chain  string
-	pk     any
-	object attrs.Definer
-}
-
-func (n *dedupeNode) Has(keyParts []chainPart) bool {
-	return n.has(keyParts, 0)
-}
-
-func (n *dedupeNode) Add(keyParts []chainPart) {
-	n.add(keyParts, 0)
-}
-
-func (n *dedupeNode) has(keyParts []chainPart, partsIdx int) bool {
-	part := keyParts[partsIdx]
-	if partsIdx == len(keyParts)-1 {
-		_, ok := n.objects[part.pk]
-		return ok
-	}
-	nextMap, ok := n.children[part.chain]
-	if !ok {
-		return false
-	}
-	child, ok := nextMap[part.pk]
-	if !ok {
-		return false
-	}
-	return child.has(keyParts, partsIdx+1)
-}
-
-func (n *dedupeNode) add(keyParts []chainPart, partsIdx int) {
-	part := keyParts[partsIdx]
-	if partsIdx == len(keyParts)-1 {
-		n.objects[part.pk] = part.object
-		return
-	}
-	nextMap, ok := n.children[part.chain]
-	if !ok {
-		nextMap = make(map[any]*dedupeNode)
-		n.children[part.chain] = nextMap
-	}
-	child, ok := nextMap[part.pk]
-	if !ok {
-		child = newDedupeNode()
-		nextMap[part.pk] = child
-
-	}
-	child.add(keyParts, partsIdx+1)
-}
-
-func buildChainParts(actualField *scannableField) []chainPart {
-	// Get the stack of fields from target to parent
-	var stack = make([]chainPart, 0)
-	for cur := actualField; cur != nil; cur = cur.srcField {
-		var (
-			inst    = cur.field.Instance()
-			defs    = inst.FieldDefs()
-			primary = defs.Primary()
-		)
-
-		stack = append(stack, chainPart{
-			chain:  cur.chainPart,
-			pk:     primary.GetValue(),
-			object: inst,
-		})
-	}
-
-	// Reverse the stack to get the fields in the correct order
-	// i.e. parent to target
-	for i, j := 0, len(stack)-1; i < j; i, j = i+1, j-1 {
-		stack[i], stack[j] = stack[j], stack[i]
-	}
-
-	return stack
-}
-
 // All is used to retrieve all rows from the database.
 //
 // It returns a Query that can be executed to get the results, which is a slice of Row objects.
@@ -1511,8 +1336,6 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 				workingObj = actualField.srcField.field.Instance()
 			}
 
-			// fmt.Printf("workingObj %T %v %v\n", workingObj, workingObj.FieldDefs().Primary().GetValue(), actualField.srcField)
-
 			// set the value on the [DataModel] as a slice of related objects
 			var dataModel = workingObj.(DataModel)
 			var dataStore = dataModel.ModelDataStore()
@@ -1558,18 +1381,6 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 	}
 
 	return list, nil
-}
-
-func printDedupe(sb *strings.Builder, dedupe *dedupeNode, depth int) {
-	if dedupe.children != nil {
-		for path, childMap := range dedupe.children {
-			for k, dedupe := range childMap {
-				sb.WriteString(strings.Repeat("\t", depth+1))
-				sb.WriteString(fmt.Sprintf("'%v' (%s): %v\n", k, path, dedupe))
-				printDedupe(sb, dedupe, depth+1)
-			}
-		}
-	}
 }
 
 // ValuesList is used to retrieve a list of values from the database.

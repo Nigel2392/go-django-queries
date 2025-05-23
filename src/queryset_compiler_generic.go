@@ -241,19 +241,39 @@ func (g *genericQueryBuilder) BuildCountQuery(
 func (g *genericQueryBuilder) BuildCreateQuery(
 	ctx context.Context,
 	qs *GenericQuerySet,
-	fields FieldInfo,
 	primary attrs.Field,
-	values []any,
-) CompiledQuery[[]interface{}] {
-	var model = qs.Model()
-	var query = new(strings.Builder)
+	objects []FieldInfo,
+	values []any, // flattened list of values
+	// e.g. for 2 rows of 3 fields: [[1, 2, 4], [2, 3, 5]] -> [1, 2, 4, 2, 3, 5]
+) CompiledQuery[[][]interface{}] {
+	var (
+		model   = qs.Model()
+		query   = new(strings.Builder)
+		support = internal.DBSupportsReturning(
+			g.queryInfo.DB,
+		)
+	)
+
+	if len(objects) == 0 {
+		return &QueryObject[[][]interface{}]{
+			sql:   "",
+			model: model,
+			args:  nil,
+			exec: func(query string, args ...any) ([][]interface{}, error) {
+				return nil, nil
+			},
+		}
+	}
+
+	var object = objects[0]
+
 	query.WriteString("INSERT INTO ")
 	query.WriteString(g.quote)
 	query.WriteString(g.queryInfo.TableName)
 	query.WriteString(g.quote)
 	query.WriteString(" (")
 
-	for i, field := range fields.Fields {
+	for i, field := range object.Fields {
 		if i > 0 {
 			query.WriteString(", ")
 		}
@@ -263,22 +283,35 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 		query.WriteString(g.quote)
 	}
 
-	query.WriteString(") VALUES (")
+	query.WriteString(") VALUES ")
 
-	for i := range fields.Fields {
-		if i > 0 {
+	var written bool
+	for _, obj := range objects {
+		if written {
 			query.WriteString(", ")
 		}
-		query.WriteString("?")
+
+		query.WriteString("(")
+		for i := range obj.Fields {
+			if i > 0 {
+				query.WriteString(", ")
+			}
+
+			query.WriteString("?")
+		}
+		query.WriteString(")")
+		written = true
 	}
-
-	query.WriteString(")")
-
-	var support = internal.DBSupportsReturning(g.queryInfo.DB)
 
 	switch {
 	case support == SupportsReturningLastInsertId:
-		// Handled in QueryObject.Exec(), do nothing
+
+		if primary != nil {
+			query.WriteString(" RETURNING ")
+			query.WriteString(g.quote)
+			query.WriteString(primary.ColumnName())
+			query.WriteString(g.quote)
+		}
 
 	case support == SupportsReturningColumns:
 		query.WriteString(" RETURNING ")
@@ -291,7 +324,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 			written = true
 		}
 
-		for _, field := range fields.Fields {
+		for _, field := range object.Fields {
 			if written {
 				query.WriteString(", ")
 			}
@@ -307,55 +340,79 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 		panic(fmt.Errorf("returning not supported: %s", support))
 	}
 
-	return &QueryObject[[]interface{}]{
+	var fieldLen = 0
+	if len(objects) > 0 {
+		fieldLen = len(objects[0].Fields)
+	}
+
+	return &QueryObject[[][]interface{}]{
 		sql:   g.queryInfo.DBX.Rebind(query.String()),
 		model: model,
 		args:  values,
-		exec: func(query string, args ...any) ([]interface{}, error) {
+		exec: func(query string, args ...any) ([][]interface{}, error) {
 			var err error
 			switch support {
 			case SupportsReturningLastInsertId:
-				var id sql.Result
-				id, err = g.DB().ExecContext(ctx, query, args...)
+
+				if primary == nil {
+					return nil, nil
+				}
+
+				var rows, err = g.DB().QueryContext(ctx, query, args...)
 				if err != nil {
 					return nil, errors.Wrap(err, "failed to execute query")
 				}
+				defer rows.Close()
 
-				var lastId, err = id.LastInsertId()
-				if err != nil {
-					return nil, errors.Wrap(err, "failed to get last insert id")
+				var result = make([][]interface{}, 0, len(objects))
+				for rows.Next() {
+
+					var id = new(interface{})
+					err = rows.Scan(id)
+					if err != nil {
+						return nil, errors.Wrap(err, "failed to scan row")
+					}
+
+					if err := rows.Err(); err != nil {
+						return nil, errors.Wrap(err, "failed to iterate rows")
+					}
+
+					result = append(result, []interface{}{*id})
 				}
-
-				return []interface{}{lastId}, nil
+				return result, nil
 
 			case SupportsReturningColumns:
-				var resLen = len(fields.Fields)
-				if primary != nil {
-					resLen++
+
+				var results = make([][]interface{}, 0, len(objects))
+				var rows, err = g.DB().QueryContext(ctx, query, args...)
+				if err != nil {
+					return nil, errors.Wrap(err, "failed to execute query")
+				}
+				defer rows.Close()
+
+				for rows.Next() {
+					var result = make([]interface{}, fieldLen+1)
+					for i := range result {
+						result[i] = new(interface{})
+					}
+					err = rows.Scan(result...)
+					if err != nil {
+						return nil, errors.Wrap(err, "failed to scan row")
+					}
+
+					if err := rows.Err(); err != nil {
+						return nil, errors.Wrap(err, "failed to iterate rows")
+					}
+
+					for i, iface := range result {
+						var field = iface.(*interface{})
+						result[i] = *field
+					}
+
+					results = append(results, result)
 				}
 
-				var result = make([]interface{}, resLen)
-				for i := range result {
-					result[i] = new(interface{})
-				}
-
-				var row *sql.Row
-				row = g.DB().QueryRowContext(ctx, query, args...)
-
-				if err := row.Scan(result...); err != nil {
-					return nil, errors.Wrap(err, "failed to scan row")
-				}
-
-				if err := row.Err(); err != nil {
-					return nil, errors.Wrap(err, "failed to iterate rows")
-				}
-
-				for i, iface := range result {
-					var field = iface.(*interface{})
-					result[i] = *field
-				}
-
-				return result, nil
+				return results, nil
 
 			case SupportsReturningNone:
 				_, err = g.DB().ExecContext(ctx, query, args...)
@@ -374,11 +431,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 func (g *genericQueryBuilder) BuildUpdateQuery(
 	ctx context.Context,
 	qs *GenericQuerySet,
-	fields FieldInfo,
-	where []expr.LogicalExpression,
-	joins []JoinDef,
-	groupBy []FieldInfo,
-	values []any,
+	objects []UpdateInfo, // multiple objects can be updated at once
 ) CompiledQuery[int64] {
 	var inf = &expr.ExpressionInfo{
 		Driver:   g.driver,
@@ -386,42 +439,58 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 		AliasGen: qs.AliasGen,
 		Quote:    g.quote,
 	}
-	var model = qs.Model()
-	var query = new(strings.Builder)
-	query.WriteString("UPDATE ")
-	query.WriteString(g.quote)
-	query.WriteString(g.queryInfo.TableName)
-	query.WriteString(g.quote)
-	query.WriteString(" SET ")
 
-	var args = make([]any, 0)
-	var written bool
-	var valuesIdx int
-	for _, field := range fields.Fields {
-		if written {
-			query.WriteString(", ")
-		}
-
-		var a, isSQL, ok = fields.WriteField(
-			query, inf, field, true,
-		)
-		written = ok || written
-		if !ok {
-			continue
-		}
-
-		if isSQL {
-			args = append(args, a...)
-		} else {
-			args = append(args, values[valuesIdx])
-			valuesIdx++
-		}
-	}
-
-	args = append(
-		args,
-		g.writeWhereClause(query, inf, where)...,
+	var (
+		written bool
+		args    = make([]any, 0)
+		model   = qs.Model()
+		query   = new(strings.Builder)
 	)
+
+	for _, info := range objects {
+
+		if written {
+			query.WriteString("; ")
+		}
+
+		written = true
+		query.WriteString("UPDATE ")
+		query.WriteString(g.quote)
+		query.WriteString(g.queryInfo.TableName)
+		query.WriteString(g.quote)
+		query.WriteString(" SET ")
+
+		var fieldWritten bool
+		var valuesIdx int
+		for _, f := range info.Field.Fields {
+			if fieldWritten {
+				query.WriteString(", ")
+			}
+
+			var a, isSQL, ok = info.Field.WriteField(
+				query, inf, f, true,
+			)
+
+			fieldWritten = ok || fieldWritten
+			if !ok {
+				continue
+			}
+
+			if isSQL {
+				args = append(args, a...)
+			} else {
+				args = append(args, info.Values[valuesIdx])
+				valuesIdx++
+			}
+		}
+
+		g.writeJoins(query, info.Joins)
+
+		args = append(
+			args,
+			g.writeWhereClause(query, inf, info.Where)...,
+		)
+	}
 
 	return &QueryObject[int64]{
 		sql:   g.queryInfo.DBX.Rebind(query.String()),

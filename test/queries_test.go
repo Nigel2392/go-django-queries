@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Nigel2392/go-django-queries/internal"
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/fields"
@@ -78,6 +79,7 @@ const (
     FOREIGN KEY(source_id) REFERENCES onetoonewiththrough(id),
     FOREIGN KEY(target_id) REFERENCES onetoonewiththrough_target(id)
 )`
+
 	createTableModelManyToMany = `CREATE TABLE model_manytomany (
     id INTEGER PRIMARY KEY,
     title TEXT,
@@ -534,6 +536,52 @@ func init() {
 	})
 
 	django.App(django.Configure(settings))
+}
+
+func createObjects[T attrs.Definer](t *testing.T, objects ...T) (created []T, delete func() error) {
+	var err error
+	created, err = queries.Objects[T](objects[0]).BulkCreate(objects)
+	if err != nil {
+		t.Fatalf("Failed to create objects: %v", err)
+		return nil, nil
+	}
+
+	return created, func() error {
+		var (
+			anyIDs      = make([]any, len(objects))
+			primaryName string
+		)
+
+		for i, obj := range created {
+			var (
+				defs         = obj.FieldDefs()
+				primaryField = defs.Primary()
+			)
+
+			if primaryName == "" {
+				primaryName = primaryField.Name()
+			}
+
+			anyIDs[i] = primaryField.GetValue()
+		}
+
+		var newObj = internal.NewDefiner[T]()
+		var deleted, err = queries.Objects[T](newObj).
+			Filter(fmt.Sprintf("%s__in", primaryName), anyIDs...).
+			Delete()
+
+		if err != nil {
+			t.Fatalf("Failed to delete objects: %v", err)
+			return err
+		}
+
+		if int(deleted) != len(objects) {
+			t.Fatalf("Expected %d objects to be deleted, got %d", len(objects), deleted)
+			return nil
+		}
+
+		return nil
+	}
 }
 
 func TestTodoInsert(t *testing.T) {
@@ -1993,8 +2041,8 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 
 			t.Log(latest.SQL())
 
-			if _, ok := latest.(queries.CompiledQuery[[]interface{}]); !ok {
-				t.Fatalf("expected *QueryObject[[]interface{}], got %T", latest)
+			if _, ok := latest.(queries.CompiledQuery[[][]interface{}]); !ok {
+				t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
 			}
 		})
 
@@ -2084,7 +2132,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 		t.Log(latest.SQL())
 
 		if _, ok := latest.(queries.CompiledQuery[int64]); !ok {
-			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
+			t.Fatalf("expected *QueryObject[int64], got %T", latest)
 		}
 	})
 
@@ -2105,7 +2153,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 		t.Log(latest.SQL())
 
 		if _, ok := latest.(queries.CompiledQuery[int64]); !ok {
-			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
+			t.Fatalf("expected *QueryObject[int64], got %T", latest)
 		}
 	})
 
@@ -2127,8 +2175,8 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 			t.Fatalf("expected latest query, got nil")
 		}
 
-		if _, ok := latest.(queries.CompiledQuery[[]interface{}]); !ok {
-			t.Fatalf("expected *QueryObject[[]interface{}], got %T", latest)
+		if _, ok := latest.(queries.CompiledQuery[[][]interface{}]); !ok {
+			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
 		}
 
 		t.Log(latest.SQL())
@@ -2151,7 +2199,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 		}
 
 		if _, ok := latest.(queries.CompiledQuery[int64]); !ok {
-			t.Fatalf("expected *QueryObject[[][]interface{}], got %T", latest)
+			t.Fatalf("expected *QueryObject[int64], got %T", latest)
 		}
 
 		t.Log(latest.SQL())
@@ -2411,4 +2459,133 @@ func TestAggregateCount(t *testing.T) {
 		t.Fatalf("expected Count to be not 0")
 		return
 	}
+}
+
+func TestBulkCreate(t *testing.T) {
+
+	var todos = []*Todo{
+		{Title: "BulkCreate1", Description: "Description BulkCreate", Done: false},
+		{Title: "BulkCreate2", Description: "Description BulkCreate", Done: true},
+		{Title: "BulkCreate3", Description: "Description BulkCreate", Done: false},
+	}
+
+	var dbTodos, err = queries.Objects[*Todo](&Todo{}).BulkCreate(todos)
+	if err != nil {
+		t.Fatalf("Failed to bulk create todos: %v", err)
+		return
+	}
+
+	if len(dbTodos) != len(todos) {
+		t.Fatalf("Expected %d todos, got %d", len(todos), len(dbTodos))
+		return
+	}
+
+	var copies = []*Todo{
+		{Title: "BulkCreate1", Description: "Description BulkCreate", Done: false},
+		{Title: "BulkCreate2", Description: "Description BulkCreate", Done: true},
+		{Title: "BulkCreate3", Description: "Description BulkCreate", Done: false},
+	}
+
+	for i, dbTodo := range dbTodos {
+		if dbTodo.ID == 0 {
+			t.Fatalf("Expected todo ID to be not 0, got %d", dbTodo.ID)
+		}
+
+		if dbTodo.ID != todos[i].ID {
+			t.Fatalf("Expected todo ID %d, got %d", todos[i].ID, dbTodo.ID)
+		}
+
+		if dbTodo.Title != copies[i].Title {
+			t.Fatalf("Expected todo title %q, got %q", copies[i].Title, dbTodo.Title)
+		}
+
+		if dbTodo.Description != copies[i].Description {
+			t.Fatalf("Expected todo description %q, got %q", copies[i].Description, dbTodo.Description)
+		}
+
+		if dbTodo.Done != copies[i].Done {
+			t.Fatalf("Expected todo done %v, got %v", copies[i].Done, dbTodo.Done)
+		}
+
+		t.Logf("Created todo: %+v", dbTodo)
+	}
+}
+
+func TestBulkUpdate(t *testing.T) {
+	var todos, deleteTodos = createObjects(t,
+		&Todo{Title: "BulkUpdate1", Description: "Description BulkUpdate", Done: false},
+		&Todo{Title: "BulkUpdate2", Description: "Description BulkUpdate", Done: true},
+		&Todo{Title: "BulkUpdate3", Description: "Description BulkUpdate", Done: false},
+		&Todo{Title: "BulkUpdate4", Description: "Description BulkUpdate", Done: true},
+	)
+	defer deleteTodos()
+
+	todos[0].Title = "BulkUpdate1 Updated"
+	todos[1].Title = "BulkUpdate2 Updated"
+	todos[2].Title = "BulkUpdate3 Updated"
+
+	var toUpdate = []*Todo{
+		todos[0],
+		todos[1],
+		todos[2],
+	}
+
+	t.Logf("Todos to update 1: %s, %+v", todos[0].FieldDefs().Get("Title"), todos[0])
+	t.Logf("Todos to update 2: %s, %+v", todos[1].FieldDefs().Get("Title"), todos[1])
+	t.Logf("Todos to update 3: %s, %+v", todos[2].FieldDefs().Get("Title"), todos[2])
+	t.Logf("Todos to update 4: %s, %+v", todos[3].FieldDefs().Get("Title"), todos[3])
+
+	var _, err = queries.Objects[*Todo](&Todo{}).BulkUpdate(toUpdate)
+
+	if err != nil {
+		t.Fatalf("Failed to bulk update todos: %v", err)
+		return
+	}
+
+	dbTodos, err := queries.Objects[*Todo](&Todo{}).Filter(
+		"ID__in", todos[0].ID, todos[1].ID, todos[2].ID, todos[3].ID,
+	).All()
+	if err != nil {
+		t.Fatalf("Failed to get todos: %v", err)
+		return
+	}
+
+	if len(dbTodos) != 4 {
+		t.Fatalf("Expected 4 todos, got %d", len(dbTodos))
+		return
+	}
+
+	var (
+		todo1 = dbTodos[0].Object
+		todo2 = dbTodos[1].Object
+		todo3 = dbTodos[2].Object
+		todo4 = dbTodos[3].Object
+	)
+
+	t.Logf("Updated todos 1: %+v", todo1)
+	t.Logf("Updated todos 2: %+v", todo2)
+	t.Logf("Updated todos 3: %+v", todo3)
+	t.Logf("Updated todos 4: %+v", todo4)
+
+	var todoEquals = func(todo *Todo, dbTodo *Todo) {
+		if todo.ID != dbTodo.ID {
+			t.Fatalf("Expected todo ID %d, got %d", todo.ID, dbTodo.ID)
+		}
+
+		if todo.Title != dbTodo.Title {
+			t.Fatalf("Expected todo title %q, got %q", todo.Title, dbTodo.Title)
+		}
+
+		if todo.Description != dbTodo.Description {
+			t.Fatalf("Expected todo description %q, got %q", todo.Description, dbTodo.Description)
+		}
+
+		if todo.Done != dbTodo.Done {
+			t.Fatalf("Expected todo done %v, got %v", todo.Done, dbTodo.Done)
+		}
+	}
+
+	todoEquals(todos[0], todo1)
+	todoEquals(todos[1], todo2)
+	todoEquals(todos[2], todo3)
 }

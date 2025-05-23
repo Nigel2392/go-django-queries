@@ -185,6 +185,13 @@ type CompiledExistsQuery CompiledQuery[bool]
 // A compiledQuery which returns a list of values from the query.
 type CompiledValuesListQuery CompiledQuery[[][]any]
 
+type UpdateInfo struct {
+	Field  FieldInfo
+	Where  []expr.LogicalExpression
+	Joins  []JoinDef
+	Values []any
+}
+
 // A QueryCompiler interface is used to compile a query.
 //
 // It should be able to generate SQL queries and execute them.
@@ -253,20 +260,15 @@ type QueryCompiler interface {
 	BuildCreateQuery(
 		ctx context.Context,
 		qs *QuerySet[attrs.Definer],
-		fields FieldInfo,
 		primary attrs.Field,
+		objects []FieldInfo,
 		values []any,
-	) CompiledQuery[[]interface{}]
+	) CompiledQuery[[][]interface{}]
 
-	// BuildValuesListQuery builds a values list query with the given parameters.
 	BuildUpdateQuery(
 		ctx context.Context,
-		qs *QuerySet[attrs.Definer],
-		fields FieldInfo,
-		where []expr.LogicalExpression,
-		joins []JoinDef,
-		groupBy []FieldInfo,
-		values []any,
+		qs *GenericQuerySet,
+		objects []UpdateInfo,
 	) CompiledQuery[int64]
 
 	// BuildUpdateQuery builds an update query with the given parameters.

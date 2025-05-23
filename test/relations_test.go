@@ -1,11 +1,9 @@
 package queries_test
 
 import (
-	"fmt"
 	"reflect"
 	"testing"
 
-	"github.com/Nigel2392/go-django-queries/internal"
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
@@ -774,55 +772,6 @@ func TestOneToOneWithThroughDoubleNested(t *testing.T) {
 	}
 }
 
-func createObjects[T attrs.Definer, T2 any](t *testing.T, objects ...T) (created []T, delete func() error) {
-	for _, object := range objects {
-		var err = queries.CreateObject(object)
-		if err != nil {
-			t.Fatalf("Failed to create object: %v", err)
-			return nil, nil
-		}
-
-		created = append(created, object)
-	}
-
-	return created, func() error {
-		var (
-			anyIDs      = make([]any, len(objects))
-			primaryName string
-		)
-
-		for i, obj := range created {
-			var (
-				defs         = obj.FieldDefs()
-				primaryField = defs.Primary()
-			)
-
-			if primaryName == "" {
-				primaryName = primaryField.Name()
-			}
-
-			anyIDs[i] = primaryField.GetValue()
-		}
-
-		var newObj = internal.NewDefiner[T]()
-		var deleted, err = queries.Objects[T](newObj).
-			Filter(fmt.Sprintf("%s__in", primaryName), anyIDs...).
-			Delete()
-
-		if err != nil {
-			t.Fatalf("Failed to delete objects: %v", err)
-			return err
-		}
-
-		if int(deleted) != len(objects) {
-			t.Fatalf("Expected %d objects to be deleted, got %d", len(objects), deleted)
-			return nil
-		}
-
-		return nil
-	}
-}
-
 type ManyToManyTest struct {
 	Name string
 	Test func(t *testing.T, profiles []*Profile, userIDs []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through)
@@ -1528,12 +1477,12 @@ func TestManyToMany(t *testing.T) {
 	//	m2m_sources[2] -> [m2m_targets[1], m2m_targets[2], m2m_targets[3]]
 
 	// LIST REVERSE
-	//	m2m_targets[0] -> [m2m_sources[0]]
-	//	m2m_targets[1] -> [m2m_sources[0], m2m_sources[1], m2m_sources[2]]
-	//	m2m_targets[2] -> [m2m_sources[0], m2m_sources[1], m2m_sources[2]]
-	//	m2m_targets[3] -> [m2m_sources[1], m2m_sources[2]]
+	// 	m2m_targets[0] -> [m2m_sources[0]]
+	// 	m2m_targets[1] -> [m2m_sources[1], m2m_sources[2], m2m_sources[3]]
+	// 	m2m_targets[2] -> [m2m_sources[1], m2m_sources[2], m2m_sources[3]]
+	// 	m2m_targets[3] -> [m2m_sources[2], m2m_sources[3]]
 
-	var profiles, profile_delete = createObjects[*Profile, int](t,
+	var profiles, profile_delete = createObjects[*Profile](t,
 		&Profile{
 			Name: "TestManyToManyProfile1",
 		},
@@ -1542,7 +1491,7 @@ func TestManyToMany(t *testing.T) {
 		},
 	)
 
-	var users, user_delete = createObjects[*User, int](t,
+	var users, user_delete = createObjects[*User](t,
 		&User{
 			Name:    "TestManyToManyUser1",
 			Profile: profiles[0],
@@ -1553,7 +1502,7 @@ func TestManyToMany(t *testing.T) {
 		},
 	)
 
-	var m2m_sources, m2m_source_delete = createObjects[*ModelManyToMany, int64](t,
+	var m2m_sources, m2m_source_delete = createObjects[*ModelManyToMany](t,
 		&ModelManyToMany{
 			Title: "TestManyToMany1",
 			User:  &User{ID: int(users[0].ID)},
@@ -1568,7 +1517,7 @@ func TestManyToMany(t *testing.T) {
 		},
 	)
 
-	var m2m_targets, m2m_target_delete = createObjects[*ModelManyToMany_Target, int64](t,
+	var m2m_targets, m2m_target_delete = createObjects[*ModelManyToMany_Target](t,
 		&ModelManyToMany_Target{
 			Name: "TestManyToMany_Target1",
 			Age:  25,
@@ -1587,7 +1536,7 @@ func TestManyToMany(t *testing.T) {
 		},
 	)
 
-	var m2m_throughs, m2m_through_delete = createObjects[*ModelManyToMany_Through, int64](t,
+	var m2m_throughs, m2m_through_delete = createObjects[*ModelManyToMany_Through](t,
 		&ModelManyToMany_Through{
 			SourceModel: &ModelManyToMany{
 				ID: m2m_sources[0].ID,

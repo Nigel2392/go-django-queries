@@ -547,7 +547,7 @@ func (qs *QuerySet[T]) unpackFields(fields ...string) (infos []FieldInfo, hasRel
 	return infos, hasRelated
 }
 
-func (qs *QuerySet[T]) attrFields(obj attrs.Definer) []attrs.Field {
+func (qs *QuerySet[T]) attrFields(obj attrs.Definer) (attrs.Definitions, []attrs.Field) {
 	var defs = obj.FieldDefs()
 	var fields []attrs.Field
 	if len(qs.internals.Fields) > 0 {
@@ -573,7 +573,7 @@ func (qs *QuerySet[T]) attrFields(obj attrs.Definer) []attrs.Field {
 			fields = append(fields, field)
 		}
 	}
-	return fields
+	return defs, fields
 }
 
 func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]FieldInfo, []JoinDef) {
@@ -1724,86 +1724,123 @@ func (qs *QuerySet[T]) Create(value T) (T, error) {
 		return saver.(T), nil
 	}
 
-	var defs = value.FieldDefs()
-	var fields = defs.Fields()
-	var values = make([]any, 0, len(fields))
-	var infoFields = make([]attrs.Field, 0, len(fields))
-	var info = FieldInfo{
-		Model: value,
-		Table: Table{
-			Name: defs.TableName(),
-		},
-		Chain: make([]string, 0),
+	var result, err = qs.BulkCreate([]T{value})
+	if err != nil {
+		return *new(T), err
 	}
 
-	for _, field := range fields {
-		var atts = field.Attrs()
-		var v, ok = atts[attrs.AttrAutoIncrementKey]
-		if ok && v.(bool) {
-			continue
-		}
-
-		if field.IsPrimary() || !field.AllowEdit() {
-			continue
-		}
-
-		var value, err = field.Value()
-		if err != nil {
-			panic(fmt.Errorf("failed to get value for field %q: %w", field.Name(), err))
-		}
-
-		if value == nil && !field.AllowNull() {
-			panic(errors.Wrapf(
-				query_errors.ErrFieldNull,
-				"field %q cannot be null",
-				field.Name(),
-			))
-		}
-
-		infoFields = append(infoFields, field)
-		values = append(values, value)
+	var support = qs.compiler.SupportsReturning()
+	if len(result) == 0 && support != SupportsReturningNone {
+		return *new(T), query_errors.ErrNoRows
 	}
 
-	// Copy all the fields from the model to the info fields
-	info.Fields = slices.Clone(infoFields)
+	return result[0], nil
+}
+
+// BulkCreate is used to create multiple objects in the database.
+//
+// It takes a list of definer objects as arguments and returns a Query that can be executed
+// to get the result, which is a slice of the created objects.
+func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
+	var (
+		values     = make([]any, 0, len(objects))
+		attrFields = make([][]attrs.Field, 0, len(objects))
+		infos      = make([]FieldInfo, 0, len(objects))
+		primary    attrs.Field
+	)
+	for _, object := range objects {
+		var defs = object.FieldDefs()
+		var fields = defs.Fields()
+		var infoFields = make([]attrs.Field, 0, len(fields))
+		var info = FieldInfo{
+			Model: object,
+			Table: Table{
+				Name: defs.TableName(),
+			},
+			Chain: make([]string, 0),
+		}
+
+		for _, field := range fields {
+			var atts = field.Attrs()
+			var v, ok = atts[attrs.AttrAutoIncrementKey]
+			if ok && v.(bool) {
+				continue
+			}
+
+			var isPrimary = field.IsPrimary()
+			if isPrimary && primary == nil {
+				primary = field
+			}
+
+			if isPrimary || !field.AllowEdit() {
+				continue
+			}
+
+			var value, err = field.Value()
+			if err != nil {
+				panic(fmt.Errorf("failed to get value for field %q: %w", field.Name(), err))
+			}
+
+			if value == nil && !field.AllowNull() {
+				panic(errors.Wrapf(
+					query_errors.ErrFieldNull,
+					"field %q cannot be null",
+					field.Name(),
+				))
+			}
+
+			infoFields = append(infoFields, field)
+			values = append(values, value)
+		}
+
+		// Copy all the fields from the model to the info fields
+		attrFields = append(attrFields, infoFields)
+		info.Fields = slices.Clone(infoFields)
+		infos = append(infos, info)
+	}
 
 	var support = qs.compiler.SupportsReturning()
 	var resultQuery = qs.compiler.BuildCreateQuery(
 		context.Background(),
 		ChangeObjectsType[T, attrs.Definer](qs),
-		info,
-		defs.Primary(),
+		primary,
+		infos,
 		values,
 	)
 	qs.latestQuery = resultQuery
 
-	var newObj = internal.NewObjectFromIface(qs.model)
-	var newDefs = newObj.FieldDefs()
-
 	// Set the old values on the new object
-	for _, field := range infoFields {
-		var (
-			n     = field.Name()
-			f, ok = newDefs.Field(n)
-		)
-		if !ok {
-			panic(fmt.Errorf("field %q not found in %T", n, newObj))
+	var resultList = make([]T, 0, len(objects))
+	for _, fieldRow := range attrFields {
+		var newObj = internal.NewObjectFromIface(qs.model)
+		var newDefs = newObj.FieldDefs()
+
+		for _, field := range fieldRow {
+			var (
+				n     = field.Name()
+				f, ok = newDefs.Field(n)
+			)
+			if !ok {
+				panic(fmt.Errorf("field %q not found in %T", n, newObj))
+			}
+
+			var val = field.GetValue()
+			if err := f.SetValue(val, true); err != nil {
+				return nil, errors.Wrapf(
+					err,
+					"failed to set field %q in %T",
+					f.Name(), newObj,
+				)
+			}
 		}
 
-		var val = field.GetValue()
-		if err := f.SetValue(val, true); err != nil {
-			return *new(T), errors.Wrapf(
-				err,
-				"failed to set field %q in %T",
-				f.Name(), newObj,
-			)
-		}
+		resultList = append(resultList, newObj.(T))
 	}
 
 	// Execute the create query
 	var results, err = resultQuery.Exec()
 	if err != nil {
-		return *new(T), err
+		return nil, err
 	}
 
 	// Check results & which returning method to use
@@ -1812,68 +1849,88 @@ func (qs *QuerySet[T]) Create(value T) (T, error) {
 		// Do nothing
 
 	case len(results) > 0 && support == SupportsReturningLastInsertId:
-		var (
-			id   = results[0].(int64)
-			prim = newDefs.Primary()
-		)
-		if err := prim.SetValue(id, true); err != nil {
-			return *new(T), errors.Wrapf(
-				err,
-				"failed to set primary key %q in %T",
-				prim.Name(), newObj,
-			)
+
+		for i, row := range resultList {
+			var id = results[i][0].(int64)
+			var prim = row.FieldDefs().Primary()
+			if err := prim.SetValue(id, true); err != nil {
+				return nil, errors.Wrapf(
+					err,
+					"failed to set primary key %q in %T",
+					prim.Name(), row,
+				)
+			}
 		}
 
 	case len(results) > 0 && support == SupportsReturningColumns:
-		var (
-			scannables = getScannableFields([]FieldInfo{info}, newObj)
-			resLen     = len(results)
-			prim       = newDefs.Primary()
-		)
-		if prim != nil {
-			resLen--
-		}
 
-		if len(scannables) != resLen {
-			return *new(T), errors.Wrapf(
+		if len(results) != len(resultList) {
+			return nil, errors.Wrapf(
 				query_errors.ErrLastInsertId,
 				"expected %d results returned after insert, got %d",
-				len(scannables), len(results),
+				len(resultList), len(results),
 			)
 		}
 
-		var idx = 0
-		if prim != nil {
-			var id = results[0].(int64)
-			if err := prim.Scan(id); err != nil {
-				return *new(T), errors.Wrapf(
-					err, "failed to scan primary key %q in %T",
-					prim.Name(), newObj,
+		for i, row := range resultList {
+			var (
+				scannables = getScannableFields([]FieldInfo{infos[i]}, row)
+				resLen     = len(results[i])
+				newDefs    = row.FieldDefs()
+				prim       = newDefs.Primary()
+			)
+			if prim != nil {
+				resLen--
+			}
+
+			if len(scannables) != resLen {
+				return nil, errors.Wrapf(
+					query_errors.ErrLastInsertId,
+					"expected %d results returned after insert, got %d",
+					len(scannables), len(results),
 				)
 			}
-			idx++
-		}
 
-		for i, field := range scannables {
-			var f = field.field
-			var val = results[i+idx]
+			var idx = 0
+			if prim != nil {
+				if err := prim.Scan(results[i][0]); err != nil {
+					return nil, errors.Wrapf(
+						err, "failed to scan primary key %q in %T",
+						prim.Name(), row,
+					)
+				}
+				idx++
+			}
 
-			if err := f.Scan(val); err != nil {
-				return *new(T), errors.Wrapf(
-					err,
-					"failed to scan field %q in %T",
-					f.Name(), newObj,
-				)
+			for j, field := range scannables {
+				var f = field.field
+				var val = results[i][j+idx]
+
+				if err := f.Scan(val); err != nil {
+					return nil, errors.Wrapf(
+						err,
+						"failed to scan field %q in %T",
+						f.Name(), row,
+					)
+				}
 			}
 		}
 	}
 
-	var rVal = reflect.ValueOf(value)
-	if rVal.Kind() == reflect.Ptr {
-		rVal.Elem().Set(reflect.ValueOf(newObj).Elem())
+	//var rVal = reflect.ValueOf(value)
+	//if rVal.Kind() == reflect.Ptr {
+	//	rVal.Elem().Set(reflect.ValueOf(newObj).Elem())
+	//}
+
+	for i, row := range resultList {
+		var rVal = reflect.ValueOf(objects[i])
+		if rVal.Kind() == reflect.Ptr {
+			rVal.Elem().Set(reflect.ValueOf(row).Elem())
+		}
 	}
 
-	return newObj.(T), nil
+	return resultList, nil
+
 }
 
 // Update is used to update an object in the database.
@@ -1914,17 +1971,14 @@ func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int
 		}
 	}
 
-	var defs = value.FieldDefs()
-	var fields []attrs.Field = qs.attrFields(value)
-	var values = make([]any, 0, len(fields))
-	var info = FieldInfo{
-		Model: value,
-		Table: Table{
-			Name: defs.TableName(),
-		},
-		Fields: make([]attrs.Field, 0),
-		Chain:  make([]string, 0),
-	}
+	return qs.BulkUpdate([]T{value}, expressions...)
+}
+
+// BulkUpdate is used to update multiple objects in the database.
+//
+// It takes a list of definer objects as arguments and any possible NamedExpressions.
+// It does not try to call any save methods on the objects.
+func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpression) (int64, error) {
 
 	var exprMap = make(map[string]expr.NamedExpression, len(expressions))
 	for _, expr := range expressions {
@@ -1940,50 +1994,78 @@ func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int
 		exprMap[fieldName] = expr
 	}
 
-	for _, field := range fields {
-		var atts = field.Attrs()
-		var v, ok = atts[attrs.AttrAutoIncrementKey]
-		if ok && v.(bool) {
-			continue
+	var infos = make([]UpdateInfo, 0, len(objects))
+	for _, obj := range objects {
+
+		var defs, fields = qs.attrFields(obj)
+		var info = UpdateInfo{
+			Field: FieldInfo{
+				Model: obj,
+				Table: Table{
+					Name: defs.TableName(),
+				},
+				Fields: make([]attrs.Field, 0, len(fields)),
+			},
+			Values: make([]any, 0, len(fields)),
 		}
 
-		if field.IsPrimary() || !field.AllowEdit() {
-			continue
+		for _, field := range fields {
+			var atts = field.Attrs()
+			var v, ok = atts[attrs.AttrAutoIncrementKey]
+			if ok && v.(bool) {
+				continue
+			}
+
+			var isPrimary = field.IsPrimary()
+			if isPrimary || !field.AllowEdit() {
+				continue
+			}
+
+			if expr, ok := exprMap[field.Name()]; ok {
+				info.Field.Fields = append(info.Field.Fields, &exprField{
+					Field: field,
+					expr:  expr,
+				})
+				continue
+			}
+
+			var value, err = field.Value()
+			if err != nil {
+				panic(fmt.Errorf("failed to get value for field %q: %w", field.Name(), err))
+			}
+
+			if value == nil && !field.AllowNull() {
+				panic(errors.Wrapf(
+					query_errors.ErrFieldNull,
+					"field %q cannot be null",
+					field.Name(),
+				))
+			}
+
+			info.Field.Fields = append(info.Field.Fields, field)
+			info.Values = append(info.Values, value)
 		}
 
-		var value, err = field.Value()
-		if err != nil {
-			panic(fmt.Errorf("failed to get value for field %q: %w", field.Name(), err))
+		if len(qs.internals.Where) == 0 {
+			var primary = defs.Primary()
+			info.Where = []expr.LogicalExpression{expr.Q(
+				primary.Name(), primary.GetValue(),
+			)}
+		} else {
+			info.Where = slices.Clone(qs.internals.Where)
 		}
 
-		if value == nil && !field.AllowNull() {
-			panic(errors.Wrapf(
-				query_errors.ErrFieldNull,
-				"field %q cannot be null",
-				field.Name(),
-			))
+		if len(qs.internals.Joins) > 0 {
+			info.Joins = slices.Clone(qs.internals.Joins)
 		}
 
-		if expr, ok := exprMap[field.Name()]; ok {
-			info.Fields = append(info.Fields, &exprField{
-				Field: field,
-				expr:  expr,
-			})
-			continue
-		}
-
-		info.Fields = append(info.Fields, field)
-		values = append(values, value)
+		infos = append(infos, info)
 	}
 
 	var resultQuery = qs.compiler.BuildUpdateQuery(
 		context.Background(),
 		ChangeObjectsType[T, attrs.Definer](qs),
-		info,
-		qs.internals.Where,
-		qs.internals.Joins,
-		qs.internals.GroupBy,
-		values,
+		infos,
 	)
 	qs.latestQuery = resultQuery
 

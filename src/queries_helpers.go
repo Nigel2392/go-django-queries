@@ -187,62 +187,21 @@ func sendSignal(s signals.Signal[SignalSave], obj attrs.Definer, q QueryCompiler
 // If the object implements the models.Saver interface, it will call the Save method instead of executing a query.
 func CreateObject[T attrs.Definer](obj T) error {
 	var (
-		definitions = obj.FieldDefs()
-		qs          = Objects[T](obj).ExplicitSave()
-		compiler    = qs.Compiler()
-		ctx         = context.Background()
+		err error
+		qs  = Objects[T](obj)
 	)
 
-	// Send pre model save signal
-	if err := sendSignal(SignalPreModelSave, obj, compiler); err != nil {
-		return err
-	}
-
-	var (
-		d       attrs.Definer
-		retDefs attrs.Definitions
-		err     error
-		saved   bool
-	)
-
-	if saved, err = models.SaveModel(ctx, obj); err != nil {
-		return err
-	} else if saved {
-		goto postSaveSignal
-	}
-
-	d, err = qs.Create(obj)
+	_, err = qs.BulkCreate([]T{obj})
 	if err != nil {
 		return err
 	}
 
-	retDefs = d.FieldDefs()
-	for _, field := range definitions.Fields() {
-		var f, ok = retDefs.Field(field.Name())
-		if !ok {
-			return errors.Errorf("field %q not found in %T", field.Name(), obj)
-		}
+	//var rVal = reflect.ValueOf(obj)
+	//if rVal.Kind() == reflect.Ptr {
+	//	rVal.Elem().Set(reflect.ValueOf(d).Elem())
+	//}
 
-		var value = f.GetValue()
-		if value == nil && !field.AllowNull() {
-			return errors.Wrapf(
-				query_errors.ErrFieldNull,
-				"Field %q cannot be null",
-				field.Name(),
-			)
-		}
-
-		if err = field.SetValue(value, true); err != nil {
-			return errors.Wrapf(
-				err, "failed to set value %v to field %q",
-				value, field.Name(),
-			)
-		}
-	}
-
-postSaveSignal:
-	// Send post model save signal
-	return sendSignal(SignalPostModelSave, obj, compiler)
+	return nil
 }
 
 // UpdateObject updates an existing object in the database.

@@ -225,7 +225,7 @@ func GetQuerySet[T attrs.Definer](model attrs.Definer) *QuerySet[T] {
 		return ChangeObjectsType[attrs.Definer, T](qs)
 	}
 
-	return Objects[T](model)
+	return Objects(model.(T))
 }
 
 // Objects creates a new QuerySet for the given model.
@@ -241,9 +241,10 @@ func GetQuerySet[T attrs.Definer](model attrs.Definer) *QuerySet[T] {
 // It returns a pointer to a new QuerySet.
 //
 // The model must implement the Definer interface.
-func Objects[T attrs.Definer](model attrs.Definer, database ...string) *QuerySet[T] {
+func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
+	var modelV = reflect.ValueOf(model)
 
-	if model == nil {
+	if !modelV.IsValid() || modelV.IsNil() {
 		panic("QuerySet: model is nil")
 	}
 
@@ -255,7 +256,7 @@ func Objects[T attrs.Definer](model attrs.Definer, database ...string) *QuerySet
 	// If the model implements the QuerySetDatabaseDefiner interface,
 	// it will use the QuerySetDatabase method to get the default database.
 	// Function arguments still take precedence however.
-	if m, ok := model.(QuerySetDatabaseDefiner); ok && len(database) == 0 {
+	if m, ok := any(model).(QuerySetDatabaseDefiner); ok && len(database) == 0 {
 		defaultDb = m.QuerySetDatabase()
 	}
 

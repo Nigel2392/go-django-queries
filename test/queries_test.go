@@ -2512,13 +2512,16 @@ func TestBulkCreate(t *testing.T) {
 }
 
 func TestBulkUpdate(t *testing.T) {
-	var todos, deleteTodos = createObjects(t,
-		&Todo{Title: "BulkUpdate1", Description: "Description BulkUpdate", Done: false},
-		&Todo{Title: "BulkUpdate2", Description: "Description BulkUpdate", Done: true},
-		&Todo{Title: "BulkUpdate3", Description: "Description BulkUpdate", Done: false},
-		&Todo{Title: "BulkUpdate4", Description: "Description BulkUpdate", Done: true},
-	)
-	defer deleteTodos()
+	var todos, err = queries.Objects[*Todo](&Todo{}).BulkCreate([]*Todo{
+		{Title: "BulkUpdate1", Description: "Description BulkUpdate", Done: false},
+		{Title: "BulkUpdate2", Description: "Description BulkUpdate", Done: true},
+		{Title: "BulkUpdate3", Description: "Description BulkUpdate", Done: false},
+		{Title: "BulkUpdate4", Description: "Description BulkUpdate", Done: true},
+	})
+	if err != nil {
+		t.Fatalf("Failed to bulk create todos: %v", err)
+		return
+	}
 
 	todos[0].Title = "BulkUpdate1 Updated"
 	todos[1].Title = "BulkUpdate2 Updated"
@@ -2535,7 +2538,7 @@ func TestBulkUpdate(t *testing.T) {
 	t.Logf("Todos to update 3: %s, %+v", todos[2].FieldDefs().Get("Title"), todos[2])
 	t.Logf("Todos to update 4: %s, %+v", todos[3].FieldDefs().Get("Title"), todos[3])
 
-	var _, err = queries.Objects[*Todo](&Todo{}).BulkUpdate(toUpdate)
+	_, err = queries.Objects[*Todo](&Todo{}).BulkUpdate(toUpdate)
 
 	if err != nil {
 		t.Fatalf("Failed to bulk update todos: %v", err)

@@ -131,8 +131,15 @@ func (e *DataModelField[T]) Tag(string) string {
 }
 
 func (e *DataModelField[T]) Type() reflect.Type {
-	var rT = reflect.TypeOf(*new(T))
-	return rT
+	if e.resultType == nil {
+		panic("resultType is nil")
+	}
+
+	if e.resultType.Kind() == reflect.Ptr {
+		return e.resultType.Elem()
+	}
+
+	return e.resultType
 }
 
 func (e *DataModelField[T]) Attrs() map[string]any {

@@ -1347,27 +1347,21 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 		if (scannable.relType == attrs.RelManyToMany || scannable.relType == attrs.RelOneToMany) && scannable.field.IsPrimary() {
 			possibleDuplicates = append(possibleDuplicates, scannable)
 		}
+
 		if scannable.relType == -1 && scannable.field.IsPrimary() && rootScannable == nil {
 			rootScannable = scannable
 		}
 	}
 
-	if rootScannable != nil && len(possibleDuplicates) > 0 {
-		possibleDuplicates = append(possibleDuplicates, rootScannable)
+	if len(possibleDuplicates) > 0 && rootScannable == nil {
+		panic(fmt.Errorf(
+			"QuerySet: no primary key found in %T, cannot deduplicate results",
+			qs.model,
+		))
 	}
 
-	var (
-		rows = newRows[T]()
-		list []*Row[T]
-	)
-
-	// if there are no possible duplicates, a plain list can be created
-	// and no deduplication is needed
-	if len(possibleDuplicates) == 0 {
-		list = make([]*Row[T], 0, len(results))
-	}
-
-	for _, row := range results {
+	var rows = newRows[T]()
+	for resultIndex, row := range results {
 		var (
 			obj        = internal.NewObjectFromIface(qs.model)
 			scannables = getScannableFields(qs.internals.Fields, obj)
@@ -1409,32 +1403,28 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 			}
 		}
 
+		var pk any
+		if rootScannable != nil {
+			pk = scannables[rootScannable.idx].field.GetValue()
+		} else {
+			// If no primary key is found, use the result index as a fallback
+			// deduplication will not work in this case - hence the panic above
+			pk = resultIndex
+		}
+
+		rows.addRoot(
+			pk, obj, annotations,
+		)
+
 		for _, possibleDuplicate := range possibleDuplicates {
 			var chainParts = buildChainParts(
 				scannables[possibleDuplicate.idx],
 			)
-			rows.addObject(chainParts, annotations)
-		}
-
-		// If no possible duplicates, just add the object to the list
-		// This is the case when there are no relations or no multi-relations
-		if len(possibleDuplicates) == 0 {
-			list = append(list, &Row[T]{
-				Object:      obj.(T),
-				Annotations: annotations,
-				QuerySet:    qs,
-			})
+			rows.addRelationChain(chainParts)
 		}
 	}
 
-	// there are possible duplicates
-	// no items were added to the initialized 'list' variable
-	// items were added to the rows object
-	if len(possibleDuplicates) > 0 {
-		list = rows.compile()
-	}
-
-	return list, nil
+	return rows.compile(), nil
 }
 
 // ValuesList is used to retrieve a list of values from the database.
@@ -2193,9 +2183,14 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 				} else {
 					obj = internal.NewObjectFromIface(rel.Model())
 				}
+
+				// dont set m2m or o2m relations, this is done later
+				// if !(rel.Type() == attrs.RelManyToMany || rel.Type() == attrs.RelOneToMany) {
 				if err := field.SetValue(obj, true); err != nil {
 					panic(fmt.Errorf("failed to set relation %q: %w", field.Name(), err))
 				}
+				// }
+
 				instances[key] = obj
 
 				// Make the scannableField node for this relation link to its parent

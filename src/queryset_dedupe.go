@@ -42,23 +42,41 @@ func newRows[T attrs.Definer]() *rows[T] {
 	}
 }
 
-func (r *rows[T]) addObject(chain []chainPart, annotations map[string]any) {
+func (r *rows[T]) addRoot(pk any, obj attrs.Definer, annotations map[string]any) *rootObject {
+	if pk == nil {
+		panic("cannot add root object with nil primary key")
+	}
+
+	if root, ok := r.objects.Get(pk); ok {
+		return root
+	}
+
+	var defs attrs.Definitions
+	if obj != nil {
+		defs = obj.FieldDefs()
+	}
+
+	var root = &rootObject{
+		object: &object{
+			pk:        pk,
+			obj:       obj,
+			fieldDefs: defs,
+			relations: make(map[string]*objectRelation),
+		},
+		annotations: annotations,
+	}
+
+	r.objects.Set(pk, root)
+	return root
+}
+
+func (r *rows[T]) addRelationChain(chain []chainPart) {
 
 	var root = chain[0]
 	var obj, ok = r.objects.Get(root.pk)
 	if !ok {
-		obj = &rootObject{
-			object: &object{
-				pk:        root.pk,
-				fieldDefs: root.object.FieldDefs(),
-				obj:       root.object,
-				relations: make(map[string]*objectRelation),
-			},
-			annotations: annotations,
-		}
-		r.objects.Set(root.pk, obj)
+		panic(fmt.Sprintf("root object with primary key %v not found in rows, root needs to be added with rows.addRoot", root.pk))
 	}
-
 	var current = obj.object
 	var idx = 1
 	for idx < len(chain) {

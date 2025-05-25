@@ -2,84 +2,181 @@ package queries
 
 import (
 	"fmt"
-	"strings"
+	"reflect"
 
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/elliotchance/orderedmap/v2"
 )
 
-type dedupeNode struct {
-	children map[string]map[any]*dedupeNode // chain name -> PK -> next node
-	objects  map[any]attrs.Definer          // Only for leaves: PKs we've already seen at this level
+type objectRelation struct {
+	relTyp  attrs.RelationType
+	objects *orderedmap.OrderedMap[any, *object]
 }
 
-func printDedupe(sb *strings.Builder, dedupe *dedupeNode, depth int) {
-	if dedupe.children != nil {
-		for path, childMap := range dedupe.children {
-			for k, dedupe := range childMap {
-				sb.WriteString(strings.Repeat("\t", depth+1))
-				sb.WriteString(fmt.Sprintf("'%v' (%s): %v\n", k, path, dedupe))
-				printDedupe(sb, dedupe, depth+1)
+type object struct {
+	// the primary key of the object
+	pk any
+
+	// the field defs of the object
+	fieldDefs attrs.Definitions
+
+	// The object itself, which is a Definer
+	obj attrs.Definer
+
+	// the direct relations of the object (multiple)
+	relations map[string]*objectRelation
+}
+
+type rootObject struct {
+	object      *object
+	annotations map[string]any // Annotations for the root object
+}
+
+type rows[T attrs.Definer] struct {
+	objects *orderedmap.OrderedMap[any, *rootObject]
+}
+
+func newRows[T attrs.Definer]() *rows[T] {
+	return &rows[T]{
+		objects: orderedmap.NewOrderedMap[any, *rootObject](),
+	}
+}
+
+func (r *rows[T]) addObject(chain []chainPart, annotations map[string]any) {
+
+	var root = chain[0]
+	var obj, ok = r.objects.Get(root.pk)
+	if !ok {
+		obj = &rootObject{
+			object: &object{
+				pk:        root.pk,
+				fieldDefs: root.object.FieldDefs(),
+				obj:       root.object,
+				relations: make(map[string]*objectRelation),
+			},
+			annotations: annotations,
+		}
+		r.objects.Set(root.pk, obj)
+	}
+
+	var current = obj.object
+	var idx = 1
+	for idx < len(chain) {
+		var part = chain[idx]
+		var next, ok = current.relations[part.chain]
+		if !ok {
+			next = &objectRelation{
+				relTyp:  part.relTyp,
+				objects: orderedmap.NewOrderedMap[any, *object](),
+			}
+			current.relations[part.chain] = next
+		}
+
+		child, ok := next.objects.Get(part.pk)
+		if !ok {
+			child = &object{
+				pk:        part.pk,
+				fieldDefs: part.object.FieldDefs(),
+				obj:       part.object,
+				relations: make(map[string]*objectRelation),
+			}
+			next.objects.Set(part.pk, child)
+		}
+
+		current = child
+		idx++
+	}
+
+	if idx != len(chain) {
+		panic(fmt.Sprintf("chain length mismatch: expected %d, got %d", len(chain), idx))
+	}
+}
+
+func (r *rows[T]) compile() []*Row[T] {
+	var addRelations func(*object)
+	addRelations = func(obj *object) {
+
+		if obj.pk == nil {
+			panic(fmt.Sprintf("object %T has no primary key, cannot deduplicate relations", obj.obj))
+		}
+
+		for relName, rel := range obj.relations {
+			if rel.objects.Len() == 0 {
+				continue
+			}
+
+			var relatedObjects = make([]attrs.Definer, 0, rel.objects.Len())
+			for relHead := rel.objects.Front(); relHead != nil; relHead = relHead.Next() {
+				var relatedObj = relHead.Value
+				if relatedObj == nil {
+					continue
+				}
+
+				addRelations(relatedObj)
+
+				relatedObjects = append(relatedObjects, relatedObj.obj)
+			}
+
+			switch rel.relTyp {
+			case attrs.RelOneToOne, attrs.RelManyToOne:
+				if len(relatedObjects) > 1 {
+					panic(fmt.Sprintf("expected at most one related object for %s, got %d", relName, len(relatedObjects)))
+				}
+				var relatedObject attrs.Definer
+				if len(relatedObjects) > 0 {
+					relatedObject = relatedObjects[0]
+				}
+				obj.fieldDefs.Set(relName, relatedObject)
+			case attrs.RelOneToMany, attrs.RelManyToMany:
+				var field, ok = obj.fieldDefs.Field(relName)
+				if !ok {
+					panic(fmt.Sprintf("relation %s not found in field defs of %T", relName, obj.obj))
+				}
+
+				if !ForSelectAll(field) {
+					obj.obj.(DataModel).ModelDataStore().SetValue(relName, relatedObjects)
+					continue
+				}
+
+				var typ = field.Type()
+				switch typ.Kind() {
+				case reflect.Slice:
+					// If the field is a slice, we can set the related objects directly
+					obj.fieldDefs.Set(relName, relatedObjects)
+				default:
+					panic(fmt.Sprintf("expected field %s to be a slice, got %s", relName, typ))
+				}
 			}
 		}
 	}
-}
 
-func newDedupeNode() *dedupeNode {
-	return &dedupeNode{
-		children: make(map[string]map[any]*dedupeNode),
-		objects:  make(map[any]attrs.Definer),
+	var root = make([]*Row[T], 0, r.objects.Len())
+	for head := r.objects.Front(); head != nil; head = head.Next() {
+		var obj = head.Value
+		if obj == nil {
+			continue
+		}
+
+		addRelations(obj.object)
+
+		var definer = obj.object.obj
+		if definer == nil {
+			continue
+		}
+
+		root = append(root, &Row[T]{
+			Object:      definer.(T),
+			Annotations: obj.annotations,
+		})
 	}
+	return root
 }
 
 type chainPart struct {
+	relTyp attrs.RelationType // The relation type of the field, if any
 	chain  string
 	pk     any
 	object attrs.Definer
-}
-
-func (n *dedupeNode) Has(keyParts []chainPart) bool {
-	return n.has(keyParts, 0)
-}
-
-func (n *dedupeNode) Add(keyParts []chainPart) {
-	n.add(keyParts, 0)
-}
-
-func (n *dedupeNode) has(keyParts []chainPart, partsIdx int) bool {
-	part := keyParts[partsIdx]
-	if partsIdx == len(keyParts)-1 {
-		_, ok := n.objects[part.pk]
-		return ok
-	}
-	nextMap, ok := n.children[part.chain]
-	if !ok {
-		return false
-	}
-	child, ok := nextMap[part.pk]
-	if !ok {
-		return false
-	}
-	return child.has(keyParts, partsIdx+1)
-}
-
-func (n *dedupeNode) add(keyParts []chainPart, partsIdx int) {
-	part := keyParts[partsIdx]
-	if partsIdx == len(keyParts)-1 {
-		n.objects[part.pk] = part.object
-		return
-	}
-	nextMap, ok := n.children[part.chain]
-	if !ok {
-		nextMap = make(map[any]*dedupeNode)
-		n.children[part.chain] = nextMap
-	}
-	child, ok := nextMap[part.pk]
-	if !ok {
-		child = newDedupeNode()
-		nextMap[part.pk] = child
-
-	}
-	child.add(keyParts, partsIdx+1)
 }
 
 func buildChainParts(actualField *scannableField) []chainPart {
@@ -93,6 +190,7 @@ func buildChainParts(actualField *scannableField) []chainPart {
 		)
 
 		stack = append(stack, chainPart{
+			relTyp: cur.relType,
 			chain:  cur.chainPart,
 			pk:     primary.GetValue(),
 			object: inst,

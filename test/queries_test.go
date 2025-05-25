@@ -1,6 +1,7 @@
 package queries_test
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -539,11 +540,18 @@ func init() {
 }
 
 func createObjects[T attrs.Definer](t *testing.T, objects ...T) (created []T, delete func() error) {
-	var err error
-	created, err = queries.Objects[T](objects[0]).BulkCreate(objects)
-	if err != nil {
-		t.Fatalf("Failed to create objects: %v", err)
-		return nil, nil
+	//var err error
+	//created, err = queries.GetQuerySet[T](objects[0]).BulkCreate(objects)
+	//if err != nil {
+	//	t.Fatalf("Failed to create objects: %v", err)
+	//	return nil, nil
+	//}
+	for _, obj := range objects {
+		if err := queries.CreateObject(obj); err != nil {
+			t.Fatalf("Failed to create object: %v", err)
+			return nil, nil
+		}
+		created = append(created, obj)
 	}
 
 	return created, func() error {
@@ -566,7 +574,7 @@ func createObjects[T attrs.Definer](t *testing.T, objects ...T) (created []T, de
 		}
 
 		var newObj = internal.NewDefiner[T]()
-		var deleted, err = queries.Objects[T](newObj).
+		var deleted, err = queries.GetQuerySet[T](newObj).
 			Filter(fmt.Sprintf("%s__in", primaryName), anyIDs...).
 			Delete()
 
@@ -774,7 +782,7 @@ func TestTodoCount(t *testing.T) {
 }
 
 func TestQuerySet_Filter(t *testing.T) {
-	var query = queries.Objects[attrs.Definer](&Todo{}).
+	var query = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done").
 		Filter("Title__icontains", "test").
 		Filter("Done", false).
@@ -815,7 +823,7 @@ func TestQuerySet_Filter(t *testing.T) {
 }
 
 func TestQuerySet_First(t *testing.T) {
-	todo, err := queries.Objects[attrs.Definer](&Todo{}).
+	todo, err := queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done").
 		Filter("Done", true).
 		First()
@@ -836,7 +844,7 @@ func TestQuerySet_First(t *testing.T) {
 	t.Logf("First todo: %+v", tdo)
 }
 func TestQuerySet_Where(t *testing.T) {
-	todos, err := queries.Objects[attrs.Definer](&Todo{}).
+	todos, err := queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done").
 		Filter(
 			expr.Expr("Title", "icontains", "test"),
@@ -867,7 +875,7 @@ func TestQuerySet_Where(t *testing.T) {
 }
 
 func TestQuerySet_Count(t *testing.T) {
-	count, err := queries.Objects[attrs.Definer](&Todo{}).
+	count, err := queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Filter(expr.And(
 			expr.Expr("Title", "icontains", "test"),
 			expr.Q("Done", false),
@@ -915,7 +923,7 @@ func TestQueryRelated(t *testing.T) {
 		t.Fatalf("Failed to insert todo: %v", err)
 	}
 
-	var qs = queries.Objects[attrs.Definer](&Todo{}).
+	var qs = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User.Name", "User.Profile.*").
 		Filter(
 			expr.Q("Title__icontains", "new test"),
@@ -1006,7 +1014,7 @@ func TestQueryRelatedMultiple(t *testing.T) {
 		t.Fatalf("Failed to insert object with multiple relations: %v", err)
 	}
 
-	var qs = queries.Objects[attrs.Definer](&ObjectWithMultipleRelations{}).
+	var qs = queries.GetQuerySet[attrs.Definer](&ObjectWithMultipleRelations{}).
 		Select("ID", "Obj1.*", "Obj2.*").
 		OrderBy("-ID")
 	var objs, err = qs.All()
@@ -1061,7 +1069,7 @@ func TestQuerySetSelectExpressions(t *testing.T) {
 		t.Fatalf("Expected ID to be set after insert, got 0")
 	}
 
-	var qs = queries.Objects[attrs.Definer](&Todo{}).
+	var qs = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("ID", expr.F("UPPER(![Title])"), "Description", "Done").
 		Filter("Title", "TestQuerySet_Select_Expressions").
 		OrderBy("-ID")
@@ -1116,7 +1124,7 @@ func TestQuerySetSelectExpressionsWithRelated(t *testing.T) {
 		t.Fatalf("Failed to insert todo: %v", err)
 	}
 
-	var qs = queries.Objects[attrs.Definer](&Todo{}).
+	var qs = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select(
 			"ID",
 			expr.F("UPPER(![Title])"),
@@ -1194,7 +1202,7 @@ func TestQueryRelatedIDOnly(t *testing.T) {
 		t.Fatalf("Failed to insert todo: %v", err)
 	}
 
-	todos, err := queries.Objects[attrs.Definer](&Todo{}).
+	todos, err := queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
 		Filter("Title", "TestQueryRelatedIDOnly").
 		OrderBy("-ID", "-User").
@@ -1263,7 +1271,7 @@ func TestQueryValuesList(t *testing.T) {
 		}
 	}
 
-	var values, err = queries.Objects[attrs.Definer](&Todo{}).
+	var values, err = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Filter("Title__istartswith", "testqueryvalueslist").
 		OrderBy("ID", "-User.Name").
 		// ValuesList("ID", "Title", "Description", "Done", "User.ID", "User.Name")
@@ -1374,7 +1382,7 @@ func TestQueryNestedRelated(t *testing.T) {
 		t.Fatalf("Failed to insert todo: %v", err)
 	}
 
-	var qs = queries.Objects[attrs.Definer](&Todo{}).
+	var qs = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("*", "User.*", "User.Profile.*", "User.Profile.Image.*").
 		Filter(
 			expr.Q("Title__icontains", "new test"),
@@ -1488,7 +1496,7 @@ func TestQueryUpdate(t *testing.T) {
 		t.Fatalf("Failed to insert todo: %v", err)
 	}
 
-	var updated, err = queries.Objects[attrs.Definer](&Todo{}).
+	var updated, err = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("Title", "User").
 		Filter("Title__istartswith", "testqueryupdate").
 		Filter("Done", false).
@@ -1581,7 +1589,7 @@ func TestUpdateWithExpressions(t *testing.T) {
 		t.Fatalf("Failed to insert todo: %v", err)
 	}
 
-	var updated, err = queries.Objects[attrs.Definer](&Todo{}).
+	var updated, err = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("Title", "Done").
 		Filter("ID", todo.ID).
 		ExplicitSave().
@@ -1633,7 +1641,7 @@ func TestQueryGet(t *testing.T) {
 		}
 	}
 
-	var todo, err = queries.Objects[attrs.Definer](&Todo{}).
+	var todo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("*").
 		Filter("Title", "TestQueryGet1").
 		Get()
@@ -1669,7 +1677,7 @@ func TestQueryGet(t *testing.T) {
 }
 
 func TestQueryGetErrNoRows(t *testing.T) {
-	var _, err = queries.Objects[attrs.Definer](&Todo{}).
+	var _, err = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("*").
 		Filter("Title", "NonExistentTitle").
 		Get()
@@ -1697,7 +1705,7 @@ func TestQueryGetMultipleRows(t *testing.T) {
 		}
 	}
 
-	var _, err = queries.Objects[attrs.Definer](&Todo{}).
+	var _, err = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("*").
 		Filter("Title__icontains", "TestQueryGetMultipleRows").
 		Get()
@@ -1731,7 +1739,7 @@ func TestQueryCreate(t *testing.T) {
 	t.Run("CreateReturningLastInsertID", func(t *testing.T) {
 		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningLastInsertId)
 
-		var dbTodo, err = queries.Objects[attrs.Definer](&Todo{}).Create(todo)
+		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).Create(todo)
 		if err != nil {
 			t.Fatalf("Failed to create todo: %v", err)
 		}
@@ -1774,7 +1782,7 @@ func TestQueryCreate(t *testing.T) {
 	t.Run("CreateReturningColumns", func(t *testing.T) {
 		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningColumns)
 
-		var dbTodo, err = queries.Objects[attrs.Definer](&Todo{}).Create(todo)
+		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).Create(todo)
 		if err != nil {
 			t.Fatalf("Failed to create todo: %v", err)
 		}
@@ -1815,7 +1823,7 @@ func TestQueryCreate(t *testing.T) {
 	t.Run("CreateReturningNone", func(t *testing.T) {
 		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningNone)
 
-		var dbTodo, err = queries.Objects[attrs.Definer](&Todo{}).Create(todo)
+		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).Create(todo)
 		if err != nil {
 			t.Fatalf("Failed to create todo: %v", err)
 		}
@@ -1876,7 +1884,7 @@ func TestQueryGetOrCreate(t *testing.T) {
 	var _todo = *todo
 	_todo.User.Name = ""
 
-	var dbTodo, err = queries.Objects[attrs.Definer](&Todo{}).
+	var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
 		Filter("Title", todo.Title).
 		GetOrCreate(&_todo)
@@ -1926,7 +1934,7 @@ func TestQueryGetOrCreate(t *testing.T) {
 func TestQuerySet_LatestQuery(t *testing.T) {
 	// Test All() CompiledQuery[[][]interface{}]
 	t.Run("TestAll", func(t *testing.T) {
-		var query = queries.Objects[attrs.Definer](&Todo{}).
+		var query = queries.GetQuerySet[attrs.Definer](&Todo{}).
 			Select("ID", "Title", "Description", "Done").
 			Filter("Title__icontains", "test").
 			Filter("Done", false)
@@ -1947,7 +1955,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 
 	// Test ValuesList(fields ...any) CompiledQuery[[][]any]
 	t.Run("TestValuesList", func(t *testing.T) {
-		var query = queries.Objects[attrs.Definer](&Todo{}).
+		var query = queries.GetQuerySet[attrs.Definer](&Todo{}).
 			Select("ID", "Title", "Description", "Done", "User").
 			Filter("Title__icontains", "test").
 			Filter("Done", false)
@@ -1968,7 +1976,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 
 	// Test Aggregate(annotations map[string]expr.Expression) CompiledQuery[[][]interface{}]
 	t.Run("TestAggregate", func(t *testing.T) {
-		var query = queries.Objects[attrs.Definer](&Todo{}).
+		var query = queries.GetQuerySet[attrs.Definer](&Todo{}).
 			Select("ID", "Title", "Description", "Done", "User").
 			Filter("Title__icontains", "test").
 			Filter("Done", false)
@@ -1999,7 +2007,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 
 	// Test Get() CompiledQuery[[][]interface{}]
 	t.Run("TestGet", func(t *testing.T) {
-		var query = queries.Objects[attrs.Definer](&Todo{}).
+		var query = queries.GetQuerySet[attrs.Definer](&Todo{}).
 			Select("ID", "Title", "Description", "Done", "User").
 			Filter("Title__icontains", "test").
 			Filter("Done", false)
@@ -2020,7 +2028,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 
 	// Test GetOrCreate(value T) CompiledQuery[[][]interface{}] | CompiledQuery[[]interface{}]
 	t.Run("TestGetOrCreate", func(t *testing.T) {
-		var query = queries.Objects[attrs.Definer](&Todo{}).
+		var query = queries.GetQuerySet[attrs.Definer](&Todo{}).
 			Select("ID", "Title", "Description", "Done", "User").
 			Filter("Title", "LatestQuery_TestGetOrCreate").
 			Filter("Done", false)
@@ -2074,7 +2082,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 
 	// Test First() CompiledQuery[[][]interface{}]
 	t.Run("TestFirst", func(t *testing.T) {
-		var query = queries.Objects[attrs.Definer](&Todo{}).
+		var query = queries.GetQuerySet[attrs.Definer](&Todo{}).
 			Select("ID", "Title", "Description", "Done").
 			Filter("Title__icontains", "test").
 			Filter("Done", false)
@@ -2096,7 +2104,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 
 	// Test Last() CompiledQuery[[][]interface{}]
 	t.Run("TestLast", func(t *testing.T) {
-		var query = queries.Objects[attrs.Definer](&Todo{}).
+		var query = queries.GetQuerySet[attrs.Definer](&Todo{}).
 			Select("ID", "Title", "Description", "Done").
 			Filter("Title__icontains", "test").
 			Filter("Done", false)
@@ -2117,7 +2125,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 
 	// Test Exists() CompiledQuery[int64]
 	t.Run("TestExists", func(t *testing.T) {
-		var query = queries.Objects[attrs.Definer](&Todo{}).
+		var query = queries.GetQuerySet[attrs.Definer](&Todo{}).
 			Select("ID", "Title", "Description", "Done").
 			Filter("Title__icontains", "test").
 			Filter("Done", false)
@@ -2138,7 +2146,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 
 	// Test Count() CompiledQuery[int64]
 	t.Run("TestCount", func(t *testing.T) {
-		var query = queries.Objects[attrs.Definer](&Todo{}).
+		var query = queries.GetQuerySet[attrs.Definer](&Todo{}).
 			Select("ID", "Title", "Description", "Done").
 			Filter("Title__icontains", "test").
 			Filter("Done", false)
@@ -2159,7 +2167,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 
 	// Test Create(value T) CompiledQuery[[]interface{}]
 	t.Run("TestCreate", func(t *testing.T) {
-		var query = queries.Objects[attrs.Definer](&Todo{}).
+		var query = queries.GetQuerySet[attrs.Definer](&Todo{}).
 			Select("ID", "Title", "Description", "Done").
 			Filter("Title__icontains", "test")
 
@@ -2186,7 +2194,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 
 	// Test Update(value attrs.Definer, expressions ...expr.NamedExpression) CompiledQuery[int64]
 	t.Run("TestUpdate", func(t *testing.T) {
-		var query = queries.Objects[attrs.Definer](&Todo{}).
+		var query = queries.GetQuerySet[attrs.Definer](&Todo{}).
 			Select("Title").
 			Filter("Title__icontains", "test").
 			Filter("Done", false)
@@ -2207,7 +2215,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 
 	// Test Delete() CompiledQuery[int64]
 	t.Run("TestDelete", func(t *testing.T) {
-		var query = queries.Objects[attrs.Definer](&Todo{}).
+		var query = queries.GetQuerySet[attrs.Definer](&Todo{}).
 			Select("ID", "Title", "Description", "Done").
 			Filter("Title__icontains", "test").
 			Filter("Done", false)
@@ -2240,7 +2248,7 @@ func TestQuerySetChaining(t *testing.T) {
 		}
 	}
 
-	var qs = queries.Objects[attrs.Definer](&Todo{}).
+	var qs = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
 		Filter("Title__icontains", "TestQuerySetChaining").
 		Filter("Done", false)
@@ -2267,7 +2275,7 @@ type testQuerySet_Concurrency struct {
 
 func TestQuerySet_SharedInstance_Concurrency(t *testing.T) {
 	queries.QUERYSET_USE_CACHE_DEFAULT = false
-	var baseQS = queries.Objects[attrs.Definer](&Todo{}).
+	var baseQS = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
 		Filter("Done", false).
 		Filter("Title__startswith", "ConcurrentTodo")
@@ -2390,7 +2398,7 @@ func TestRecursiveAliasConflict(t *testing.T) {
 	}
 
 	// Select deeply nested field that should require distinct aliases
-	qs := queries.Objects[attrs.Definer](&Category{}).
+	qs := queries.GetQuerySet[attrs.Definer](&Category{}).
 		Select("*", "Parent.ID", "Parent.Parent.*").
 		Filter("Parent.Parent.Name", "Root")
 
@@ -2440,7 +2448,7 @@ func TestRecursiveAliasConflict(t *testing.T) {
 }
 
 func TestAggregateCount(t *testing.T) {
-	var agg, err = queries.Objects[*Todo](&Todo{}).
+	var agg, err = queries.GetQuerySet[*Todo](&Todo{}).
 		Aggregate(map[string]expr.Expression{
 			"Count": expr.FuncCount("ID"),
 		})
@@ -2469,7 +2477,7 @@ func TestBulkCreate(t *testing.T) {
 		{Title: "BulkCreate3", Description: "Description BulkCreate", Done: false},
 	}
 
-	var dbTodos, err = queries.Objects[*Todo](&Todo{}).BulkCreate(todos)
+	var dbTodos, err = queries.GetQuerySet[*Todo](&Todo{}).BulkCreate(todos)
 	if err != nil {
 		t.Fatalf("Failed to bulk create todos: %v", err)
 		return
@@ -2512,7 +2520,7 @@ func TestBulkCreate(t *testing.T) {
 }
 
 func TestBulkUpdate(t *testing.T) {
-	var todos, err = queries.Objects[*Todo](&Todo{}).BulkCreate([]*Todo{
+	var todos, err = queries.GetQuerySet[*Todo](&Todo{}).BulkCreate([]*Todo{
 		{Title: "BulkUpdate1", Description: "Description BulkUpdate", Done: false},
 		{Title: "BulkUpdate2", Description: "Description BulkUpdate", Done: true},
 		{Title: "BulkUpdate3", Description: "Description BulkUpdate", Done: false},
@@ -2538,14 +2546,14 @@ func TestBulkUpdate(t *testing.T) {
 	t.Logf("Todos to update 3: %s, %+v", todos[2].FieldDefs().Get("Title"), todos[2])
 	t.Logf("Todos to update 4: %s, %+v", todos[3].FieldDefs().Get("Title"), todos[3])
 
-	_, err = queries.Objects[*Todo](&Todo{}).BulkUpdate(toUpdate)
+	_, err = queries.GetQuerySet[*Todo](&Todo{}).BulkUpdate(toUpdate)
 
 	if err != nil {
 		t.Fatalf("Failed to bulk update todos: %v", err)
 		return
 	}
 
-	dbTodos, err := queries.Objects[*Todo](&Todo{}).Filter(
+	dbTodos, err := queries.GetQuerySet[*Todo](&Todo{}).Filter(
 		"ID__in", todos[0].ID, todos[1].ID, todos[2].ID, todos[3].ID,
 	).All()
 	if err != nil {
@@ -2591,4 +2599,55 @@ func TestBulkUpdate(t *testing.T) {
 	todoEquals(todos[0], todo1)
 	todoEquals(todos[1], todo2)
 	todoEquals(todos[2], todo3)
+}
+
+func TestRunInTransaction(t *testing.T) {
+	var user = &User{
+		Name: "TestTransaction",
+	}
+
+	if err := queries.CreateObject(user); err != nil || user.ID == 0 {
+		t.Fatalf("Failed to insert user: %v", err)
+	}
+
+	var todo = &Todo{
+		Title:       "TestTransaction",
+		Description: "This is a new test todo",
+		Done:        false,
+		User:        user,
+	}
+
+	var ctx = context.Background()
+	var err = queries.RunInTransaction(ctx, func(NewQuerySet queries.NewQuerySetFunc[*Todo]) error {
+		dbTodo, err := NewQuerySet(&Todo{}).Create(todo)
+		if err != nil {
+			return fmt.Errorf("failed to create todo: %w", err)
+		}
+		if dbTodo == nil {
+			return fmt.Errorf("expected a todo, got nil")
+		}
+
+		var tdo = dbTodo
+		if tdo.ID == 0 {
+			return fmt.Errorf("expected todo ID to be not 0, got %d", tdo.ID)
+		}
+
+		if tdo.Title != todo.Title {
+			return fmt.Errorf("expected todo title %q, got %q", todo.Title, tdo.Title)
+		}
+
+		if tdo.Description != todo.Description {
+			return fmt.Errorf("expected todo description %q, got %q", todo.Description, tdo.Description)
+		}
+
+		if tdo.Done != todo.Done {
+			return fmt.Errorf("expected todo done %v, got %v", todo.Done, tdo.Done)
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Failed to run transaction: %v", err)
+	}
+
 }

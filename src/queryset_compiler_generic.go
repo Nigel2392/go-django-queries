@@ -46,6 +46,10 @@ func NewGenericQueryBuilder(model attrs.Definer, db string) QueryCompiler {
 	}
 }
 
+func (g *genericQueryBuilder) DatabaseName() string {
+	return g.queryInfo.DatabaseName
+}
+
 func (g *genericQueryBuilder) DB() DB {
 	if g.InTransaction() {
 		return g.transaction
@@ -67,7 +71,19 @@ func (g *genericQueryBuilder) StartTransaction(ctx context.Context) (Transaction
 		return nil, query_errors.ErrFailedStartTransaction
 	}
 
-	g.transaction = &wrappedTransaction{tx, g}
+	return g.WithTransaction(tx)
+}
+
+func (g *genericQueryBuilder) WithTransaction(t Transaction) (Transaction, error) {
+	if g.InTransaction() {
+		return nil, query_errors.ErrTransactionStarted
+	}
+
+	if t == nil {
+		return nil, query_errors.ErrTransactionNil
+	}
+
+	g.transaction = &wrappedTransaction{t, g}
 	return g.transaction, nil
 }
 
@@ -75,7 +91,6 @@ func (g *genericQueryBuilder) CommitTransaction() error {
 	if !g.InTransaction() {
 		return query_errors.ErrNoTransaction
 	}
-
 	return g.transaction.Commit()
 }
 

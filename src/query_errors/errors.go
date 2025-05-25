@@ -15,9 +15,11 @@ const (
 	ErrNoRows       errs.Error = "No rows in result set"
 	ErrMultipleRows errs.Error = "Multiple rows in result set"
 
-	ErrTransactionStarted     errs.Error = "Transaction already started"
-	ErrFailedStartTransaction errs.Error = "Failed to start transaction"
-	ErrNoTransaction          errs.Error = "Transaction was not started"
+	ErrTransactionStarted       errs.Error = "Transaction already started"
+	ErrFailedStartTransaction   errs.Error = "Failed to start transaction"
+	ErrNoTransaction            errs.Error = "Transaction was not started"
+	ErrTransactionNil           errs.Error = "Transaction is nil"
+	ErrCrossDatabaseTransaction errs.Error = "Cross-database transaction is not allowed"
 
 	// Returned when a Query[T] is executed twice, the result should
 	// be cached, and the second call should return the cached result,

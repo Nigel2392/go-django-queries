@@ -15,6 +15,7 @@ import (
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/Nigel2392/go-django/src/forms/fields"
 	"github.com/Nigel2392/go-django/src/models"
 	"github.com/pkg/errors"
@@ -218,14 +219,20 @@ type GenericQuerySet = QuerySet[attrs.Definer]
 // GetQuerySet method. If not, it will recursively call itself.
 //
 // See [Objects] for more details.
-func GetQuerySet[T attrs.Definer](model attrs.Definer) *QuerySet[T] {
-	if m, ok := model.(QuerySetDefiner); ok {
+func GetQuerySet[T attrs.Definer](model T) *QuerySet[T] {
+	if m, ok := any(model).(QuerySetDefiner); ok {
+
+		// call FieldDefs, the models.Model struct could have a nil reference
+		// to the model, which makes it basically impossible to get the
+		// queryset by calling [Objects[T](model)]
+		var _ = m.FieldDefs()
+
 		var qs = m.GetQuerySet()
 		qs = qs.Clone()
 		return ChangeObjectsType[attrs.Definer, T](qs)
 	}
 
-	return Objects(model.(T))
+	return Objects(model)
 }
 
 // Objects creates a new QuerySet for the given model.
@@ -311,6 +318,93 @@ func ChangeObjectsType[OldT, NewT attrs.Definer](qs *QuerySet[OldT]) *QuerySet[N
 	}
 }
 
+type NewQuerySetFunc[T attrs.Definer] func(model T) *QuerySet[T]
+
+func RunInTransaction[T attrs.Definer](ctx context.Context, fn func(NewQuerySet NewQuerySetFunc[T]) error) error {
+	var (
+		comitted             bool
+		panicFromNewQuerySet error
+		transaction          Transaction
+		dbName               string
+	)
+
+	// a constructor function to create a new QuerySet with the given model
+	// and then bind the transaction to it.
+	var newQuerySetFunc = func(model T) *QuerySet[T] {
+		var (
+			err error
+			qs  = GetQuerySet(model)
+		)
+
+		// if there was no transaction started yet, start a new one
+		// otherwise, let the compiler wrap and handle the transaction
+		if transaction == nil {
+			// set the database name to the one used by the compiler
+			dbName = qs.compiler.DatabaseName()
+			transaction, err = qs.compiler.StartTransaction(ctx)
+		} else {
+			// a transaction cannot be started if the database name is different
+			// cross-database transactions are not supported
+			var databaseName = qs.compiler.DatabaseName()
+			if dbName != databaseName {
+				panicFromNewQuerySet = fmt.Errorf(
+					"RunInTransaction, %q != %q: %w",
+					dbName, databaseName,
+					query_errors.ErrCrossDatabaseTransaction,
+				)
+				panic(panicFromNewQuerySet)
+			}
+
+			transaction, err = qs.compiler.WithTransaction(transaction)
+		}
+
+		if err != nil {
+			panicFromNewQuerySet = fmt.Errorf(
+				"RunInTransaction: failed to start transaction: %w",
+				err,
+			)
+			panic(panicFromNewQuerySet)
+		}
+
+		return qs
+	}
+
+	// rollback the transaction if anything bad happens or the transaction is not committed.
+	// this should do nothing if the transaction is already committed.
+	defer func() {
+		if rec := recover(); rec != nil {
+			logger.Errorf("RunInTransaction: panic recovered: %v", rec)
+		}
+
+		if transaction != nil && !comitted {
+			if err := transaction.Rollback(); err != nil {
+				logger.Errorf("RunInTransaction: failed to rollback transaction: %v", err)
+			}
+		}
+	}()
+
+	// if the function returns an error, the transaction will be rolled back
+	var err = fn(newQuerySetFunc)
+	if err != nil {
+		return errors.Wrap(err, "RunInTransaction: function returned an error")
+	}
+
+	// if the transaction is nil, it means that no transaction was started
+	// i.e. no newQuerySetFunc was called
+	if transaction == nil {
+		return query_errors.ErrNoTransaction
+	}
+
+	// commit the transaction if everything went well
+	err = transaction.Commit()
+	if err != nil {
+		return errors.Wrap(err, "RunInTransaction: failed to commit transaction")
+	}
+	comitted = true
+
+	return nil
+}
+
 // Return the underlying database which the compiler is using.
 func (qs *QuerySet[T]) DB() DB {
 	return qs.compiler.DB()
@@ -336,6 +430,11 @@ func (qs *QuerySet[T]) LatestQuery() QueryInfo {
 // It returns a transaction object which can be used to commit or rollback the transaction.
 func (qs *QuerySet[T]) StartTransaction(ctx context.Context) (Transaction, error) {
 	return qs.compiler.StartTransaction(ctx)
+}
+
+// WithTransaction wraps the transaction and binds it to the QuerySet compiler.
+func (qs *QuerySet[T]) WithTransaction(tx Transaction) (Transaction, error) {
+	return qs.compiler.WithTransaction(tx)
 }
 
 // Clone creates a new QuerySet with the same parameters as the original one.
@@ -1258,10 +1357,15 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 	}
 
 	var (
-		dedupeResolver = newDedupeNode()
-		list           = make([]*Row[T], 0, len(results))
-		prev           []*scannableField
+		rows = newRows[T]()
+		list []*Row[T]
 	)
+
+	// if there are no possible duplicates, a plain list can be created
+	// and no deduplication is needed
+	if len(possibleDuplicates) == 0 {
+		list = make([]*Row[T], 0, len(results))
+	}
 
 	for _, row := range results {
 		var (
@@ -1305,124 +1409,29 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 			}
 		}
 
-		var newRow = true
 		for _, possibleDuplicate := range possibleDuplicates {
-
-			var (
-				workingObj attrs.Definer
-
-				actualField = scannables[possibleDuplicate.idx]
-				chainParts  = buildChainParts(
-					actualField,
-				)
-				has = dedupeResolver.Has(chainParts)
+			var chainParts = buildChainParts(
+				scannables[possibleDuplicate.idx],
 			)
-
-			if has {
-				newRow = false
-				continue
-			}
-
-			dedupeResolver.Add(chainParts)
-
-			if len(actualField.chainPart) > 0 {
-				var f *scannableField
-				if prev != nil && prev[rootScannable.idx].field.GetValue() == scannables[rootScannable.idx].field.GetValue() {
-					f = prev[possibleDuplicate.idx]
-				} else {
-					f = actualField
-				}
-				DebugPrintf(
-					"Has: %v, %d, Setting %v, %v, %p, %T on %T %v\n",
-					has, possibleDuplicate.idx,
-
-					actualField.chainPart,
-					scannables[possibleDuplicate.idx].field.GetValue(),
-					scannables[possibleDuplicate.idx].field.Instance(),
-					scannables[possibleDuplicate.idx].field.Instance(),
-
-					f.srcField.field.Instance(),
-					f.srcField.field.Instance().FieldDefs().Primary().GetValue(),
-				)
-			} else {
-				DebugPrintf(
-					"Has: %v, %d, Working on %T %v\n",
-					has, possibleDuplicate.idx,
-					actualField.field.Instance(), actualField.field.GetValue(),
-				)
-			}
-
-			// this is eithe root value (safe to skip)
-			if actualField.idx == rootScannable.idx {
-				DebugPrintf("continuing %T %v\n", actualField.field.Instance(), actualField.field.GetValue())
-				continue
-			}
-
-			// retrieve the panret object from the last row (if any)
-			if prev != nil && prev[rootScannable.idx].field.GetValue() == scannables[rootScannable.idx].field.GetValue() {
-				workingObj = prev[possibleDuplicate.idx].srcField.field.Instance()
-			} else {
-				workingObj = actualField.srcField.field.Instance()
-			}
-
-			// set the value on the [DataModel] as a slice of related objects
-			var dataModel = workingObj.(DataModel)
-			var dataStore = dataModel.ModelDataStore()
-			existing, _ := dataStore.GetValue(actualField.chainPart)
-
-			var slice []attrs.Definer
-			switch v := existing.(type) {
-			case nil:
-				slice = []attrs.Definer{}
-			case attrs.Definer:
-				// no need to add, if the object is new it will be added
-				// as actualField.object automatically below.
-				slice = make([]attrs.Definer, 0)
-			case []attrs.Definer:
-				slice = v
-			default:
-				panic(fmt.Errorf("unexpected type for relatedName %s: %T", actualField.chainPart, existing))
-			}
-
-			slice = append(
-				slice, actualField.object,
-			)
-
-			if err := dataStore.SetValue(actualField.chainPart, slice); err != nil {
-				panic(err)
-			}
-
-			DebugPrintln("----------------------------------------------")
+			rows.addObject(chainParts, annotations)
 		}
 
-		if !newRow {
-			continue
+		// If no possible duplicates, just add the object to the list
+		// This is the case when there are no relations or no multi-relations
+		if len(possibleDuplicates) == 0 {
+			list = append(list, &Row[T]{
+				Object:      obj.(T),
+				Annotations: annotations,
+				QuerySet:    qs,
+			})
 		}
-
-		if len(possibleDuplicates) > 0 {
-			DebugPrintln("_____________________________________________")
-		}
-
-		prev = scannables
-		list = append(list, &Row[T]{
-			QuerySet:    qs,
-			Object:      obj.(T),
-			Annotations: annotations,
-		})
 	}
 
+	// there are possible duplicates
+	// no items were added to the initialized 'list' variable
+	// items were added to the rows object
 	if len(possibleDuplicates) > 0 {
-		DebugPrintln()
-
-		var sb = &strings.Builder{}
-		printDedupe(sb, dedupeResolver, 0)
-		DebugPrintln(sb.String())
-
-		DebugPrintln()
-	}
-
-	if qs.useCache {
-		qs.cached = list
+		list = rows.compile()
 	}
 
 	return list, nil
@@ -1738,6 +1747,47 @@ func (qs *QuerySet[T]) Create(value T) (T, error) {
 	return result[0], nil
 }
 
+// Update is used to update an object in the database.
+//
+// It takes a definer object as an argument and returns a CountQuery that can be executed
+// to get the result, which is the number of rows affected.
+//
+// It panics if a non- nullable field is null or if the field is not found in the model.
+//
+// If the model adheres to django's `models.Saver` interface, no where clause is provided
+// and ExplicitSave() was not called, the `Save()` method will be called on the model
+func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int64, error) {
+	if len(qs.internals.Where) == 0 && !qs.explicitSave {
+		var (
+			defs            = value.FieldDefs()
+			primary         = defs.Primary()
+			primaryVal, err = primary.Value()
+		)
+
+		if err != nil {
+			panic(fmt.Errorf("failed to get value for field %q: %w", primary.Name(), err))
+		}
+
+		if saver, ok := any(value).(models.ContextSaver); ok && !fields.IsZero(primaryVal) {
+			if err := sendSignal(SignalPreModelSave, value, qs.compiler); err != nil {
+				return 0, err
+			}
+
+			var err = saver.Save(context.Background())
+			if err != nil {
+				return 0, err
+			}
+
+			if err := sendSignal(SignalPostModelSave, value, qs.compiler); err != nil {
+				return 0, err
+			}
+			return 1, nil
+		}
+	}
+
+	return qs.BulkUpdate([]T{value}, expressions...)
+}
+
 // BulkCreate is used to create multiple objects in the database.
 //
 // It takes a list of definer objects as arguments and returns a Query that can be executed
@@ -1932,47 +1982,6 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 
 	return resultList, nil
 
-}
-
-// Update is used to update an object in the database.
-//
-// It takes a definer object as an argument and returns a CountQuery that can be executed
-// to get the result, which is the number of rows affected.
-//
-// It panics if a non- nullable field is null or if the field is not found in the model.
-//
-// If the model adheres to django's `models.Saver` interface, no where clause is provided
-// and ExplicitSave() was not called, the `Save()` method will be called on the model
-func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int64, error) {
-	if len(qs.internals.Where) == 0 && !qs.explicitSave {
-		var (
-			defs            = value.FieldDefs()
-			primary         = defs.Primary()
-			primaryVal, err = primary.Value()
-		)
-
-		if err != nil {
-			panic(fmt.Errorf("failed to get value for field %q: %w", primary.Name(), err))
-		}
-
-		if saver, ok := any(value).(models.ContextSaver); ok && !fields.IsZero(primaryVal) {
-			if err := sendSignal(SignalPreModelSave, value, qs.compiler); err != nil {
-				return 0, err
-			}
-
-			var err = saver.Save(context.Background())
-			if err != nil {
-				return 0, err
-			}
-
-			if err := sendSignal(SignalPostModelSave, value, qs.compiler); err != nil {
-				return 0, err
-			}
-			return 1, nil
-		}
-	}
-
-	return qs.BulkUpdate([]T{value}, expressions...)
 }
 
 // BulkUpdate is used to update multiple objects in the database.

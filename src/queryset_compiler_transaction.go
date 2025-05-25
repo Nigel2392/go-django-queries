@@ -1,13 +1,11 @@
 package queries
 
 import (
-	"database/sql"
-
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 )
 
 type wrappedTransaction struct {
-	*sql.Tx
+	Transaction
 	compiler *genericQueryBuilder
 }
 
@@ -16,7 +14,7 @@ func (w *wrappedTransaction) Rollback() error {
 		return query_errors.ErrNoTransaction
 	}
 	w.compiler.transaction = nil
-	return w.Tx.Rollback()
+	return w.Transaction.Rollback()
 }
 
 func (w *wrappedTransaction) Commit() error {
@@ -24,5 +22,5 @@ func (w *wrappedTransaction) Commit() error {
 		return query_errors.ErrNoTransaction
 	}
 	w.compiler.transaction = nil
-	return w.Tx.Commit()
+	return w.Transaction.Commit()
 }

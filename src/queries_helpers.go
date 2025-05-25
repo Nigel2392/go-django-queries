@@ -188,7 +188,7 @@ func sendSignal(s signals.Signal[SignalSave], obj attrs.Definer, q QueryCompiler
 func CreateObject[T attrs.Definer](obj T) error {
 	var (
 		err error
-		qs  = Objects[T](obj)
+		qs  = Objects[T](obj).ExplicitSave()
 	)
 
 	_, err = qs.BulkCreate([]T{obj})

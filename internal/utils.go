@@ -185,13 +185,14 @@ func WalkFields(
 }
 
 type QueryInfo struct {
-	DB          *sql.DB
-	DBX         interface{ Rebind(string) string }
-	SqlxDriver  string
-	TableName   string
-	Definitions attrs.Definitions
-	Primary     attrs.Field
-	Fields      []attrs.Field
+	DatabaseName string // The name of the database connection
+	DB           *sql.DB
+	DBX          interface{ Rebind(string) string }
+	SqlxDriver   string
+	TableName    string
+	Definitions  attrs.Definitions
+	Primary      attrs.Field
+	Fields       []attrs.Field
 }
 
 func GetBaseQueryInfo(obj attrs.Definer) (*QueryInfo, error) {
@@ -231,6 +232,7 @@ func GetQueryInfo(obj attrs.Definer, dbKey string) (*QueryInfo, error) {
 		return nil, err
 	}
 
+	queryInfo.DatabaseName = dbKey
 	queryInfo.DB = db
 	queryInfo.DBX = dbx
 	queryInfo.SqlxDriver = sqlxDriver

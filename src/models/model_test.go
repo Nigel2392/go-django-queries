@@ -1,6 +1,7 @@
 package models_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/Nigel2392/go-django-queries/src/models"
@@ -53,6 +54,8 @@ func TestModelFields(t *testing.T) {
 	if desc != "Updated description" {
 		t.Errorf("Expected Description to be 'Updated description', got '%s'", desc)
 	}
+
+	t.Logf("TestModel: %+v", m)
 }
 
 func TestModelFieldsSetValue(t *testing.T) {
@@ -94,4 +97,45 @@ func TestModelFieldsSetValue(t *testing.T) {
 	if desc != "Updated description" {
 		t.Errorf("Expected Description to be 'Updated description', got '%s'", desc)
 	}
+}
+
+func TestExtractModel(t *testing.T) {
+	var m = &TestModel{
+		Title:       "Test",
+		Description: "Test description",
+	}
+
+	var modelObj, err = models.ExtractModel(m)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	if modelObj == nil {
+		t.Errorf("Expected model object to be not nil")
+	}
+}
+
+func TestUnsafeParentModel(t *testing.T) {
+
+	// this might prove useful in the future...
+
+	var m = &TestModel{
+		Title:       "Test",
+		Description: "Test description",
+	}
+
+	var fn = func(m any) {
+		var testModel = (*TestModel)(reflect.ValueOf(m).UnsafePointer())
+		t.Logf("TestModel: %v", testModel)
+		if testModel.Title != "Test" {
+			t.Errorf("Expected Title to be 'Test', got '%s'", testModel.Title)
+		}
+
+		if testModel.Description != "Test description" {
+			t.Errorf("Expected Description to be 'Test description', got '%s'", testModel.Description)
+		}
+	}
+
+	fn(&m.Model)
+
 }

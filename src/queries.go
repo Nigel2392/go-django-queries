@@ -198,6 +198,11 @@ type UpdateInfo struct {
 //
 // It does not need to know about the model nor its field types.
 type QueryCompiler interface {
+	// DatabaseName returns the name of the database connection used by the query compiler.
+	//
+	// This is the name of the database connection as defined in the django.Global.Settings object.
+	DatabaseName() string
+
 	// DB returns the database connection used by the query compiler.
 	//
 	// If a transaction was started, it will return the transaction instead of the database connection.
@@ -219,6 +224,9 @@ type QueryCompiler interface {
 
 	// StartTransaction starts a new transaction.
 	StartTransaction(ctx context.Context) (Transaction, error)
+
+	// WithTransaction wraps the transaction and binds it to the compiler.
+	WithTransaction(tx Transaction) (Transaction, error)
 
 	// CommitTransaction commits the current ongoing transaction.
 	CommitTransaction() error

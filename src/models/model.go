@@ -1,92 +1,83 @@
 package models
 
 import (
-	"fmt"
 	"reflect"
-	"strings"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/fields"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/Nigel2392/go-django/src/models"
 )
 
 var _ queries.DataModel = &Model{}
 
-type mapDataStore map[string]interface{}
-
-func (m mapDataStore) String() string {
-	var sb strings.Builder
-	sb.WriteString("[")
-	var i = 0
-	for k, v := range m {
-		if i > 0 {
-			sb.WriteString(", ")
-		}
-		fmt.Fprintf(&sb, "%q: %v", k, v)
-		i++
-	}
-	sb.WriteString("]")
-	return sb.String()
-}
-
-func (m mapDataStore) HasValue(key string) bool {
-	_, ok := m[key]
-	return ok
-}
-
-func (m mapDataStore) SetValue(key string, value any) error {
-	m[key] = value
-	return nil
-}
-
-func (m mapDataStore) GetValue(key string) (any, bool) {
-	if v, ok := m[key]; ok {
-		return v, true
-	}
-	return nil, false
-}
-
-func (m mapDataStore) DeleteValue(key string) error {
-	delete(m, key)
-	return nil
+type modelOptions struct {
+	selfField *reflect.StructField
+	selfValue *reflect.Value
+	_meta     attrs.ModelMeta
+	_defs     *attrs.ObjectDefinitions
 }
 
 type Model struct {
-	data  queries.ModelDataStore
-	_meta attrs.ModelMeta
-	_defs *attrs.ObjectDefinitions
+	internals modelOptions
+	data      queries.ModelDataStore
 }
 
 func (m *Model) Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinitions {
 	attrs.RegisterModel(def)
 
-	if m._meta == nil {
-		m._meta = attrs.GetModelMeta(def)
+	if m.internals._meta == nil {
+		m.internals._meta = attrs.GetModelMeta(def)
 	}
 
-	var model = reflect.TypeOf(def)
-	if model.Kind() == reflect.Ptr {
-		model = model.Elem()
+	var signalInfo = ModelSignalInfo{
+		Data: make(map[string]any),
 	}
 
-	var self, ok = model.FieldByName("Model")
-	if !ok {
-		panic("model does not have a Model field, did you forget to embed the Model struct?")
+	// validate if it is the same object
+	// if not, clear the _defs so any old fields pointing to the old
+	// object will be cleared
+	if m.internals._defs != nil && m.internals._defs.Object != def {
+		signalInfo.Flags.set(FlagModelReset)
+		signalInfo.Data["old"] = m.internals._defs.Object
+		signalInfo.Data["new"] = def
+		m.internals._defs = nil
 	}
 
-	var tableName = self.Tag.Get("table")
-	if m._defs == nil {
+	if m.internals.selfField == nil {
+		var model = reflect.TypeOf(def)
+		if model.Kind() == reflect.Ptr {
+			model = model.Elem()
+		}
+
+		var self, ok = model.FieldByName("Model")
+		if !ok || !self.Anonymous {
+			panic("object does not have an embedded Model field, the object must embed the Model struct")
+		}
+		m.internals.selfField = &self
+
+		if m.internals.selfField.Type.Kind() == reflect.Ptr {
+			panic("object must not embed a pointer to Model, it must embed the Model struct")
+		}
+
+		var rVal = reflect.ValueOf(def)
+		var selfValue = rVal.Elem().FieldByIndex(m.internals.selfField.Index)
+		if !selfValue.CanAddr() {
+			panic("the Model is not addressable, the object must embed the Model struct")
+		}
+		m.internals.selfValue = &selfValue
+	}
+
+	var tableName = m.internals.selfField.Tag.Get("table")
+	if m.internals._defs == nil {
 		// var reverseRelations = make([]attrs.Field, 0)
-		for head := m._meta.ReverseMap().Front(); head != nil; head = head.Next() {
-			var key = head.Key
-			var value = head.Value
-			var typ = value.Type()
-
+		for head := m.internals._meta.ReverseMap().Front(); head != nil; head = head.Next() {
 			var (
 				field attrs.Field
-			)
 
-			var (
+				key            = head.Key
+				value          = head.Value
+				typ            = value.Type()
 				from           = value.From()
 				fromModelField = from.Field()
 			)
@@ -107,44 +98,56 @@ func (m *Model) Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinit
 			}
 		}
 
-		m._defs = attrs.Define(def, f...)
+		SIGNAL_MODEL_SETUP.Send(ModelSignal{
+			SignalInfo: signalInfo,
+			Model:      m,
+			Object:     def,
+		})
+
+		m.internals._defs = attrs.Define(def, f...)
 	}
 
-	if tableName != "" && m._defs.Table == "" {
-		m._defs.Table = tableName
+	if tableName != "" && m.internals._defs.Table == "" {
+		m.internals._defs.Table = tableName
 	}
 
-	return m._defs
+	return m.internals._defs
 }
 
 //
 //func (m *Model) String() string {
-//	var rTyp = reflect.TypeOf(m._defs.Object)
+//	if m.internals._defs == nil {
+//		return fmt.Sprintf("{%T}", m)
+//	}
+//	var rTyp = reflect.TypeOf(m.internals._defs.Object)
 //	if rTyp.Kind() == reflect.Ptr {
 //		rTyp = rTyp.Elem()
 //	}
-//	var prim = m._defs.Primary()
+//	var prim = m.internals._defs.Primary()
 //	var primaryVal, _ = prim.Value()
 //	return fmt.Sprintf("%s(%v)%v", rTyp.Name(), primaryVal, m.data)
 //}
 
 func (m *Model) ModelMeta() attrs.ModelMeta {
-	if m._meta == nil {
-		m._meta = attrs.GetModelMeta(m._defs.Object)
+	if m.internals._meta == nil {
+		m.internals._meta = attrs.GetModelMeta(m.internals._defs.Object)
 	}
-	return m._meta
+	return m.internals._meta
 }
 
 func (m *Model) RelatedField(name string) (attrs.Field, bool) {
-	if m._defs == nil {
+	if m.internals._defs == nil {
 		return nil, false
 	}
+	if m.internals._meta == nil {
+		m.internals._meta = attrs.GetModelMeta(m.internals._defs.Object)
+	}
 	var (
-		_, ok1 = m._meta.Forward(name)
-		_, ok2 = m._meta.Reverse(name)
+		_, ok1 = m.internals._meta.Forward(name)
+		_, ok2 = m.internals._meta.Reverse(name)
 	)
 	if ok1 || ok2 {
-		return m._defs.Field(name)
+		return m.internals._defs.Field(name)
 	}
 	return nil, false
 }
@@ -157,15 +160,17 @@ func (m *Model) ModelDataStore() queries.ModelDataStore {
 }
 
 func (m *Model) SaveFields() error {
-	if m._defs == nil {
+	if m.internals._defs == nil {
 		return nil
 	}
-	for _, field := range m._defs.Fields() {
-		if saver, ok := field.(interface{ Save() error }); ok {
+
+	for _, field := range m.internals._defs.Fields() {
+		if saver, ok := field.(models.Saver); ok {
 			if err := saver.Save(); err != nil {
 				return err
 			}
 		}
 	}
+
 	return nil
 }

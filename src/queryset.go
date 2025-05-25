@@ -2154,13 +2154,6 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 			parentObj       = root
 
 			parentKey string
-
-			// validation to prevent querying nested multiple- relations
-			// this is to prevent undefined behavior when querying nested multiple- relations
-			// e.g. User (m2m)-> Group (m2m)-> Permissions
-			// this is because the current implementation is not entirely correct
-			// for nested multiple- relations
-			multiRelations int
 		)
 		for i, name := range info.Chain {
 			key := strings.Join(info.Chain[:i+1], ".")
@@ -2172,10 +2165,6 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 			}
 
 			var rel = field.Rel()
-			if rel.Type() == attrs.RelManyToMany || rel.Type() == attrs.RelOneToMany {
-				multiRelations++
-			}
-
 			if _, exists := instances[key]; !exists {
 				var obj attrs.Definer
 				if i == len(info.Chain)-1 {
@@ -2185,11 +2174,9 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 				}
 
 				// dont set m2m or o2m relations, this is done later
-				// if !(rel.Type() == attrs.RelManyToMany || rel.Type() == attrs.RelOneToMany) {
-				if err := field.SetValue(obj, true); err != nil {
-					panic(fmt.Errorf("failed to set relation %q: %w", field.Name(), err))
+				if !(rel.Type() == attrs.RelManyToMany || rel.Type() == attrs.RelOneToMany) {
+					setRelatedObjects(name, rel.Type(), parent, []attrs.Definer{obj})
 				}
-				// }
 
 				instances[key] = obj
 
@@ -2209,11 +2196,6 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 			parentScannable = parentFields[key]
 			parentObj = instances[key]
 			parentKey = key
-		}
-
-		// see the variable definition for more info.
-		if multiRelations > 1 && !DEBUGGING {
-			panic(fmt.Errorf("nested multiple- relations are not supported: ManyToMany, OneToMany (Reverse FK)"))
 		}
 
 		var final = parentObj

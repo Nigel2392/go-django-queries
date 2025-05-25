@@ -1084,34 +1084,6 @@ var manyToManyTests = []ManyToManyTest{
 			}
 		},
 	},
-}
-
-var manyToManyTestsNODEBUG = []ManyToManyTest{
-	{
-		Name: "TestPanicQueryNestedMultipleRelations",
-		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
-			defer func() {
-				if r := recover(); r == nil {
-					t.Fatalf("Expected panic, got nil")
-					return
-				}
-			}()
-
-			var objects, err = queries.Objects[*User](&User{}).
-				Select("*", "ModelManyToManySet.*", "ModelManyToManySet.User.*", "ModelManyToManySet.User.ModelManyToManySet.*").
-				Filter("ID__in", users[0].ID, users[1].ID).
-				OrderBy("ID").
-				All()
-			if err != nil {
-				t.Fatalf("Failed to get objects: %v", err)
-			}
-
-			_ = objects
-		},
-	},
-}
-
-var manyToManyTests_DEBUGMODE = []ManyToManyTest{
 	{
 		Name: "TestManyToMany_Forward_1",
 		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
@@ -1260,12 +1232,6 @@ var manyToManyTests_DEBUGMODE = []ManyToManyTest{
 }
 
 func TestManyToMany(t *testing.T) {
-
-	if queries.DEBUGGING {
-		manyToManyTests = append(manyToManyTests, manyToManyTests_DEBUGMODE...)
-	} else {
-		manyToManyTests = append(manyToManyTests, manyToManyTestsNODEBUG...)
-	}
 
 	// FORWARD
 	//	TestManyToMany1 -> [TestManyToMany_Target1, TestManyToMany_Target2, TestManyToMany_Target3]

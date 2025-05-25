@@ -342,9 +342,10 @@ func (t *OneToOneWithThrough_Target) FieldDefs() attrs.Definitions {
 
 type ModelManyToMany struct {
 	models.Model
-	ID    int64
-	Title string
-	User  *User
+	ID      int64
+	Title   string
+	User    *User
+	Targets []*ModelManyToMany_Target
 }
 
 // func (m *ModelManyToMany) String() string {
@@ -373,7 +374,7 @@ func (t *ModelManyToMany) FieldDefs() attrs.Definitions {
 		attrs.NewField(t, "Title", &attrs.FieldConfig{
 			Column: "title",
 		}),
-		fields.NewManyToManyField[attrs.Definer](t, t, "Target", "TargetReverse", "id", attrs.Relate(
+		fields.NewManyToManyField[*ModelManyToMany_Target](t, &t.Targets, "Target", "TargetReverse", "id", attrs.Relate(
 			&ModelManyToMany_Target{},
 			"", &attrs.ThroughModel{
 				This:   &ModelManyToMany_Through{},
@@ -2477,7 +2478,7 @@ func TestBulkCreate(t *testing.T) {
 		{Title: "BulkCreate3", Description: "Description BulkCreate", Done: false},
 	}
 
-	var dbTodos, err = queries.GetQuerySet[*Todo](&Todo{}).BulkCreate(todos)
+	var dbTodos, err = queries.GetQuerySet(&Todo{}).BulkCreate(todos)
 	if err != nil {
 		t.Fatalf("Failed to bulk create todos: %v", err)
 		return
@@ -2520,7 +2521,7 @@ func TestBulkCreate(t *testing.T) {
 }
 
 func TestBulkUpdate(t *testing.T) {
-	var todos, err = queries.GetQuerySet[*Todo](&Todo{}).BulkCreate([]*Todo{
+	var todos, err = queries.GetQuerySet(&Todo{}).BulkCreate([]*Todo{
 		{Title: "BulkUpdate1", Description: "Description BulkUpdate", Done: false},
 		{Title: "BulkUpdate2", Description: "Description BulkUpdate", Done: true},
 		{Title: "BulkUpdate3", Description: "Description BulkUpdate", Done: false},
@@ -2546,15 +2547,15 @@ func TestBulkUpdate(t *testing.T) {
 	t.Logf("Todos to update 3: %s, %+v", todos[2].FieldDefs().Get("Title"), todos[2])
 	t.Logf("Todos to update 4: %s, %+v", todos[3].FieldDefs().Get("Title"), todos[3])
 
-	_, err = queries.GetQuerySet[*Todo](&Todo{}).BulkUpdate(toUpdate)
+	_, err = queries.GetQuerySet(&Todo{}).BulkUpdate(toUpdate)
 
 	if err != nil {
 		t.Fatalf("Failed to bulk update todos: %v", err)
 		return
 	}
 
-	dbTodos, err := queries.GetQuerySet[*Todo](&Todo{}).Filter(
-		"ID__in", todos[0].ID, todos[1].ID, todos[2].ID, todos[3].ID,
+	dbTodos, err := queries.GetQuerySet(&Todo{}).Filter(
+		"ID__in", todos[0].ID, todos[1], todos[2:4],
 	).All()
 	if err != nil {
 		t.Fatalf("Failed to get todos: %v", err)

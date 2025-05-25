@@ -148,27 +148,28 @@ func (r *RelationField[T]) Rel() attrs.Relation {
 	}
 }
 
-type relation struct {
-	obj   attrs.Definer
-	saved bool
+type Relation struct {
+	Through attrs.Definer
+	Object  attrs.Definer
+	saved   bool
 }
 
 type MultipleRelation struct {
-	rel       *orderedmap.OrderedMap[any, *relation]
+	rel       *orderedmap.OrderedMap[any, *Relation]
 	removed   []any
 	needsSave bool
 }
 
 func (m *MultipleRelation) setup() {
 	if m.rel == nil {
-		m.rel = orderedmap.NewOrderedMap[any, *relation]()
+		m.rel = orderedmap.NewOrderedMap[any, *Relation]()
 	}
 	if m.removed == nil {
 		m.removed = make([]any, 0)
 	}
 }
 
-func (m *MultipleRelation) Set(objs []attrs.Definer) error {
+func (m *MultipleRelation) Set(objs []Relation) error {
 
 	if m.rel != nil {
 		for head := m.rel.Front(); head != nil; head = head.Next() {
@@ -176,19 +177,16 @@ func (m *MultipleRelation) Set(objs []attrs.Definer) error {
 		}
 	}
 
-	m.rel = orderedmap.NewOrderedMap[any, *relation]()
+	m.rel = orderedmap.NewOrderedMap[any, *Relation]()
 
 	for _, obj := range objs {
 		var (
-			defs    = obj.FieldDefs()
+			defs    = obj.Object.FieldDefs()
 			pkField = defs.Primary()
 			pkValue = pkField.GetValue()
 		)
 
-		m.rel.Set(pkValue, &relation{
-			obj:   obj,
-			saved: false,
-		})
+		m.rel.Set(pkValue, &obj)
 	}
 
 	m.needsSave = true
@@ -196,11 +194,11 @@ func (m *MultipleRelation) Set(objs []attrs.Definer) error {
 	return nil
 }
 
-func (m *MultipleRelation) Add(obj attrs.Definer) error {
+func (m *MultipleRelation) Add(obj Relation) error {
 	m.setup()
 
 	var (
-		defs    = obj.FieldDefs()
+		defs    = obj.Object.FieldDefs()
 		pkField = defs.Primary()
 		pkValue = pkField.GetValue()
 	)
@@ -209,28 +207,25 @@ func (m *MultipleRelation) Add(obj attrs.Definer) error {
 		return errors.Errorf("object with primary key %v already exists", pkValue)
 	}
 
-	m.rel.Set(pkValue, &relation{
-		obj:   obj,
-		saved: false,
-	})
+	m.rel.Set(pkValue, &obj)
 
 	m.needsSave = true
 
 	return nil
 }
 
-func (m *MultipleRelation) All() []attrs.Definer {
+func (m *MultipleRelation) All() []Relation {
 	m.setup()
 
-	var objs = make([]attrs.Definer, 0, m.rel.Len())
+	var objs = make([]Relation, 0, m.rel.Len())
 	for head := m.rel.Front(); head != nil; head = head.Next() {
-		objs = append(objs, head.Value.obj)
+		objs = append(objs, *head.Value)
 	}
 
 	return objs
 }
 
-func (m *MultipleRelation) Get(pkOrObj any) (attrs.Definer, bool) {
+func (m *MultipleRelation) Get(pkOrObj any) (Relation, bool) {
 	m.setup()
 
 	var pkValue any
@@ -245,10 +240,10 @@ func (m *MultipleRelation) Get(pkOrObj any) (attrs.Definer, bool) {
 	}
 
 	if rel, ok := m.rel.Get(pkValue); ok {
-		return rel.obj, true
+		return *rel, true
 	}
 
-	return nil, false
+	return Relation{}, false
 }
 
 func (m *MultipleRelation) Remove(obj attrs.Definer) error {
@@ -307,7 +302,7 @@ func NewMultipleRelatedField(forModel attrs.Definer, name string, reverseName st
 		switch v := dst.(type) {
 		case *MultipleRelation:
 			f.dst = v
-		case []attrs.Definer:
+		case []Relation:
 			f.dst = &MultipleRelation{}
 			f.dst.Set(v)
 		default:
@@ -326,9 +321,9 @@ func (f *MultipleRelationField) Objects() *MultipleRelation {
 
 func (f *MultipleRelationField) SetValue(value any, force bool) error {
 	switch v := value.(type) {
-	case []attrs.Definer:
+	case []Relation:
 		return f.dst.Set(v)
-	case attrs.Definer:
+	case Relation:
 		return f.dst.Add(v)
 	default:
 		return fmt.Errorf("invalid type %T for field %q", v, f.Name())

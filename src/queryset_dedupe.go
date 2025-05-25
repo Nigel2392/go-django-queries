@@ -135,35 +135,8 @@ func (r *rows[T]) compile() []*Row[T] {
 				relatedObjects = append(relatedObjects, relatedObj.obj)
 			}
 
-			switch rel.relTyp {
-			case attrs.RelOneToOne, attrs.RelManyToOne:
-				if len(relatedObjects) > 1 {
-					panic(fmt.Sprintf("expected at most one related object for %s, got %d", relName, len(relatedObjects)))
-				}
-				var relatedObject attrs.Definer
-				if len(relatedObjects) > 0 {
-					relatedObject = relatedObjects[0]
-				}
-				obj.fieldDefs.Set(relName, relatedObject)
-			case attrs.RelOneToMany, attrs.RelManyToMany:
-				var field, ok = obj.fieldDefs.Field(relName)
-				if !ok {
-					panic(fmt.Sprintf("relation %s not found in field defs of %T", relName, obj.obj))
-				}
-
-				if !ForSelectAll(field) {
-					obj.obj.(DataModel).ModelDataStore().SetValue(relName, relatedObjects)
-					continue
-				}
-
-				var typ = field.Type()
-				switch typ.Kind() {
-				case reflect.Slice:
-					// If the field is a slice, we can set the related objects directly
-					obj.fieldDefs.Set(relName, relatedObjects)
-				default:
-					panic(fmt.Sprintf("expected field %s to be a slice, got %s", relName, typ))
-				}
+			if len(relatedObjects) > 0 {
+				setRelatedObjects(relName, rel.relTyp, obj.obj, relatedObjects)
 			}
 		}
 	}
@@ -188,6 +161,47 @@ func (r *rows[T]) compile() []*Row[T] {
 		})
 	}
 	return root
+}
+
+func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Definer, relatedObjects []attrs.Definer) {
+
+	var (
+		fieldDefs = obj.FieldDefs()
+	)
+
+	switch relTyp {
+	case attrs.RelOneToOne, attrs.RelManyToOne:
+		if len(relatedObjects) > 1 {
+			panic(fmt.Sprintf("expected at most one related object for %s, got %d", relName, len(relatedObjects)))
+		}
+		var relatedObject attrs.Definer
+		if len(relatedObjects) > 0 {
+			relatedObject = relatedObjects[0]
+		}
+		fieldDefs.Set(relName, relatedObject)
+	case attrs.RelOneToMany, attrs.RelManyToMany:
+		var field, ok = fieldDefs.Field(relName)
+		if !ok {
+			panic(fmt.Sprintf("relation %s not found in field defs of %T", relName, obj))
+		}
+
+		if dm, ok := obj.(DataModel); ok {
+			dm.ModelDataStore().SetValue(relName, relatedObjects)
+		}
+
+		var typ = field.Type()
+		switch {
+		case typ.Kind() == reflect.Slice:
+			// If the field is a slice, we can set the related objects directly
+			var slice = reflect.MakeSlice(typ, len(relatedObjects), len(relatedObjects))
+			for i, relatedObj := range relatedObjects {
+				slice.Index(i).Set(reflect.ValueOf(relatedObj))
+			}
+			fieldDefs.Set(relName, slice.Interface())
+		default:
+			panic(fmt.Sprintf("expected field %s to be a slice, got %s", relName, typ))
+		}
+	}
 }
 
 type chainPart struct {

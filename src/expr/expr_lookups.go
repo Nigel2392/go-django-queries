@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
+	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
 func init() {
@@ -74,11 +75,32 @@ func init() {
 		if len(value) == 0 {
 			return "", value, fmt.Errorf("no values provided for IN lookup")
 		}
-		var placeholders = make([]string, len(value))
-		for i := range value {
+
+		var inList = make([]any, 0, len(value))
+		for _, v := range value {
+			var rV = reflect.ValueOf(v)
+			if !rV.IsValid() {
+				inList = append(inList, nil)
+				continue
+			}
+
+			if rV.Kind() == reflect.Slice || rV.Kind() == reflect.Array {
+				for i := 0; i < rV.Len(); i++ {
+					var elem = rV.Index(i).Interface()
+					inList = append(inList, normalizeDefinerArg(elem))
+				}
+				continue
+			}
+
+			inList = append(inList, normalizeDefinerArg(v))
+		}
+
+		var placeholders = make([]string, len(inList))
+		for i := range inList {
 			placeholders[i] = "?"
 		}
-		return fmt.Sprintf("%s IN (%s)", field, strings.Join(placeholders, ",")), value, nil
+
+		return fmt.Sprintf("%s IN (%s)", field, strings.Join(placeholders, ",")), inList, nil
 	})
 	RegisterLookup("isnull", func(field string, value []any) (string, []any, error) {
 		if len(value) != 1 {
@@ -150,6 +172,15 @@ func init() {
 	RegisterFunc("NOW", func(c any, value []any) (sql string, args []any, err error) {
 		return "NOW()", value, nil
 	})
+}
+
+func normalizeDefinerArg(v any) any {
+	if definer, ok := v.(attrs.Definer); ok {
+		var fieldDefs = definer.FieldDefs()
+		var pk = fieldDefs.Primary()
+		return pk.GetValue()
+	}
+	return v
 }
 
 type _lookups[T1 any] struct {

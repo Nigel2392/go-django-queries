@@ -184,6 +184,9 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 			var results = make([][]interface{}, 0, 8)
 			var amountCols = 0
 			for _, info := range fields {
+				if info.Through != nil {
+					amountCols += len(info.Through.Fields)
+				}
 				amountCols += len(info.Fields)
 			}
 
@@ -573,7 +576,7 @@ func (g *genericQueryBuilder) writeTableName(sb *strings.Builder) {
 func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) {
 	for _, join := range joins {
 		sb.WriteString(" ")
-		sb.WriteString(join.TypeJoin)
+		sb.WriteString(string(join.TypeJoin))
 		sb.WriteString(" ")
 		sb.WriteString(g.quote)
 		sb.WriteString(join.Table.Name)
@@ -589,7 +592,7 @@ func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) {
 		sb.WriteString(" ON ")
 		sb.WriteString(join.ConditionA)
 		sb.WriteString(" ")
-		sb.WriteString(join.Logic)
+		sb.WriteString(string(join.Operator))
 		sb.WriteString(" ")
 		sb.WriteString(join.ConditionB)
 	}

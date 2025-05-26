@@ -83,7 +83,15 @@ func ForSelectAll(f attrs.Field) bool {
 
 type Relation interface {
 	Model() attrs.Definer
-	Through() attrs.Through
+	Through() attrs.Definer
+}
+
+type SettableThroughRelation interface {
+	SetValue(instance attrs.Definer, through attrs.Definer)
+}
+
+type SettableMultiThroughRelation interface {
+	SetValues(instances []Relation)
 }
 
 // Annotations from the database are stored in the `Row` struct, and if the

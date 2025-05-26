@@ -14,6 +14,9 @@ type objectRelation struct {
 }
 
 type object struct {
+	// through is a possible through model for the relation
+	through attrs.Definer
+
 	// the primary key of the object
 	pk any
 
@@ -92,12 +95,21 @@ func (r *rows[T]) addRelationChain(chain []chainPart) {
 
 		child, ok := next.objects.Get(part.pk)
 		if !ok {
+
+			var through attrs.Definer
+			if part.through != nil {
+				// If there is a through object, we need to set it
+				through = part.through
+			}
+
 			child = &object{
 				pk:        part.pk,
 				fieldDefs: part.object.FieldDefs(),
 				obj:       part.object,
 				relations: make(map[string]*objectRelation),
+				through:   through,
 			}
+
 			next.objects.Set(part.pk, child)
 		}
 
@@ -123,7 +135,7 @@ func (r *rows[T]) compile() []*Row[T] {
 				continue
 			}
 
-			var relatedObjects = make([]attrs.Definer, 0, rel.objects.Len())
+			var relatedObjects = make([]Relation, 0, rel.objects.Len())
 			for relHead := rel.objects.Front(); relHead != nil; relHead = relHead.Next() {
 				var relatedObj = relHead.Value
 				if relatedObj == nil {
@@ -132,7 +144,16 @@ func (r *rows[T]) compile() []*Row[T] {
 
 				addRelations(relatedObj)
 
-				relatedObjects = append(relatedObjects, relatedObj.obj)
+				var throughObj attrs.Definer
+				if relatedObj.through != nil {
+					// If there is a through object, we need to add it to the related objects
+					throughObj = relatedObj.through
+				}
+
+				relatedObjects = append(relatedObjects, &baseRelation{
+					object:  relatedObj.obj,
+					through: throughObj,
+				})
 			}
 
 			if len(relatedObjects) > 0 {
@@ -163,30 +184,68 @@ func (r *rows[T]) compile() []*Row[T] {
 	return root
 }
 
-func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Definer, relatedObjects []attrs.Definer) {
+func newSettableRelation[T any](typ reflect.Type) T {
+	var setterTyp = typ
+	if setterTyp.Kind() == reflect.Ptr {
+		setterTyp = setterTyp.Elem()
+	}
+
+	if setterTyp.Kind() == reflect.Slice {
+		var n = reflect.MakeSlice(setterTyp, 0, 0)
+		var sliceVal = n.Interface()
+		if n.Type().Implements(reflect.TypeOf((*T)(nil)).Elem()) {
+			return sliceVal.(T)
+		}
+		return n.Addr().Interface().(T)
+	}
+
+	var newVal = reflect.New(setterTyp)
+	if newVal.Type().Implements(reflect.TypeOf((*T)(nil)).Elem()) {
+		return newVal.Interface().(T)
+	}
+
+	return newVal.Addr().Interface().(T)
+}
+
+func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Definer, relatedObjects []Relation) {
 
 	var (
 		fieldDefs = obj.FieldDefs()
 	)
 
+	var field, ok = fieldDefs.Field(relName)
+	if !ok {
+		panic(fmt.Sprintf("relation %s not found in field defs of %T", relName, obj))
+	}
+
 	switch relTyp {
-	case attrs.RelOneToOne, attrs.RelManyToOne:
+
+	case attrs.RelManyToOne:
+		// handle foreign keys
+		//
+		// no through model is expected
 		if len(relatedObjects) > 1 {
 			panic(fmt.Sprintf("expected at most one related object for %s, got %d", relName, len(relatedObjects)))
 		}
+
 		var relatedObject attrs.Definer
 		if len(relatedObjects) > 0 {
-			relatedObject = relatedObjects[0]
+			relatedObject = relatedObjects[0].Model()
 		}
-		fieldDefs.Set(relName, relatedObject)
-	case attrs.RelOneToMany, attrs.RelManyToMany:
-		var field, ok = fieldDefs.Field(relName)
-		if !ok {
-			panic(fmt.Sprintf("relation %s not found in field defs of %T", relName, obj))
+
+		field.SetValue(relatedObject, true)
+
+	case attrs.RelOneToMany:
+		// handle reverse foreign keys
+		//
+		// a through model is not expected
+		var related = make([]attrs.Definer, len(relatedObjects))
+		for i, relatedObj := range relatedObjects {
+			related[i] = relatedObj.Model()
 		}
 
 		if dm, ok := obj.(DataModel); ok {
-			dm.ModelDataStore().SetValue(relName, relatedObjects)
+			dm.ModelDataStore().SetValue(relName, related)
 		}
 
 		var typ = field.Type()
@@ -195,9 +254,89 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 			// If the field is a slice, we can set the related objects directly
 			var slice = reflect.MakeSlice(typ, len(relatedObjects), len(relatedObjects))
 			for i, relatedObj := range relatedObjects {
+				slice.Index(i).Set(reflect.ValueOf(relatedObj.Model()))
+			}
+			field.SetValue(slice.Interface(), true)
+
+		default:
+			panic(fmt.Sprintf("expected field %s to be a slice, got %s", relName, typ))
+		}
+
+	case attrs.RelOneToOne:
+		// handle one-to-one relations
+		//
+		// a through model COULD BE expected, but it is not required
+		if len(relatedObjects) > 1 {
+			panic(fmt.Sprintf("expected at most one related object for %s, got %d", relName, len(relatedObjects)))
+		}
+
+		var relatedObject Relation
+		if len(relatedObjects) > 0 {
+			relatedObject = relatedObjects[0]
+		}
+
+		switch {
+		case field.Type().Implements(reflect.TypeOf((*SettableThroughRelation)(nil)).Elem()):
+			// If the field is a SettableThroughRelation, we can set the related object directly
+			var value = field.GetValue()
+			if value == nil {
+				value = newSettableRelation[SettableThroughRelation](field.Type())
+				field.SetValue(value, true)
+			}
+			var rel = value.(SettableThroughRelation)
+			rel.SetValue(relatedObject.Model(), relatedObject.Through())
+
+		case field.Type().Implements(reflect.TypeOf((*Relation)(nil)).Elem()):
+			// If the field is a Relation, we can set the related object directly
+			field.SetValue(relatedObject, true)
+
+		case field.Type().Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
+			// If the field is a Definer, we can set the related object directly
+			field.SetValue(relatedObject.Model(), true)
+
+		default:
+			panic(fmt.Sprintf("expected field %s to be a Relation or Definer, got %s", relName, field.Type()))
+
+		}
+
+	case attrs.RelManyToMany:
+		// handle many-to-many relations
+		//
+		// a through model is expected
+		if dm, ok := obj.(DataModel); ok {
+			dm.ModelDataStore().SetValue(relName, relatedObjects)
+		}
+
+		var typ = field.Type()
+		switch {
+		case typ.Implements(reflect.TypeOf((*SettableMultiThroughRelation)(nil)).Elem()):
+			// If the field is a SettableMultiRelation, we can set the related objects directly
+			var value = field.GetValue()
+			if value == nil {
+				value = newSettableRelation[SettableMultiThroughRelation](typ)
+				field.SetValue(value, true)
+			}
+			var rel = value.(SettableMultiThroughRelation)
+			// Set the related objects
+			rel.SetValues(relatedObjects)
+
+		case typ.Kind() == reflect.Slice && typ.Elem().Implements(reflect.TypeOf((*Relation)(nil)).Elem()):
+			// If the field is a slice, we can set the related objects directly
+			var slice = reflect.MakeSlice(typ, len(relatedObjects), len(relatedObjects))
+			for i, relatedObj := range relatedObjects {
 				slice.Index(i).Set(reflect.ValueOf(relatedObj))
 			}
 			fieldDefs.Set(relName, slice.Interface())
+
+		case typ.Kind() == reflect.Slice && typ.Elem().Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
+			// If the field is a slice of Definer, we can set the related objects directly
+			var slice = reflect.MakeSlice(typ, len(relatedObjects), len(relatedObjects))
+			for i, relatedObj := range relatedObjects {
+				var relatedDefiner = relatedObj.Model()
+				slice.Index(i).Set(reflect.ValueOf(relatedDefiner))
+			}
+			fieldDefs.Set(relName, slice.Interface())
+
 		default:
 			panic(fmt.Sprintf("expected field %s to be a slice, got %s", relName, typ))
 		}
@@ -205,10 +344,11 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 }
 
 type chainPart struct {
-	relTyp attrs.RelationType // The relation type of the field, if any
-	chain  string
-	pk     any
-	object attrs.Definer
+	relTyp  attrs.RelationType // The relation type of the field, if any
+	chain   string
+	pk      any
+	object  attrs.Definer
+	through attrs.Definer
 }
 
 func buildChainParts(actualField *scannableField) []chainPart {
@@ -221,11 +361,17 @@ func buildChainParts(actualField *scannableField) []chainPart {
 			primary = defs.Primary()
 		)
 
+		var through attrs.Definer
+		if cur.through != nil {
+			through = cur.through.object
+		}
+
 		stack = append(stack, chainPart{
-			relTyp: cur.relType,
-			chain:  cur.chainPart,
-			pk:     primary.GetValue(),
-			object: inst,
+			relTyp:  cur.relType,
+			chain:   cur.chainPart,
+			pk:      primary.GetValue(),
+			object:  inst,
+			through: through,
 		})
 	}
 

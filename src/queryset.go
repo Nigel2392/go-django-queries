@@ -38,11 +38,31 @@ type Table struct {
 
 type JoinDef struct {
 	Table      Table
-	TypeJoin   string
+	TypeJoin   JoinType
 	ConditionA string
-	Logic      string
+	Operator   LogicalOp
 	ConditionB string
 }
+
+type (
+	JoinType  string
+	LogicalOp string
+)
+
+const (
+	TypeJoinLeft  JoinType = "LEFT JOIN"
+	TypeJoinRight JoinType = "RIGHT JOIN"
+	TypeJoinInner JoinType = "INNER JOIN"
+	TypeJoinFull  JoinType = "FULL JOIN"
+	TypeJoinCross JoinType = "CROSS JOIN"
+
+	LogicalOpEQ  LogicalOp = "="
+	LogicalOpNE  LogicalOp = "!="
+	LogicalOpGT  LogicalOp = ">"
+	LogicalOpLT  LogicalOp = "<"
+	LogicalOpGTE LogicalOp = ">="
+	LogicalOpLTE LogicalOp = "<="
+)
 
 type FieldInfo struct {
 	SourceField attrs.Field
@@ -51,6 +71,7 @@ type FieldInfo struct {
 	Table       Table
 	Chain       []string
 	Fields      []attrs.Field
+	Through     *FieldInfo
 }
 
 type OrderBy struct {
@@ -63,6 +84,26 @@ type OrderBy struct {
 func (f *FieldInfo) WriteFields(sb *strings.Builder, inf *expr.ExpressionInfo) []any {
 	var args = make([]any, 0, len(f.Fields))
 	var written bool
+
+	// If the field has a through relation, write the fields of the through relation first
+	//
+	// This logic matches in [getScannableFields]
+	if f.Through != nil {
+		for _, field := range f.Through.Fields {
+			if written {
+				sb.WriteString(", ")
+			}
+
+			var a, _, ok = f.Through.WriteField(sb, inf, field, false)
+			written = ok || written
+			if !ok {
+				continue
+			}
+
+			args = append(args, a...)
+		}
+	}
+
 	for _, field := range f.Fields {
 		if written {
 			sb.WriteString(", ")
@@ -83,6 +124,26 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, inf *expr.ExpressionInfo) [
 func (f *FieldInfo) WriteUpdateFields(sb *strings.Builder, inf *expr.ExpressionInfo) []any {
 	var args = make([]any, 0, len(f.Fields))
 	var written bool
+
+	// If the field has a through relation, write the fields of the through relation first
+	//
+	// This logic matches in [getScannableFields]
+	if f.Through != nil {
+		for _, field := range f.Through.Fields {
+			if written {
+				sb.WriteString(", ")
+			}
+
+			var a, _, ok = f.Through.WriteField(sb, inf, field, true)
+			written = ok || written
+			if !ok {
+				continue
+			}
+
+			args = append(args, a...)
+		}
+	}
+
 	for _, field := range f.Fields {
 		if written {
 			sb.WriteString(", ")
@@ -542,7 +603,7 @@ func (qs *QuerySet[T]) GoString() string {
 		sb.WriteString("\n\tjoins: [")
 		for _, join := range qs.internals.Joins {
 			sb.WriteString("\n\t\t")
-			sb.WriteString(join.TypeJoin)
+			sb.WriteString(string(join.TypeJoin))
 			sb.WriteString(" ")
 			if join.Table.Alias == "" {
 				sb.WriteString(join.Table.Name)
@@ -552,7 +613,7 @@ func (qs *QuerySet[T]) GoString() string {
 			sb.WriteString(" ON ")
 			sb.WriteString(join.ConditionA)
 			sb.WriteString(" ")
-			sb.WriteString(join.Logic)
+			sb.WriteString(string(join.Operator))
 			sb.WriteString(" ")
 			sb.WriteString(join.ConditionB)
 		}
@@ -747,13 +808,13 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 
 	joinM[key] = true
 	var join = JoinDef{
-		TypeJoin: "LEFT JOIN",
+		TypeJoin: TypeJoinLeft,
 		Table: Table{
 			Name:  targetTable,
 			Alias: aliases[len(aliases)-1],
 		},
 		ConditionA: condA,
-		Logic:      "=",
+		Operator:   LogicalOpEQ,
 		ConditionB: condB,
 	}
 
@@ -797,7 +858,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 
 	// JOIN through table
 	join1 := JoinDef{
-		TypeJoin: "LEFT JOIN",
+		TypeJoin: TypeJoinLeft,
 		Table: Table{
 			Name:  throughTable,
 			Alias: aliasThrough,
@@ -807,7 +868,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 			front, parentAlias, back,
 			front, parentField.ColumnName(), back,
 		),
-		Logic: "=",
+		Operator: LogicalOpEQ,
 		ConditionB: fmt.Sprintf(
 			"%s%s%s.%s%s%s",
 			front, aliasThrough, back,
@@ -817,7 +878,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 
 	// JOIN target table
 	join2 := JoinDef{
-		TypeJoin: "LEFT JOIN",
+		TypeJoin: TypeJoinLeft,
 		Table: Table{
 			Name:  targetTable,
 			Alias: alias,
@@ -827,7 +888,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 			front, aliasThrough, back,
 			front, targetField.ColumnName(), back,
 		),
-		Logic: "=",
+		Operator: LogicalOpEQ,
 		ConditionB: fmt.Sprintf(
 			"%s%s%s.%s%s%s",
 			front, alias, back,
@@ -866,6 +927,16 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 		},
 		Fields: includedFields,
 		Chain:  chain,
+		Through: &FieldInfo{
+			RelType:     manyToMany.Type(),
+			SourceField: field,
+			Model:       throughModel,
+			Table: Table{
+				Name:  throughTable,
+				Alias: aliasThrough,
+			},
+			Fields: throughDefs.Fields(),
+		},
 	}}, joins
 
 }
@@ -1344,7 +1415,13 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 
 	var rootScannable *scannableField
 	for _, scannable := range scannables {
-		if (scannable.relType == attrs.RelManyToMany || scannable.relType == attrs.RelOneToMany) && scannable.field.IsPrimary() {
+		// check if field is a multi-valued relation
+		if (scannable.relType == attrs.RelManyToMany ||
+			scannable.relType == attrs.RelOneToMany ||
+			scannable.relType == attrs.RelOneToOne) &&
+			// check if primary and not through object
+			scannable.field.IsPrimary() &&
+			!scannable.isThrough {
 			possibleDuplicates = append(possibleDuplicates, scannable)
 		}
 
@@ -2094,8 +2171,10 @@ type scannableField struct {
 	field     attrs.Field
 	srcField  *scannableField
 	relType   attrs.RelationType
-	chainPart string // name of the field in the chain
-	chainKey  string // the chain up to this point, joined by "."
+	isThrough bool            // is this a through model field (many-to-many or one-to-one)
+	through   *scannableField // the through field if this is a many-to-many or one-to-one relation
+	chainPart string          // name of the field in the chain
+	chainKey  string          // the chain up to this point, joined by "."
 }
 
 func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableField {
@@ -2165,6 +2244,7 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 			}
 
 			var rel = field.Rel()
+			var relType = rel.Type()
 			if _, exists := instances[key]; !exists {
 				var obj attrs.Definer
 				if i == len(info.Chain)-1 {
@@ -2173,16 +2253,17 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 					obj = internal.NewObjectFromIface(rel.Model())
 				}
 
-				// dont set m2m or o2m relations, this is done later
-				if !(rel.Type() == attrs.RelManyToMany || rel.Type() == attrs.RelOneToMany) {
-					setRelatedObjects(name, rel.Type(), parent, []attrs.Definer{obj})
+				// only set fk relations - the rest are added later
+				// in the dedupe rows object.
+				if relType == attrs.RelManyToOne {
+					setRelatedObjects(name, relType, parent, []Relation{&baseRelation{object: obj}})
 				}
 
 				instances[key] = obj
 
 				// Make the scannableField node for this relation link to its parent
 				newParent := &scannableField{
-					relType:   rel.Type(),
+					relType:   relType,
 					chainPart: name,
 					chainKey:  key,
 					object:    obj,
@@ -2198,6 +2279,38 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 			parentKey = key
 		}
 
+		// handle through objects
+		//
+		// this has to be before the final fields are added - the logic
+		// matches that in [FieldInfo.WriteFields].
+		var throughPrimary *scannableField
+		if info.Through != nil {
+			var newObj = internal.NewObjectFromIface(info.Through.Model)
+			var newDefs = newObj.FieldDefs()
+			for _, f := range info.Through.Fields {
+				var field, ok = newDefs.Field(f.Name())
+				if !ok {
+					panic(fmt.Errorf("field %q not found in %T", f.Name(), newObj))
+				}
+
+				var throughField = &scannableField{
+					isThrough: true,
+					idx:       idx,
+					object:    newObj,
+					field:     field,
+					relType:   info.Through.RelType,
+				}
+
+				if field.IsPrimary() {
+					throughPrimary = throughField
+				}
+
+				scannables = append(scannables, throughField)
+
+				idx++
+			}
+		}
+
 		var final = parentObj
 		var finalDefs = final.FieldDefs()
 		for _, f := range info.Fields {
@@ -2210,6 +2323,7 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 			cpy.idx = idx
 			cpy.object = final
 			cpy.field = field
+			cpy.through = throughPrimary
 			scannables = append(scannables, &cpy)
 
 			idx++

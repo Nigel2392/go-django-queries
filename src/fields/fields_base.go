@@ -135,10 +135,6 @@ func (e *DataModelField[T]) Type() reflect.Type {
 		panic("resultType is nil")
 	}
 
-	if e.resultType.Kind() == reflect.Ptr {
-		return e.resultType.Elem()
-	}
-
 	return e.resultType
 }
 

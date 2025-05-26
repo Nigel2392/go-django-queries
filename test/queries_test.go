@@ -266,7 +266,7 @@ type OneToOneWithThrough struct {
 	models.Model
 	ID      int64
 	Title   string
-	Through *OneToOneWithThrough_Target
+	Through *queries.ThroughRelation[*OneToOneWithThrough_Target, *OneToOneWithThrough_Through]
 	User    *User
 }
 
@@ -279,7 +279,7 @@ func (t *OneToOneWithThrough) FieldDefs() attrs.Definitions {
 		attrs.NewField(t, "Title", &attrs.FieldConfig{
 			Column: "title",
 		}),
-		fields.NewOneToOneField[*OneToOneWithThrough_Target](t, &t.Through, "Target", "TargetReverse", "id", attrs.Relate(
+		fields.NewOneToOneField[*queries.ThroughRelation[*OneToOneWithThrough_Target, *OneToOneWithThrough_Through]](t, &t.Through, "Target", "TargetReverse", "id", attrs.Relate(
 			&OneToOneWithThrough_Target{},
 			"", &attrs.ThroughModel{
 				This:   &OneToOneWithThrough_Through{},

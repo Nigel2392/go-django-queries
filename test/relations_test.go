@@ -500,11 +500,11 @@ func TestOneToOneWithThrough(t *testing.T) {
 		t.Errorf("expected title %q, got %q", main.Title, obj.Title)
 	}
 
-	if obj.Through == nil {
+	if obj.Through.Object == nil {
 		t.Fatalf("expected Through field not nil")
 	}
 
-	var targetVal = obj.Through
+	var targetVal = obj.Through.Object
 	if targetVal.ID != target.ID {
 		t.Errorf("expected target ID %d, got %d", target.ID, targetVal.ID)
 	}
@@ -514,6 +514,9 @@ func TestOneToOneWithThrough(t *testing.T) {
 	if targetVal.Age != target.Age {
 		t.Errorf("expected target Age %d, got %d", target.Age, targetVal.Age)
 	}
+
+	t.Logf("OneToOneWithThrough test passed (object): %+v", obj.Through.Object)
+	t.Logf("OneToOneWithThrough test passed (through): %+v", obj.Through.ThroughObject)
 }
 
 func TestOneToOneWithThroughReverse(t *testing.T) {
@@ -559,11 +562,12 @@ func TestOneToOneWithThroughReverse(t *testing.T) {
 		t.Fatalf("expected reverse field, got nil")
 	}
 
-	source := reverseVal.GetValue().(*OneToOneWithThrough)
-	if source == nil {
+	sourceRel := reverseVal.GetValue().(queries.Relation)
+	if sourceRel == nil {
 		t.Fatalf("expected source, got nil")
 	}
 
+	source := sourceRel.Model().(*OneToOneWithThrough)
 	if source.ID != main.ID {
 		t.Errorf("expected reverse ID %d, got %d", main.ID, source.ID)
 	}
@@ -623,11 +627,12 @@ func TestOneToOneWithThroughReverseIntoForward(t *testing.T) {
 		t.Fatalf("expected reverse field, got nil")
 	}
 
-	source := reverseVal.GetValue().(*OneToOneWithThrough)
-	if source == nil {
+	sourceRel := reverseVal.GetValue().(queries.Relation)
+	if sourceRel == nil {
 		t.Fatalf("expected source, got nil")
 	}
 
+	source := sourceRel.Model().(*OneToOneWithThrough)
 	if source.ID != main.ID {
 		t.Errorf("expected reverse ID %d, got %d", main.ID, source.ID)
 	}
@@ -687,13 +692,14 @@ func TestOneToOneWithThroughNested(t *testing.T) {
 	if !ok || reverse == nil {
 		t.Fatalf("expected Reverse relation")
 	}
-	mainObj := reverse.GetValue().(*OneToOneWithThrough)
-	if mainObj == nil {
+	mainObjRel := reverse.GetValue().(queries.Relation)
+	if mainObjRel == nil {
 		t.Fatalf("expected main from reverse")
 	}
 
+	mainObj := mainObjRel.Model().(*OneToOneWithThrough)
 	relatedTarget := mainObj.Through
-	if relatedTarget == nil || relatedTarget.ID != target.ID {
+	if relatedTarget.Object == nil || relatedTarget.Object.ID != target.ID {
 		t.Errorf("expected reloaded target ID %d, got %v", target.ID, relatedTarget)
 	}
 }
@@ -743,30 +749,32 @@ func TestOneToOneWithThroughDoubleNested(t *testing.T) {
 	if !ok || reverse == nil {
 		t.Fatalf("expected Reverse relation")
 	}
-	mainObj := reverse.GetValue().(*OneToOneWithThrough)
-	if mainObj == nil {
+	mainObjRel, ok := reverse.GetValue().(queries.Relation)
+	if mainObjRel == nil || !ok {
 		t.Fatalf("expected main from reverse")
 	}
 
+	mainObj := mainObjRel.Model().(*OneToOneWithThrough)
 	relatedTarget := mainObj.Through
-	if relatedTarget == nil || relatedTarget.ID != target.ID {
+	if relatedTarget.Object == nil || relatedTarget.Object.ID != target.ID {
 		t.Errorf("expected reloaded target ID %d, got %v", target.ID, relatedTarget)
 	}
 
-	relatedReverse, ok := relatedTarget.RelatedField("TargetReverse")
+	relatedReverse, ok := relatedTarget.Object.RelatedField("TargetReverse")
 	if !ok || relatedReverse == nil {
 		t.Fatalf("expected Reverse relation")
 		return
 	}
 
-	relatedMain := relatedReverse.GetValue().(*OneToOneWithThrough)
-	if relatedMain == nil {
+	relatedMainRel := relatedReverse.GetValue().(queries.Relation)
+	if relatedMainRel == nil {
 		t.Fatalf("expected main from reverse")
 		return
 	}
 
+	relatedMain := relatedMainRel.Model().(*OneToOneWithThrough)
 	relatedRelatedTarget := relatedMain.Through
-	if relatedRelatedTarget == nil || relatedRelatedTarget.ID != target.ID {
+	if relatedRelatedTarget.Object == nil || relatedRelatedTarget.Object.ID != target.ID {
 		t.Errorf("expected reloaded target ID %d, got %v", target.ID, relatedRelatedTarget)
 		return
 	}
@@ -1013,7 +1021,7 @@ var manyToManyTests = []ManyToManyTest{
 	{
 		Name: "TestManyToMany_Forward",
 		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
-			var rows, err = queries.Objects[*ModelManyToMany](&ModelManyToMany{}).
+			var rows, err = queries.Objects(&ModelManyToMany{}).
 				Select("*", "Target.*").
 				Filter("ID__in", m2m_sources[0].ID, m2m_sources[1].ID, m2m_sources[2].ID).
 				OrderBy("ID", "Target").
@@ -1066,9 +1074,9 @@ var manyToManyTests = []ManyToManyTest{
 			t.Logf("________________________________________________________")
 
 			var (
-				t1Set = target1.([]attrs.Definer)
-				t2Set = target2.([]attrs.Definer)
-				t3Set = target3.([]attrs.Definer)
+				t1Set = target1.([]queries.Relation)
+				t2Set = target2.([]queries.Relation)
+				t3Set = target3.([]queries.Relation)
 			)
 
 			if len(t1Set) != 3 {
@@ -1140,9 +1148,9 @@ var manyToManyTests = []ManyToManyTest{
 			t.Logf("________________________________________________________")
 
 			var (
-				t1Set, ok1 = target1.([]attrs.Definer)
-				t2Set, ok2 = target2.([]attrs.Definer)
-				t3Set, ok3 = target3.([]attrs.Definer)
+				t1Set, ok1 = target1.([]queries.Relation)
+				t2Set, ok2 = target2.([]queries.Relation)
+				t3Set, ok3 = target3.([]queries.Relation)
 			)
 
 			if !ok1 || !ok2 || !ok3 {
@@ -1161,9 +1169,9 @@ var manyToManyTests = []ManyToManyTest{
 				t.Fatalf("Expected 3 items in target3, got %d", len(t3Set))
 			}
 
-			var checkRow = func(t *testing.T, row *queries.Row[*ModelManyToMany], actual []attrs.Definer, expected []*ModelManyToMany_Target, expectedReverse map[int64][]*ModelManyToMany) {
+			var checkRow = func(t *testing.T, row *queries.Row[*ModelManyToMany], actual []queries.Relation, expected []*ModelManyToMany_Target, expectedReverse map[int64][]*ModelManyToMany) {
 				for i, item := range actual {
-					target := item.(*ModelManyToMany_Target)
+					target := item.Model().(*ModelManyToMany_Target)
 
 					if target.ID != expected[i].ID {
 						t.Fatalf("Expected target[%d].ID to be %d, got %d", i, expected[i].ID, target.ID)
@@ -1178,7 +1186,7 @@ var manyToManyTests = []ManyToManyTest{
 						t.Fatalf("Expected Target.TargetReverse to be set: %+v\n\t%s", target.Model, row.QuerySet.LatestQuery().SQL())
 					}
 
-					revList, ok := rev.([]attrs.Definer)
+					revList, ok := rev.([]queries.Relation)
 					if !ok {
 						t.Fatalf("Expected Target.TargetReverse to be a list: %+v\n\t%s", target.Model, row.QuerySet.LatestQuery().SQL())
 					}
@@ -1198,7 +1206,12 @@ var manyToManyTests = []ManyToManyTest{
 					}
 
 					for j, revItem := range revList {
-						revTarget := revItem.(*ModelManyToMany)
+						revThrough := revItem.Through().(*ModelManyToMany_Through)
+						revTarget := revItem.Model().(*ModelManyToMany)
+
+						if revThrough.SourceModel.ID != revTarget.ID {
+							t.Fatalf("Expected revThrough.SourceModel.ID to be %d, got %d", row.Object.ID, revThrough.SourceModel.ID)
+						}
 
 						if revTarget.ID != expectedRev[j].ID {
 							t.Fatalf("Expected revTarget[%d].ID to be %d, got %d", j, expectedRev[j].ID, revTarget.ID)

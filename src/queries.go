@@ -229,7 +229,7 @@ type CompiledExistsQuery CompiledQuery[bool]
 type CompiledValuesListQuery CompiledQuery[[][]any]
 
 type UpdateInfo struct {
-	Field  FieldInfo
+	FieldInfo
 	Where  []expr.LogicalExpression
 	Joins  []JoinDef
 	Values []any
@@ -284,7 +284,7 @@ type QueryCompiler interface {
 	BuildSelectQuery(
 		ctx context.Context,
 		qs *QuerySet[attrs.Definer],
-		fields []FieldInfo,
+		fields []*FieldInfo,
 		where []expr.LogicalExpression,
 		having []expr.LogicalExpression,
 		joins []JoinDef,
@@ -312,7 +312,7 @@ type QueryCompiler interface {
 		ctx context.Context,
 		qs *QuerySet[attrs.Definer],
 		primary attrs.Field,
-		objects []FieldInfo,
+		objects []*FieldInfo,
 		values []any,
 	) CompiledQuery[[][]interface{}]
 

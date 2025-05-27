@@ -112,7 +112,7 @@ func (g *genericQueryBuilder) SupportsReturning() SupportsReturning {
 func (g *genericQueryBuilder) BuildSelectQuery(
 	ctx context.Context,
 	qs *GenericQuerySet,
-	fields []FieldInfo,
+	fields []*FieldInfo,
 	where []expr.LogicalExpression,
 	having []expr.LogicalExpression,
 	joins []JoinDef,
@@ -260,7 +260,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 	ctx context.Context,
 	qs *GenericQuerySet,
 	primary attrs.Field,
-	objects []FieldInfo,
+	objects []*FieldInfo,
 	values []any, // flattened list of values
 	// e.g. for 2 rows of 3 fields: [[1, 2, 4], [2, 3, 5]] -> [1, 2, 4, 2, 3, 5]
 ) CompiledQuery[[][]interface{}] {
@@ -483,12 +483,12 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 
 		var fieldWritten bool
 		var valuesIdx int
-		for _, f := range info.Field.Fields {
+		for _, f := range info.Fields {
 			if fieldWritten {
 				query.WriteString(", ")
 			}
 
-			var a, isSQL, ok = info.Field.WriteField(
+			var a, isSQL, ok = info.WriteField(
 				query, inf, f, true,
 			)
 

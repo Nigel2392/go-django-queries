@@ -97,6 +97,8 @@ func (rl *RelM2M[T1, T2]) Len() int {
 //
 // it provides a uniform way to set related objects on a model instance,
 // allowing to handle different relation types and through models.
+//
+// used in [rows.compile] to set the related objects on the parent object.
 func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Definer, relatedObjects []Relation) {
 
 	var fieldDefs = obj.FieldDefs()
@@ -236,11 +238,18 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 	}
 }
 
+type walkInfo struct {
+	idx       int
+	depth     int
+	fieldDefs attrs.Definitions
+	field     attrs.Field
+}
+
 // walkFields traverses the fields of an object based on a chain of field names.
 //
 // It yields each field found at the last depth of the chain, allowing for
 // custom processing of the field (e.g., collecting values).
-func walkFields(obj attrs.Definitions, chain []string, idx *int, depth int, yield func(idx int, field attrs.Field) bool) error {
+func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth int, yield func(walkInfo) bool) error {
 
 	if depth > len(chain)-1 {
 		return fmt.Errorf("depth %d exceeds chain length %d: %w", depth, len(chain), query_errors.ErrFieldNotFound)
@@ -253,7 +262,12 @@ func walkFields(obj attrs.Definitions, chain []string, idx *int, depth int, yiel
 	}
 
 	if depth == len(chain)-1 {
-		if !yield(*idx, field) {
+		if !yield(walkInfo{
+			idx:       *idx,
+			depth:     depth,
+			fieldDefs: obj,
+			field:     field,
+		}) {
 			return errStopIteration
 		}
 		*idx++     // Increment index for the next field found
@@ -271,7 +285,7 @@ func walkFields(obj attrs.Definitions, chain []string, idx *int, depth int, yiel
 	case rTyp.Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
 		// If the field is a Definer, we can walk its fields
 		var definer = value.(attrs.Definer).FieldDefs()
-		if err := walkFields(definer, chain, idx, depth+1, yield); err != nil {
+		if err := walkFieldValues(definer, chain, idx, depth+1, yield); err != nil {
 			if errors.Is(err, query_errors.ErrNilPointer) {
 				return nil // Skip nil pointers
 			}
@@ -285,7 +299,7 @@ func walkFields(obj attrs.Definitions, chain []string, idx *int, depth int, yiel
 			if elem == nil {
 				continue // Skip nil elements
 			}
-			if err := walkFields(elem.(attrs.Definer).FieldDefs(), chain, idx, depth+1, yield); err != nil {
+			if err := walkFieldValues(elem.(attrs.Definer).FieldDefs(), chain, idx, depth+1, yield); err != nil {
 				if errors.Is(err, query_errors.ErrNilPointer) {
 					continue // Skip elements where the field is nil
 				}
@@ -304,7 +318,7 @@ func walkFields(obj attrs.Definitions, chain []string, idx *int, depth int, yiel
 			if rel.Model() == nil {
 				continue // Skip relations with nil model
 			}
-			if err := walkFields(rel.Model().FieldDefs(), chain, idx, depth+1, yield); err != nil {
+			if err := walkFieldValues(rel.Model().FieldDefs(), chain, idx, depth+1, yield); err != nil {
 				if errors.Is(err, query_errors.ErrNilPointer) {
 					continue // Skip elements where the field is nil
 				}

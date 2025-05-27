@@ -31,8 +31,12 @@ func (rows Rows[T]) Pluck(pathToField string) iter.Seq2[int, attrs.Field] {
 	)
 
 	return iter.Seq2[int, attrs.Field](func(yield func(int, attrs.Field) bool) {
+		var yieldFn = func(w walkInfo) bool {
+			return yield(idx, w.field)
+		}
+
 		for _, row := range rows {
-			var err = walkFields(row.Object.FieldDefs(), fieldNames, &idx, 0, yield)
+			var err = walkFieldValues(row.Object.FieldDefs(), fieldNames, &idx, 0, yieldFn)
 			if errors.Is(err, errStopIteration) {
 				return // Stop iteration if the yield function returned false
 			}

@@ -42,7 +42,7 @@ func ParseExprStatement(statement string, value []any) (newStatement string, fie
 
 		idx -= 1 // convert to 0-based index
 		if idx < 0 || idx >= len(value) {
-			panic(fmt.Errorf("index %d out of range in statement %q", idx, statement))
+			panic(fmt.Errorf("index %d out of range in statement %q, index is 1-based and must be between 1 and %d", idx+1, statement, len(value)))
 		}
 
 		values[i] = value[idx]

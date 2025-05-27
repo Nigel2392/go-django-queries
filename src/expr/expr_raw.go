@@ -100,8 +100,8 @@ func U(statement string, value ...any) NamedExpression {
 //	 # sets the field name to the first field found in the statement, I.E. ![Age]:
 //
 //		expr := F("![Age] + ?[1] + ![Height] + ?[2] * ?[1]", 3, 4)
-//		fmt.Println(expr.SQL()) // prints: "table.age + ? + table.height + ?"
-//		fmt.Println(expr.Args()) // prints: [3, 4]
+//		fmt.Println(expr.SQL()) // prints: "table.age + ? + table.height + ? * ?"
+//		fmt.Println(expr.Args()) // prints: [3, 4, 3]
 
 //	 # sets the field name to the first field found in the statement, I.E. ![Height]:
 //
@@ -138,12 +138,8 @@ func F(statement string, value ...any) NamedExpression {
 // Example usage:
 //
 //	expr := NamedF("Field1", "![Age] + ?[1] + ![Height] + ?[2] * ?[1]", 3, 4)
-//	fmt.Println(expr.SQL()) // prints: "table.age + ? + table.height + ?"
-//	fmt.Println(expr.Args()) // prints: [3, 4]
-//
-//	expr := NamedF("Field1", "? + ? + ![Height] + ? * ?", 4, 5, 6, 7)
-//	fmt.Println(expr.SQL()) // prints: "? + ? + table.height + ? * ?"
-//	fmt.Println(expr.Args()) // prints: [4, 5, 6, 7]
+//	fmt.Println(expr.SQL()) // prints: "table.age + ? + table.height + ? * ?"
+//	fmt.Println(expr.Args()) // prints: [3, 4, 3]
 func NamedF(fieldName, stmt string, value ...any) NamedExpression {
 	statement, fields, values := ParseExprStatement(stmt, value)
 	return &RawNamedExpression{

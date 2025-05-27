@@ -19,21 +19,21 @@ func init() {
 	})
 	RegisterLookup("bitand", func(field string, value []any) (string, []any, error) {
 		if len(value) != 1 {
-			return "", value, fmt.Errorf("BITAND lookup requires exactly one value, got %d %+v", len(value), value)
+			return "", value, fmt.Errorf("lookup requires exactly one value, got %d %+v", len(value), value)
 		}
 		value = []any{value[0], value[0]}
 		return fmt.Sprintf("%s & ? = ?", field), value, nil
 	})
 	RegisterLookup("bitor", func(field string, value []any) (string, []any, error) {
 		if len(value) != 1 {
-			return "", value, fmt.Errorf("BITAND lookup requires exactly one value, got %d %+v", len(value), value)
+			return "", value, fmt.Errorf("lookup requires exactly one value, got %d %+v", len(value), value)
 		}
 		value = []any{value[0], value[0]}
 		return fmt.Sprintf("%s | ? = ?", field), value, nil
 	})
 	RegisterLookup("bitxor", func(field string, value []any) (string, []any, error) {
 		if len(value) != 1 {
-			return "", value, fmt.Errorf("BITAND lookup requires exactly one value, got %d %+v", len(value), value)
+			return "", value, fmt.Errorf("lookup requires exactly one value, got %d %+v", len(value), value)
 		}
 		value = []any{value[0], value[0]}
 		return fmt.Sprintf("%s ^ ? = ?", field), value, nil
@@ -220,13 +220,13 @@ func (l *_lookups[T1]) lookup(driver driver.Driver, col T1, lookup string, value
 		var err error
 		col, value, err = l.onBeforeLookup(col, lookup, value)
 		if err != nil {
-			return "", nil, err
+			return "", nil, fmt.Errorf("error in onBeforeLookup for lookup \"%s\": %w", lookup, err)
 		}
 	}
 
 	var sql, args, err = fn(col, value)
 	if err != nil {
-		return "", nil, err
+		return "", nil, fmt.Errorf("error in lookup \"%s\": %w", lookup, err)
 	}
 
 	return sql, args, nil

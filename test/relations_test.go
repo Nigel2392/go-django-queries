@@ -1160,15 +1160,16 @@ var manyToManyTests = []ManyToManyTest{
 			}
 
 			var checkRow = func(t *testing.T, row *queries.Row[*ModelManyToMany], actual *queries.RelM2M[*ModelManyToMany_Target, *ModelManyToMany_Through], expected []*ModelManyToMany_Target, expectedReverse map[int64][]*ModelManyToMany) {
-				for i, item := range *actual {
+				var idx = 0
+				for i, item := range actual.Iter() {
 					target := item.Model().(*ModelManyToMany_Target)
 
-					if target.ID != expected[i].ID {
-						t.Fatalf("Expected target[%d].ID to be %d, got %d", i, expected[i].ID, target.ID)
+					if target.ID != expected[idx].ID {
+						t.Fatalf("Expected target[%d].ID to be %d, got %d", i, expected[idx].ID, target.ID)
 					}
 
-					if target.Name != expected[i].Name {
-						t.Fatalf("Expected target[%d].Name to be %q, got %q", i, expected[i].Name, target.Name)
+					if target.Name != expected[idx].Name {
+						t.Fatalf("Expected target[%d].Name to be %q, got %q", i, expected[idx].Name, target.Name)
 					}
 
 					rev, ok := target.ModelDataStore().GetValue("TargetReverse")
@@ -1210,6 +1211,7 @@ var manyToManyTests = []ManyToManyTest{
 							t.Fatalf("Expected revTarget[%d].Title to be %q, got %q", j, expectedRev[j].Title, revTarget.Title)
 						}
 					}
+					idx++
 				}
 			}
 

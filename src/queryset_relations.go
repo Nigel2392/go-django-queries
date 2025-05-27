@@ -2,10 +2,12 @@ package queries
 
 import (
 	"fmt"
+	"iter"
 	"reflect"
 
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/elliotchance/orderedmap/v2"
 	"github.com/pkg/errors"
 )
 
@@ -64,33 +66,57 @@ func (rl *RelO2O[T1, T2]) SetValue(instance attrs.Definer, through attrs.Definer
 //
 // This implements the [SettableMultiThroughRelation] interface, which allows setting
 // the related objects and their through objects.
-type RelM2M[T1, T2 attrs.Definer] []RelO2O[T1, T2]
+type RelM2M[T1, T2 attrs.Definer] struct {
+	relations *orderedmap.OrderedMap[any, RelO2O[T1, T2]]
+}
 
 func (rl *RelM2M[T1, T2]) SetValues(rel []Relation) {
 	if len(rel) == 0 {
-		*rl = nil
+		rl.relations = orderedmap.NewOrderedMap[any, RelO2O[T1, T2]]()
 		return
 	}
 
-	var trs = make([]RelO2O[T1, T2], len(rel))
-	for i, r := range rel {
+	rl.relations = orderedmap.NewOrderedMap[any, RelO2O[T1, T2]]()
+	for _, r := range rel {
 		if r == nil {
 			continue
 		}
-		trs[i] = RelO2O[T1, T2]{
+		var o2o = RelO2O[T1, T2]{
 			Object:        r.Model().(T1),
 			ThroughObject: r.Through().(T2),
 		}
+		var objDefs = o2o.Object.FieldDefs()
+		var pkField = objDefs.Primary()
+		var pkValue = pkField.GetValue()
+		if pkValue == nil {
+			panic(fmt.Sprintf("cannot set related object %T with nil primary key", o2o.Object))
+		}
+
+		rl.relations.Set(pkValue, o2o)
+	}
+}
+
+func (rl *RelM2M[T1, T2]) Iter() iter.Seq2[any, RelO2O[T1, T2]] {
+	if rl == nil || rl.relations == nil {
+		return nil
 	}
 
-	*rl = trs
+	return iter.Seq2[any, RelO2O[T1, T2]](func(yield func(any, RelO2O[T1, T2]) bool) {
+		for relHead := rl.relations.Front(); relHead != nil; relHead = relHead.Next() {
+			var key = relHead.Key
+			var value = relHead.Value
+			if !yield(key, value) {
+				return // Stop iteration if the yield function returned false
+			}
+		}
+	})
 }
 
 func (rl *RelM2M[T1, T2]) Len() int {
-	if rl == nil {
+	if rl == nil || rl.relations == nil {
 		return 0
 	}
-	return len(*rl)
+	return rl.relations.Len()
 }
 
 // setRelatedObjects sets the related objects for the given relation name and type.

@@ -49,7 +49,16 @@ func (r Rows[T]) Values(fieldPaths ...string) []map[string]any {
 	for i, row := range r {
 		var valueMap = make(map[string]any, len(fieldPaths))
 
+	pathLoop:
 		for _, path := range fieldPaths {
+
+			if row.Annotations != nil {
+				if value, ok := row.Annotations[path]; ok {
+					valueMap[path] = value // Use annotation value if it exists
+					continue pathLoop
+				}
+			}
+
 			splitPath := strings.Split(path, ".")
 
 			err := walkFieldValues(row.Object.FieldDefs(), splitPath, &idx, 0, i, func(w walkInfo) bool {

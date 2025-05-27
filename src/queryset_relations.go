@@ -22,8 +22,16 @@ var (
 //
 // It is used to set the related object and it's through object on a model.
 type baseRelation struct {
+	pk      any
 	object  attrs.Definer
 	through attrs.Definer
+}
+
+func (r *baseRelation) PrimaryKey() any {
+	if r == nil {
+		return nil
+	}
+	return r.pk
 }
 
 func (r *baseRelation) Model() attrs.Definer {
@@ -85,9 +93,16 @@ func (rl *RelM2M[T1, T2]) SetValues(rel []Relation) {
 			Object:        r.Model().(T1),
 			ThroughObject: r.Through().(T2),
 		}
-		var objDefs = o2o.Object.FieldDefs()
-		var pkField = objDefs.Primary()
-		var pkValue = pkField.GetValue()
+
+		var pkValue any
+		if canPk, ok := r.(interface{ PrimaryKey() any }); ok {
+			pkValue = canPk.PrimaryKey()
+		} else {
+			var objDefs = o2o.Object.FieldDefs()
+			var pkField = objDefs.Primary()
+			pkValue = pkField.GetValue()
+		}
+
 		if pkValue == nil {
 			panic(fmt.Sprintf("cannot set related object %T with nil primary key", o2o.Object))
 		}
@@ -273,13 +288,13 @@ type walkInfo struct {
 	chain     []string
 }
 
-func (w walkInfo) path() string {
-	var path = w.field.Name()
-	if len(w.chain) > 1 {
-		path = fmt.Sprintf("%s.%s", w.chain[:w.depth], path)
-	}
-	return path
-}
+//  func (w walkInfo) path() string {
+//  	var path = w.field.Name()
+//  	if len(w.chain) > 1 {
+//  		path = fmt.Sprintf("%s.%s", w.chain[:w.depth], path)
+//  	}
+//  	return path
+//  }
 
 // walkFields traverses the fields of an object based on a chain of field names.
 //

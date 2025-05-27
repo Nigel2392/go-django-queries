@@ -195,6 +195,7 @@ func (r *rows[T]) compile() ([]*Row[T], error) {
 				}
 
 				relatedObjects = append(relatedObjects, &baseRelation{
+					pk:      relatedObj.pk,
 					object:  relatedObj.obj,
 					through: throughObj,
 				})

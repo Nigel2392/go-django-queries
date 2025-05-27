@@ -283,13 +283,15 @@ type GenericQuerySet = QuerySet[attrs.Definer]
 func GetQuerySet[T attrs.Definer](model T) *QuerySet[T] {
 	if m, ok := any(model).(QuerySetDefiner); ok {
 
-		// call FieldDefs, the models.Model struct could have a nil reference
-		// to the model, which makes it basically impossible to get the
-		// queryset by calling [Objects[T](model)]
-		var _ = m.FieldDefs()
-
 		var qs = m.GetQuerySet()
 		qs = qs.Clone()
+		return ChangeObjectsType[attrs.Definer, T](qs)
+	}
+
+	// Allow the model to change the QuerySet
+	if c, ok := any(model).(QuerySetChanger); ok {
+		qs := Objects[attrs.Definer](model)
+		qs = c.ChangeQuerySet(qs)
 		return ChangeObjectsType[attrs.Definer, T](qs)
 	}
 

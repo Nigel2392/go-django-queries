@@ -56,11 +56,11 @@ func NewDataModelField[T any](forModel any, dst any, name string) *DataModelFiel
 
 		if Type.Kind() != reflect.Interface {
 			if dstT.Elem() != Type {
-				panic(fmt.Errorf("NewDataModelField: resultType %T is not a pointer to T: %T (%T.%s)", Type.Name(), dst, forModel, name))
+				panic(fmt.Errorf("NewDataModelField: resultType \"%T\" is not a pointer to T: %T (%T.%s)", Type.Name(), dst, forModel, name))
 			}
 		} else {
 			if !dstT.Elem().Implements(Type) {
-				panic(fmt.Errorf("NewDataModelField: resultType %T does not implement T: %T (%T.%s)", Type.Name(), dst, forModel, name))
+				panic(fmt.Errorf("NewDataModelField: resultType \"%T\" does not implement T: %T (%T.%s)", Type.Name(), dst, forModel, name))
 			}
 		}
 

@@ -5,8 +5,9 @@ import "github.com/Nigel2392/go-django/src/core/attrs"
 var (
 	_ Relation                     = (*typedRelation[attrs.Definer, attrs.Definer])(nil)
 	_ Relation                     = (*baseRelation)(nil)
-	_ SettableThroughRelation      = (*ThroughRelation[attrs.Definer, attrs.Definer])(nil)
-	_ SettableMultiThroughRelation = (*MultiThroughRelation[attrs.Definer, attrs.Definer])(nil)
+	_ Relation                     = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
+	_ SettableThroughRelation      = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
+	_ SettableMultiThroughRelation = (*RelM2M[attrs.Definer, attrs.Definer])(nil)
 )
 
 type typedRelation[T1, T2 attrs.Definer] struct {
@@ -32,12 +33,20 @@ func (r *typedRelation[T1, T2]) InstanceThrough() T2 {
 
 type baseRelation = typedRelation[attrs.Definer, attrs.Definer]
 
-type ThroughRelation[ModelType, ThroughModelType attrs.Definer] struct {
+type RelO2O[ModelType, ThroughModelType attrs.Definer] struct {
 	Object        ModelType
 	ThroughObject ThroughModelType
 }
 
-func (rl *ThroughRelation[T1, T2]) SetValue(instance attrs.Definer, through attrs.Definer) {
+func (rl *RelO2O[T1, T2]) Model() attrs.Definer {
+	return rl.Object
+}
+
+func (rl *RelO2O[T1, T2]) Through() attrs.Definer {
+	return rl.ThroughObject
+}
+
+func (rl *RelO2O[T1, T2]) SetValue(instance attrs.Definer, through attrs.Definer) {
 	if instance != nil {
 		rl.Object = instance.(T1)
 	}
@@ -46,22 +55,24 @@ func (rl *ThroughRelation[T1, T2]) SetValue(instance attrs.Definer, through attr
 	}
 }
 
-type MultiThroughRelation[T1, T2 attrs.Definer] []ThroughRelation[T1, T2]
+type RelM2M[T1, T2 attrs.Definer] []RelO2O[T1, T2]
 
-func (rl *MultiThroughRelation[T1, T2]) SetValues(rel []Relation) {
+func (rl *RelM2M[T1, T2]) SetValues(rel []Relation) {
 	if len(rel) == 0 {
+		*rl = nil
 		return
 	}
 
-	var trs = make([]ThroughRelation[T1, T2], len(rel))
+	var trs = make([]RelO2O[T1, T2], len(rel))
 	for i, r := range rel {
 		if r == nil {
 			continue
 		}
-		trs[i] = ThroughRelation[T1, T2]{
+		trs[i] = RelO2O[T1, T2]{
 			Object:        r.Model().(T1),
 			ThroughObject: r.Through().(T2),
 		}
 	}
+
 	*rl = trs
 }

@@ -266,7 +266,7 @@ type OneToOneWithThrough struct {
 	models.Model
 	ID      int64
 	Title   string
-	Through *queries.ThroughRelation[*OneToOneWithThrough_Target, *OneToOneWithThrough_Through]
+	Through *queries.RelO2O[*OneToOneWithThrough_Target, *OneToOneWithThrough_Through]
 	User    *User
 }
 
@@ -279,7 +279,7 @@ func (t *OneToOneWithThrough) FieldDefs() attrs.Definitions {
 		attrs.NewField(t, "Title", &attrs.FieldConfig{
 			Column: "title",
 		}),
-		fields.NewOneToOneField[*queries.ThroughRelation[*OneToOneWithThrough_Target, *OneToOneWithThrough_Through]](t, &t.Through, "Target", "TargetReverse", "id", attrs.Relate(
+		fields.NewOneToOneField[*queries.RelO2O[*OneToOneWithThrough_Target, *OneToOneWithThrough_Through]](t, &t.Through, "Target", "TargetReverse", "id", attrs.Relate(
 			&OneToOneWithThrough_Target{},
 			"", &attrs.ThroughModel{
 				This:   &OneToOneWithThrough_Through{},
@@ -342,10 +342,11 @@ func (t *OneToOneWithThrough_Target) FieldDefs() attrs.Definitions {
 
 type ModelManyToMany struct {
 	models.Model
-	ID      int64
-	Title   string
-	User    *User
-	Targets []*ModelManyToMany_Target
+	ID    int64
+	Title string
+	User  *User
+	// Target []*ModelManyToMany_Target
+	Target *queries.RelM2M[*ModelManyToMany_Target, *ModelManyToMany_Through]
 }
 
 // func (m *ModelManyToMany) String() string {
@@ -374,7 +375,7 @@ func (t *ModelManyToMany) FieldDefs() attrs.Definitions {
 		attrs.NewField(t, "Title", &attrs.FieldConfig{
 			Column: "title",
 		}),
-		fields.NewManyToManyField[*ModelManyToMany_Target](t, &t.Targets, "Target", "TargetReverse", "id", attrs.Relate(
+		fields.NewManyToManyField[*queries.RelM2M[*ModelManyToMany_Target, *ModelManyToMany_Through]](t, &t.Target, "Target", "TargetReverse", "id", attrs.Relate(
 			&ModelManyToMany_Target{},
 			"", &attrs.ThroughModel{
 				This:   &ModelManyToMany_Through{},
@@ -382,6 +383,16 @@ func (t *ModelManyToMany) FieldDefs() attrs.Definitions {
 				Target: "TargetModel",
 			},
 		)),
+		// attrs.NewField(t, "Target", &attrs.FieldConfig{
+		// RelManyToMany: attrs.Relate(&ModelManyToMany_Target{}, "", &attrs.ThroughModel{
+		// This:   &ModelManyToMany_Through{},
+		// Source: "SourceModel",
+		// Target: "TargetModel",
+		// }),
+		// Attributes: map[string]any{
+		// attrs.AttrReverseAliasKey: "TargetReverse",
+		// },
+		// }),
 		attrs.NewField(t, "User", &attrs.FieldConfig{
 			Column:        "user_id",
 			RelForeignKey: attrs.Relate(&User{}, "", nil),

@@ -85,16 +85,18 @@ func (m *Model) Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinit
 			switch typ {
 			case attrs.RelOneToOne: // OneToOne
 				if head.Value.Through() == nil {
-					field = fields.NewRelatedField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
+					field = fields.NewOneToOneReverseField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
 				} else {
-					field = fields.NewRelatedField[queries.Relation](def, m, key, key, fromModelField.ColumnName(), value)
+					field = fields.NewOneToOneReverseField[queries.Relation](def, m, key, key, fromModelField.ColumnName(), value)
 				}
 			case attrs.RelManyToOne: // ManyToOne, ForeignKey
-				field = fields.NewRelatedField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
+				field = fields.NewForeignKeyField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
 			case attrs.RelOneToMany: // OneToMany, ForeignKeyReverse
-				field = fields.NewForeignKeyReverseField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
+				field = fields.NewForeignKeyReverseField[[]attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
 			case attrs.RelManyToMany: // ManyToMany
-				field = fields.NewManyToManyField[queries.Relation](def, m, key, key, fromModelField.ColumnName(), value)
+				field = fields.NewManyToManyField[[]queries.Relation](def, m, key, key, fromModelField.ColumnName(), value)
+			default:
+				panic("unknown relation type: " + typ.String())
 			}
 
 			if field != nil {

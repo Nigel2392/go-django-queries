@@ -133,6 +133,16 @@ type QuerySetDefiner interface {
 	GetQuerySet() *QuerySet[attrs.Definer]
 }
 
+// QuerySetChanger is an interface that can be implemented by models to indicate
+// that the queryset should be changed when the model is used in a queryset.
+type QuerySetChanger interface {
+	attrs.Definer
+
+	// ChangeQuerySet is called when the model is used in a queryset.
+	// It should return a new queryset that will be used to execute the query.
+	ChangeQuerySet(qs *QuerySet[attrs.Definer]) *QuerySet[attrs.Definer]
+}
+
 // A model can adhere to this interface to indicate that the queries package
 // should use the database returned by `QuerySetDatabase()` to execute the query.
 //

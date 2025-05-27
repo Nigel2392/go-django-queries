@@ -26,12 +26,12 @@ func NewForeignKeyField[T any](forModel attrs.Definer, dst any, name string, rev
 }
 
 type ForeignKeyReverseField[T any] struct {
-	*RelationField[[]T]
+	*RelationField[T]
 }
 
 func NewForeignKeyReverseField[T any](forModel attrs.Definer, dst any, name string, reverseName string, columnName string, rel attrs.Relation) *ForeignKeyReverseField[T] {
 	var f = &ForeignKeyReverseField[T]{
-		RelationField: NewRelatedField[[]T](
+		RelationField: NewRelatedField[T](
 			forModel,
 			dst,
 			name,

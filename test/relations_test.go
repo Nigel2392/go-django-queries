@@ -1095,7 +1095,7 @@ var manyToManyTests = []ManyToManyTest{
 	{
 		Name: "TestManyToMany_Forward_1",
 		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
-			var rows, err = queries.Objects[*ModelManyToMany](&ModelManyToMany{}).
+			var rows, err = queries.GetQuerySet(&ModelManyToMany{}).
 				Select("*", "Target.*", "Target.TargetReverse.*").
 				Filter("ID__in", m2m_sources[0].ID, m2m_sources[1].ID, m2m_sources[2].ID).
 				OrderBy("ID", "Target.ID", "Target.TargetReverse.ID").

@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/forms/fields"
 	"github.com/elliotchance/orderedmap/v2"
+	"github.com/pkg/errors"
 )
 
 // objectRelation contains metadata about the list of related objects and
@@ -415,6 +417,87 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 	default:
 		panic(fmt.Sprintf("unknown relation type %s for field %s in %T", relTyp, relName, obj))
 	}
+}
+
+// walkFields traverses the fields of an object based on a chain of field names.
+//
+// It yields each field found at the last depth of the chain, allowing for
+// custom processing of the field (e.g., collecting values).
+func walkFields(obj attrs.Definitions, chain []string, idx *int, depth int, yield func(idx int, field attrs.Field) bool) error {
+
+	if depth > len(chain)-1 {
+		return fmt.Errorf("depth %d exceeds chain length %d: %w", depth, len(chain), query_errors.ErrFieldNotFound)
+	}
+
+	var fieldName = chain[depth]
+	var field, ok = obj.Field(fieldName)
+	if !ok {
+		return fmt.Errorf("field %s not found in object %T: %w", fieldName, obj, query_errors.ErrFieldNotFound)
+	}
+
+	if depth == len(chain)-1 {
+		if !yield(*idx, field) {
+			return fmt.Errorf("stopped yielding at field %s in object %T: %w", fieldName, obj, errStopIteration)
+		}
+		*idx++     // Increment index for the next field found
+		return nil // Found the field at the last depth
+	}
+
+	var value = field.GetValue()
+	if value == nil {
+		return query_errors.ErrNilPointer
+	}
+
+	var rTyp = reflect.TypeOf(value)
+
+	switch {
+	case rTyp.Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
+		// If the field is a Definer, we can walk its fields
+		var definer = value.(attrs.Definer).FieldDefs()
+		if err := walkFields(definer, chain, idx, depth+1, yield); err != nil {
+			if errors.Is(err, query_errors.ErrNilPointer) {
+				return nil // Skip nil pointers
+			}
+			return fmt.Errorf("%s: %w", fieldName, err)
+		}
+	case rTyp.Kind() == reflect.Slice && rTyp.Elem().Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
+		// If the field is a slice of Definer, we can walk its fields
+		var slice = reflect.ValueOf(value)
+		for i := 0; i < slice.Len(); i++ {
+			var elem = slice.Index(i).Interface()
+			if elem == nil {
+				continue // Skip nil elements
+			}
+			if err := walkFields(elem.(attrs.Definer).FieldDefs(), chain, idx, depth+1, yield); err != nil {
+				if errors.Is(err, query_errors.ErrNilPointer) {
+					continue // Skip elements where the field is nil
+				}
+				return fmt.Errorf("%s[%d]: %w", fieldName, i, err)
+			}
+		}
+	case rTyp.Kind() == reflect.Slice && rTyp.Elem().Implements(reflect.TypeOf((*Relation)(nil)).Elem()):
+		// If the field is a slice of Relation, we can walk its fields
+		var slice = reflect.ValueOf(value)
+		for i := 0; i < slice.Len(); i++ {
+			var elem = slice.Index(i).Interface()
+			if elem == nil {
+				continue // Skip nil elements
+			}
+			var rel = elem.(Relation)
+			if rel.Model() == nil {
+				continue // Skip relations with nil model
+			}
+			if err := walkFields(rel.Model().FieldDefs(), chain, idx, depth+1, yield); err != nil {
+				if errors.Is(err, query_errors.ErrNilPointer) {
+					continue // Skip elements where the field is nil
+				}
+				return fmt.Errorf("%s[%d]: %w", fieldName, i, err)
+			}
+		}
+	default:
+		return fmt.Errorf("expected field %s in object %T to be a Definer, slice of Definer, or slice of Relation, got %s", fieldName, obj, rTyp)
+	}
+	return nil
 }
 
 // a chainPart represents a part of a relation chain.

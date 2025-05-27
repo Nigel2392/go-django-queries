@@ -25,4 +25,6 @@ const (
 	// be cached, and the second call should return the cached result,
 	// along with this error.
 	ErrAlreadyExecuted errs.Error = "Query already executed"
+
+	ErrTypeMismatch errs.Error = "received type does not match expected type"
 )

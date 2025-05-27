@@ -268,8 +268,8 @@ type QuerySet[T attrs.Definer] struct {
 	compiler     QueryCompiler
 	AliasGen     *alias.Generator
 	explicitSave bool
-	useCache     bool
 	latestQuery  QueryInfo
+	useCache     bool
 	cached       any
 }
 
@@ -383,7 +383,23 @@ func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
 	return qs
 }
 
+// Change the type of the objects in the QuerySet.
+//
+// Mostly used to change the type of the QuerySet
+// from the generic QuerySet[attrs.Definer] to a concrete non-interface type
+//
+// Some things to note:
+// - This does not clone the QuerySet
+// - If the type mismatches and is not assignable, it will panic.
 func ChangeObjectsType[OldT, NewT attrs.Definer](qs *QuerySet[OldT]) *QuerySet[NewT] {
+	if _, ok := qs.model.(NewT); !ok {
+		panic(fmt.Errorf(
+			"ChangeObjectsType: cannot change QuerySet type from %T to %T: %w",
+			qs.model, new(NewT),
+			query_errors.ErrTypeMismatch,
+		))
+	}
+
 	return &QuerySet[NewT]{
 		AliasGen:     qs.AliasGen,
 		queryInfo:    qs.queryInfo,
@@ -396,9 +412,9 @@ func ChangeObjectsType[OldT, NewT attrs.Definer](qs *QuerySet[OldT]) *QuerySet[N
 	}
 }
 
-type NewQuerySetFunc[T attrs.Definer] func(model T) *QuerySet[T]
+type ObjectsFunc[T attrs.Definer] func(model T) *QuerySet[T]
 
-func RunInTransaction[T attrs.Definer](ctx context.Context, fn func(NewQuerySet NewQuerySetFunc[T]) error) error {
+func RunInTransaction[T attrs.Definer](ctx context.Context, fn func(NewQuerySet ObjectsFunc[T]) error) error {
 	var (
 		comitted             bool
 		panicFromNewQuerySet error
@@ -547,6 +563,10 @@ func (qs *QuerySet[T]) Clone() *QuerySet[T] {
 		explicitSave: qs.explicitSave,
 		useCache:     qs.useCache,
 		compiler:     qs.compiler,
+
+		// do not copy the cached value
+		// changing the queryset should automatically
+		// invalidate the cache
 	}
 }
 
@@ -667,7 +687,7 @@ func (qs *QuerySet[T]) GoString() string {
 // This function will make sure to map each provided field name to a model field.
 //
 // Relations are also respected, joins are automatically added to the query.
-func (qs *QuerySet[T]) unpackFields(fields ...string) (infos []FieldInfo, hasRelated bool) {
+func (qs *QuerySet[T]) unpackFields(fields ...any) (infos []FieldInfo, hasRelated bool) {
 	infos = make([]FieldInfo, 0, len(qs.internals.Fields))
 	var info = FieldInfo{
 		Table: Table{
@@ -677,13 +697,28 @@ func (qs *QuerySet[T]) unpackFields(fields ...string) (infos []FieldInfo, hasRel
 	}
 
 	if len(fields) == 0 || len(fields) == 1 && fields[0] == "*" {
-		fields = make([]string, 0, len(qs.queryInfo.Fields))
+		fields = make([]any, 0, len(qs.queryInfo.Fields))
 		for _, field := range qs.queryInfo.Fields {
 			fields = append(fields, field.Name())
 		}
 	}
 
-	for _, selectedField := range fields {
+	for _, selectedFieldObj := range fields {
+
+		var selectedField string
+		switch v := selectedFieldObj.(type) {
+		case string:
+			selectedField = v
+		case expr.NamedExpression:
+			selectedField = v.FieldName()
+
+			if selectedField == "" {
+				panic(fmt.Errorf("Select: empty field name for %T", v))
+			}
+		default:
+			panic(fmt.Errorf("Select: invalid field type %T, can be one of [string, NamedExpression]", v))
+		}
+
 		var current, parent, field, chain, aliases, isRelated, err = internal.WalkFields(
 			qs.model, selectedField, qs.AliasGen,
 		)
@@ -700,6 +735,13 @@ func (qs *QuerySet[T]) unpackFields(fields ...string) (infos []FieldInfo, hasRel
 			}
 
 			panic(err)
+		}
+
+		if expr, ok := selectedFieldObj.(expr.NamedExpression); ok {
+			field = &exprField{
+				Field: field,
+				expr:  expr,
+			}
 		}
 
 		// The field might be a relation
@@ -1029,7 +1071,6 @@ func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 		fields = append(f, fields[1:]...)
 	}
 
-	var exprMap = make(map[string]expr.NamedExpression, len(fields))
 	for _, selectedFieldObj := range fields {
 
 		var selectedField string
@@ -1042,8 +1083,6 @@ func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 			if selectedField == "" {
 				panic(fmt.Errorf("Select: empty field name for %T", v))
 			}
-
-			exprMap[selectedField] = v
 		default:
 			panic(fmt.Errorf("Select: invalid field type %T, can be one of [string, NamedExpression]", v))
 		}
@@ -1178,7 +1217,7 @@ func (qs *QuerySet[T]) Having(key interface{}, vals ...interface{}) *QuerySet[T]
 // GroupBy is used to group the results of a query.
 //
 // It takes a list of field names as arguments and returns a new QuerySet with the grouped results.
-func (qs *QuerySet[T]) GroupBy(fields ...string) *QuerySet[T] {
+func (qs *QuerySet[T]) GroupBy(fields ...any) *QuerySet[T] {
 	var nqs = qs.Clone()
 	nqs.internals.GroupBy, _ = qs.unpackFields(fields...)
 	return nqs

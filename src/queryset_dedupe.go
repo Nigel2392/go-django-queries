@@ -58,13 +58,7 @@ type rootObject struct {
 // have to be set, otherwise the relation cannot be deduplicated.
 type rows[T attrs.Definer] struct {
 	objects *orderedmap.OrderedMap[any, *rootObject]
-}
-
-// initialze a new rows object.
-func newRows[T attrs.Definer]() *rows[T] {
-	return &rows[T]{
-		objects: orderedmap.NewOrderedMap[any, *rootObject](),
-	}
+	forEach func(attrs.Definer) error
 }
 
 // addRoot adds a root object to the rows structure.
@@ -168,11 +162,11 @@ func (r *rows[T]) addRelationChain(chain []chainPart) {
 	}
 }
 
-func (r *rows[T]) compile() []*Row[T] {
-	var addRelations func(*object)
+func (r *rows[T]) compile() ([]*Row[T], error) {
+	var addRelations func(*object, uint64) error
 	// addRelations is a recursive function that traverses the object and its relations,
 	// and sets the related objects on the provided parent object.
-	addRelations = func(obj *object) {
+	addRelations = func(obj *object, depth uint64) error {
 
 		if obj.pk == nil {
 			panic(fmt.Sprintf("object %T has no primary key, cannot deduplicate relations", obj.obj))
@@ -190,7 +184,9 @@ func (r *rows[T]) compile() []*Row[T] {
 					continue
 				}
 
-				addRelations(relatedObj)
+				if err := addRelations(relatedObj, depth+1); err != nil {
+					return fmt.Errorf("object %T: %w", obj, err)
+				}
 
 				var throughObj attrs.Definer
 				if relatedObj.through != nil {
@@ -209,6 +205,22 @@ func (r *rows[T]) compile() []*Row[T] {
 				setRelatedObjects(relName, rel.relTyp, obj.obj, relatedObjects)
 			}
 		}
+
+		if r.forEach != nil {
+			if obj.through != nil {
+				// Call the forEach function with the through object if it exists
+				if err := r.forEach(obj.through); err != nil {
+					return fmt.Errorf("error in forEach[%d] for through object %T: %w", depth, obj.through, err)
+				}
+			}
+
+			// If a forEach function is set, we call it for each object
+			if err := r.forEach(obj.obj); err != nil {
+				return fmt.Errorf("error in forEach[%d] for object %T: %w", depth, obj.obj, err)
+			}
+		}
+
+		return nil
 	}
 
 	var root = make([]*Row[T], 0, r.objects.Len())
@@ -218,7 +230,9 @@ func (r *rows[T]) compile() []*Row[T] {
 			continue
 		}
 
-		addRelations(obj.object)
+		if err := addRelations(obj.object, 0); err != nil {
+			return nil, fmt.Errorf("failed to add relations for object with primary key %v: %w", obj.object.pk, err)
+		}
 
 		var definer = obj.object.obj
 		if definer == nil {
@@ -230,7 +244,8 @@ func (r *rows[T]) compile() []*Row[T] {
 			Annotations: obj.annotations,
 		})
 	}
-	return root
+
+	return root, nil
 }
 
 // newSettableRelation creates a new instance of a SettableRelation or SettableMultiThroughRelation.

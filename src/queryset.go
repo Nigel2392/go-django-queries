@@ -18,6 +18,7 @@ import (
 	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/Nigel2392/go-django/src/forms/fields"
 	"github.com/Nigel2392/go-django/src/models"
+	"github.com/elliotchance/orderedmap/v2"
 	"github.com/pkg/errors"
 
 	_ "unsafe"
@@ -1523,7 +1524,16 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 		))
 	}
 
-	var rows = newRows[T]()
+	var rows = &rows[T]{
+		objects: orderedmap.NewOrderedMap[any, *rootObject](),
+		forEach: func(o attrs.Definer) error {
+			if o == nil {
+				return nil
+			}
+			return runActor(actsAfterQuery, o, ChangeObjectsType[T, attrs.Definer](qs))
+		},
+	}
+
 	for resultIndex, row := range results {
 		var (
 			obj        = internal.NewObjectFromIface(qs.model)
@@ -1587,7 +1597,7 @@ func (qs *QuerySet[T]) All() ([]*Row[T], error) {
 		}
 	}
 
-	return rows.compile(), nil
+	return rows.compile()
 }
 
 // ValuesList is used to retrieve a list of values from the database.
@@ -1946,7 +1956,17 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 		infos      = make([]*FieldInfo, 0, len(objects))
 		primary    attrs.Field
 	)
+
 	for _, object := range objects {
+
+		if err := runActor(actsBeforeCreate, object, ChangeObjectsType[T, attrs.Definer](qs)); err != nil {
+			return nil, errors.Wrapf(
+				err,
+				"failed to run ActsBeforeCreate for %T",
+				object,
+			)
+		}
+
 		var defs = object.FieldDefs()
 		var fields = defs.Fields()
 		var infoFields = make([]attrs.Field, 0, len(fields))
@@ -2044,7 +2064,20 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 	// Check results & which returning method to use
 	switch {
 	case len(results) == 0 && support == SupportsReturningNone:
-		// Do nothing
+		for i, row := range resultList {
+			var rVal = reflect.ValueOf(objects[i])
+			if rVal.Kind() == reflect.Ptr {
+				rVal.Elem().Set(reflect.ValueOf(row).Elem())
+			}
+
+			if err := runActor(actsAfterCreate, row, ChangeObjectsType[T, attrs.Definer](qs)); err != nil {
+				return nil, errors.Wrapf(
+					err,
+					"failed to run ActsAfterCreate for %T",
+					row,
+				)
+			}
+		}
 
 	case len(results) > 0 && support == SupportsReturningLastInsertId:
 
@@ -2056,6 +2089,19 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 					err,
 					"failed to set primary key %q in %T",
 					prim.Name(), row,
+				)
+			}
+
+			var rVal = reflect.ValueOf(objects[i])
+			if rVal.Kind() == reflect.Ptr {
+				rVal.Elem().Set(reflect.ValueOf(row).Elem())
+			}
+
+			if err := runActor(actsAfterCreate, row, ChangeObjectsType[T, attrs.Definer](qs)); err != nil {
+				return nil, errors.Wrapf(
+					err,
+					"failed to run ActsAfterCreate for %T",
+					row,
 				)
 			}
 		}
@@ -2112,6 +2158,19 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 					)
 				}
 			}
+
+			var rVal = reflect.ValueOf(objects[i])
+			if rVal.Kind() == reflect.Ptr {
+				rVal.Elem().Set(reflect.ValueOf(row).Elem())
+			}
+
+			if err := runActor(actsAfterCreate, row, ChangeObjectsType[T, attrs.Definer](qs)); err != nil {
+				return nil, errors.Wrapf(
+					err,
+					"failed to run ActsAfterCreate for %T",
+					row,
+				)
+			}
 		}
 	}
 
@@ -2119,13 +2178,6 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 	//if rVal.Kind() == reflect.Ptr {
 	//	rVal.Elem().Set(reflect.ValueOf(newObj).Elem())
 	//}
-
-	for i, row := range resultList {
-		var rVal = reflect.ValueOf(objects[i])
-		if rVal.Kind() == reflect.Ptr {
-			rVal.Elem().Set(reflect.ValueOf(row).Elem())
-		}
-	}
 
 	return resultList, nil
 
@@ -2156,7 +2208,43 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 		where = slices.Clone(qs.internals.Where)
 		joins = slices.Clone(qs.internals.Joins)
 	)
+
+	var (
+		canBeforeUpdate bool
+		canAfterUpdate  bool
+	)
+
+	if len(objects) > 0 {
+		var obj = objects[0]
+		_, canBeforeUpdate = any(obj).(ActsBeforeUpdate)
+		_, canAfterUpdate = any(obj).(ActsAfterUpdate)
+		_, canBeforeSave := any(obj).(ActsBeforeSave)
+		_, canAfterSave := any(obj).(ActsAfterSave)
+		canBeforeUpdate = canBeforeUpdate || canBeforeSave
+		canAfterUpdate = canAfterUpdate || canAfterSave
+	}
+
+	var typ reflect.Type
 	for _, obj := range objects {
+
+		if typ == nil {
+			typ = reflect.TypeOf(obj)
+		} else if typ != reflect.TypeOf(obj) {
+			panic(fmt.Errorf(
+				"QuerySet: all objects must be of the same type, got %T and %T",
+				typ, reflect.TypeOf(obj),
+			))
+		}
+
+		if canBeforeUpdate {
+			if err := runActor(actsBeforeUpdate, obj, ChangeObjectsType[T, attrs.Definer](qs)); err != nil {
+				return 0, errors.Wrapf(
+					err,
+					"failed to run ActsBeforeUpdate for %T",
+					obj,
+				)
+			}
+		}
 
 		var defs, fields = qs.attrFields(obj)
 		var info = UpdateInfo{
@@ -2230,7 +2318,24 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 	)
 	qs.latestQuery = resultQuery
 
-	return resultQuery.Exec()
+	var res, err = resultQuery.Exec()
+	if err != nil {
+		return 0, err
+	}
+
+	if canAfterUpdate {
+		for _, obj := range objects {
+			if err := runActor(actsAfterUpdate, obj, ChangeObjectsType[T, attrs.Definer](qs)); err != nil {
+				return 0, errors.Wrapf(
+					err,
+					"failed to run ActsAfterUpdate for %T",
+					obj,
+				)
+			}
+		}
+	}
+
+	return res, nil
 }
 
 // Delete is used to delete an object from the database.

@@ -74,7 +74,6 @@ const (
 )`
 
 	createTableOneToOneWithThrough_through = `CREATE TABLE onetoonewiththrough_through (
-    id INTEGER PRIMARY KEY,
     source_id INTEGER NOT NULL,
     target_id INTEGER NOT NULL,
     FOREIGN KEY(source_id) REFERENCES onetoonewiththrough(id),
@@ -295,17 +294,12 @@ func (t *OneToOneWithThrough) FieldDefs() attrs.Definitions {
 
 type OneToOneWithThrough_Through struct {
 	models.Model
-	ID          int64
 	SourceModel *OneToOneWithThrough
 	TargetModel *OneToOneWithThrough_Target
 }
 
 func (t *OneToOneWithThrough_Through) FieldDefs() attrs.Definitions {
 	return t.Model.Define(t,
-		attrs.NewField(t, "ID", &attrs.FieldConfig{
-			Column:  "id",
-			Primary: true,
-		}),
 		attrs.NewField(t, "SourceModel", &attrs.FieldConfig{
 			Column: "source_id",
 			Null:   false,

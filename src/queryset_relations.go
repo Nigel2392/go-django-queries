@@ -240,16 +240,26 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 
 type walkInfo struct {
 	idx       int
+	rowIdx    int
 	depth     int
 	fieldDefs attrs.Definitions
 	field     attrs.Field
+	chain     []string
+}
+
+func (w walkInfo) path() string {
+	var path = w.field.Name()
+	if len(w.chain) > 1 {
+		path = fmt.Sprintf("%s.%s", w.chain[:w.depth], path)
+	}
+	return path
 }
 
 // walkFields traverses the fields of an object based on a chain of field names.
 //
 // It yields each field found at the last depth of the chain, allowing for
 // custom processing of the field (e.g., collecting values).
-func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth int, yield func(walkInfo) bool) error {
+func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth, rowIdx int, yield func(walkInfo) bool) error {
 
 	if depth > len(chain)-1 {
 		return fmt.Errorf("depth %d exceeds chain length %d: %w", depth, len(chain), query_errors.ErrFieldNotFound)
@@ -264,9 +274,11 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth int,
 	if depth == len(chain)-1 {
 		if !yield(walkInfo{
 			idx:       *idx,
+			rowIdx:    rowIdx,
 			depth:     depth,
 			fieldDefs: obj,
 			field:     field,
+			chain:     chain,
 		}) {
 			return errStopIteration
 		}
@@ -285,7 +297,7 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth int,
 	case rTyp.Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
 		// If the field is a Definer, we can walk its fields
 		var definer = value.(attrs.Definer).FieldDefs()
-		if err := walkFieldValues(definer, chain, idx, depth+1, yield); err != nil {
+		if err := walkFieldValues(definer, chain, idx, depth+1, rowIdx, yield); err != nil {
 			if errors.Is(err, query_errors.ErrNilPointer) {
 				return nil // Skip nil pointers
 			}
@@ -299,7 +311,7 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth int,
 			if elem == nil {
 				continue // Skip nil elements
 			}
-			if err := walkFieldValues(elem.(attrs.Definer).FieldDefs(), chain, idx, depth+1, yield); err != nil {
+			if err := walkFieldValues(elem.(attrs.Definer).FieldDefs(), chain, idx, depth+1, rowIdx, yield); err != nil {
 				if errors.Is(err, query_errors.ErrNilPointer) {
 					continue // Skip elements where the field is nil
 				}
@@ -318,7 +330,7 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth int,
 			if rel.Model() == nil {
 				continue // Skip relations with nil model
 			}
-			if err := walkFieldValues(rel.Model().FieldDefs(), chain, idx, depth+1, yield); err != nil {
+			if err := walkFieldValues(rel.Model().FieldDefs(), chain, idx, depth+1, rowIdx, yield); err != nil {
 				if errors.Is(err, query_errors.ErrNilPointer) {
 					continue // Skip elements where the field is nil
 				}

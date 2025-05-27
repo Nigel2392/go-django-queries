@@ -1426,3 +1426,37 @@ func TestPluckRows(t *testing.T) {
 		}
 	}
 }
+
+func TestRowsValues(t *testing.T) {
+	var rows, err = queries.GetQuerySet(&ModelManyToMany{}).
+		Select("*", "User.*", "User.Profile.*").
+		OrderBy("User.Profile.ID").
+		All()
+
+	if err != nil {
+		t.Fatalf("Failed to get rows: %v", err)
+	}
+
+	if len(rows) == 0 {
+		t.Fatalf("Expected at least 1 row, got 0")
+	}
+
+	var values = rows.Values("User.Name", "User.Profile.ID")
+	if len(values) == 0 {
+		t.Fatalf("Expected at least 1 value, got 0")
+	}
+
+	for idx, row := range rows {
+		var userName = row.Object.User.Name
+		var profileID = row.Object.User.Profile.ID
+
+		if userName != values[idx]["User.Name"] {
+			t.Errorf("Expected User Name %q, got %q", userName, values[idx]["User.Name"])
+		}
+		if profileID != values[idx]["User.Profile.ID"] {
+			t.Errorf("Expected Profile ID %d, got %d", profileID, values[idx]["User.Profile.ID"])
+		}
+
+		t.Logf("Values for row %d: %v", idx, values[idx])
+	}
+}

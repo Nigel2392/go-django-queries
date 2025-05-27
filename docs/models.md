@@ -6,33 +6,42 @@ They should be defined as structs, and should implement the `attrs.Definer` inte
 
 Models are automatically registered to Go-Django when they are inside of an [apps' `Models()` list](https://github.com/Nigel2392/go-django/blob/main/docs/attrs/attrs.md).
 
+Each model using the queries package is best to embed the `models.Model` struct - though this is not a requirement.  
+This will make sure to also setup fields for reverse relations, allow for storing annotations on the model itself
+and provide some additional functionality.  
+It also allows you to use a `table:"tablename"` tag to specify the table name for the model.
+
 A short example of defining some models with a relationship (we will assume the tables already exist):
 
 ```go
 type Profile struct {
+    models.Model `table:"profiles"` // Embedding Model struct is optional, but recommended
     ID    int
     Name  string
     Email string
 }
 
 func (m *Profile) FieldDefs() attrs.Definitions {
-    return attrs.Define(m,
+    // Use the model to define the fields instead of `attrs.Define`
+    return m.Model.Define(m,
         attrs.NewField(m, "ID", &attrs.FieldConfig{
             Primary:  true,
         }),
         attrs.NewField(m, "Name", nil),
         attrs.NewField(m, "Email", nil),
-    ).WithTableName("profiles")
+    )
 }
 
 type User struct {
+    models.Model // Embedding Model struct is optional, but recommended
     ID      int
     Name    string
     Profile *Profile
 }
 
 func (m *User) FieldDefs() attrs.Definitions {
-    return attrs.Define(m,
+    // Use the model to define the fields instead of `attrs.Define`
+    return m.Model.Define(m,
         attrs.NewField(m, "ID", &attrs.FieldConfig{
             Primary:  true,
         }),
@@ -45,6 +54,7 @@ func (m *User) FieldDefs() attrs.Definitions {
 }
 
 type Todo struct {
+    models.Model // Embedding Model struct is optional, but recommended
     ID          int
     Title       string
     Description string
@@ -53,7 +63,7 @@ type Todo struct {
 }
 
 func (m *Todo) FieldDefs() attrs.Definitions {
-    return attrs.Define(m,
+    return m.Model.Define(m,
         attrs.NewField(m, "ID", &attrs.FieldConfig{
             Primary:  true,
             ReadOnly: true,

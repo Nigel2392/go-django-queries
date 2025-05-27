@@ -81,15 +81,40 @@ func ForSelectAll(f attrs.Field) bool {
 	return true
 }
 
+// A base interface for relations.
+//
+// This interface should only be used for OneToOne relations with a through table,
+// or for ManyToMany relations with a through table.
+//
+// It should contain the actual instances of the models involved in the relation,
+// and the through model if applicable.
 type Relation interface {
+
+	// The target model of the relation.
 	Model() attrs.Definer
+
+	// The through model of the relation.
 	Through() attrs.Definer
 }
 
+// A model field's value can adhere to this interface to indicate that the
+// field's value can be set to the relation.
+//
+// This is used for OneToOne relations with a through table,
+// if no through table is specified, the field's value should be of type [attrs.Definer]
+//
+// A default implementation is provided with the [RelO2O] type.
 type SettableThroughRelation interface {
 	SetValue(instance attrs.Definer, through attrs.Definer)
 }
 
+// A model field's value can adhere to this interface to indicate that the
+// field's value can be set through a relation with multiple values.
+//
+// This is used for ManyToMany relations with a through table,
+// a through table is required for ManyToMany relations.
+//
+// A default implementation is provided with the [RelM2M] type.
 type SettableMultiThroughRelation interface {
 	SetValues(instances []Relation)
 }

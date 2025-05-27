@@ -40,14 +40,14 @@ func init() {
 		}
 
 		if primaryValue == nil || fields.IsZero(primaryValue) {
-			var _, err = Objects[attrs.Definer](m).ExplicitSave().Create(m)
+			var _, err = GetQuerySet(m).ExplicitSave().Create(m)
 			if err != nil {
 				return false, err
 			}
 			return true, nil
 		}
 
-		ct, err := Objects[attrs.Definer](m).
+		ct, err := GetQuerySet(m).
 			ExplicitSave().
 			Filter(
 				primaryField.Name(), primaryValue,
@@ -75,7 +75,7 @@ func init() {
 			return false, nil
 		}
 
-		ct, err := Objects[attrs.Definer](m).Filter(
+		ct, err := GetQuerySet(m).Filter(
 			primaryField.Name(),
 			primaryValue,
 		).Delete()

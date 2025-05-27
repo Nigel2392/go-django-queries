@@ -71,9 +71,21 @@ Values from `Row.Annotations` will also be stored in the model.
 
 ```go
 type DataModel interface {
-    HasQueryValue(key string) bool
-    GetQueryValue(key string) (any, bool)
-    SetQueryValue(key string, value any) error
+	ModelDataStore() ModelDataStore
+}
+```
+
+#### `ModelDataStore`
+
+The `ModelDataStore` is used to store annotations and any possible relations
+on the model which the datastore belongs to.
+
+```go
+type ModelDataStore interface {
+	HasValue(key string) bool
+	GetValue(key string) (any, bool)
+	SetValue(key string, value any) error
+	DeleteValue(key string) error
 }
 ```
 
@@ -90,7 +102,9 @@ type ForUseInQueries interface {
 
 ### `QuerySetDefiner`
 
-Lets a model **override the default QuerySet** used when calling `queries.Objects()`.
+Lets a model **override the default QuerySet** used when calling `queries.GetQuerySet()`.
+
+This model should avoid calling `queries.GetQuerySet` inside of the method - `queries.Objects` should be called instead.
 
 ```go
 type QuerySetDefiner interface {

@@ -1137,9 +1137,9 @@ var manyToManyTests = []ManyToManyTest{
 			}
 
 			var (
-				target1, _ = row1.Object.ModelDataStore().GetValue("Target")
-				target2, _ = row2.Object.ModelDataStore().GetValue("Target")
-				target3, _ = row3.Object.ModelDataStore().GetValue("Target")
+				target1 = row1.Object.Target
+				target2 = row2.Object.Target
+				target3 = row3.Object.Target
 			)
 
 			t.Logf("Target 1: %+v", target1)
@@ -1147,30 +1147,20 @@ var manyToManyTests = []ManyToManyTest{
 			t.Logf("Target 3: %+v", target3)
 			t.Logf("________________________________________________________")
 
-			var (
-				t1Set, ok1 = target1.([]queries.Relation)
-				t2Set, ok2 = target2.([]queries.Relation)
-				t3Set, ok3 = target3.([]queries.Relation)
-			)
-
-			if !ok1 || !ok2 || !ok3 {
-				t.Fatalf("Expected target to be a slice, got %T %T %T", target1, target2, target3)
+			if target1.Len() != 3 {
+				t.Fatalf("Expected 3 items in target1, got %d", target1.Len())
 			}
 
-			if len(t1Set) != 3 {
-				t.Fatalf("Expected 3 items in target1, got %d", len(t1Set))
+			if target2.Len() != 3 {
+				t.Fatalf("Expected 3 items in target2, got %d", target2.Len())
 			}
 
-			if len(t2Set) != 3 {
-				t.Fatalf("Expected 3 items in target2, got %d", len(t2Set))
+			if target3.Len() != 3 {
+				t.Fatalf("Expected 3 items in target3, got %d", target3.Len())
 			}
 
-			if len(t3Set) != 3 {
-				t.Fatalf("Expected 3 items in target3, got %d", len(t3Set))
-			}
-
-			var checkRow = func(t *testing.T, row *queries.Row[*ModelManyToMany], actual []queries.Relation, expected []*ModelManyToMany_Target, expectedReverse map[int64][]*ModelManyToMany) {
-				for i, item := range actual {
+			var checkRow = func(t *testing.T, row *queries.Row[*ModelManyToMany], actual *queries.RelM2M[*ModelManyToMany_Target, *ModelManyToMany_Through], expected []*ModelManyToMany_Target, expectedReverse map[int64][]*ModelManyToMany) {
+				for i, item := range *actual {
 					target := item.Model().(*ModelManyToMany_Target)
 
 					if target.ID != expected[i].ID {
@@ -1236,9 +1226,9 @@ var manyToManyTests = []ManyToManyTest{
 				}
 			)
 
-			checkRow(t, rows[0], t1Set, targets_check_0, expectedReverseMap)
-			checkRow(t, rows[1], t2Set, targets_check_1, expectedReverseMap)
-			checkRow(t, rows[2], t3Set, targets_check_2, expectedReverseMap)
+			checkRow(t, rows[0], target1, targets_check_0, expectedReverseMap)
+			checkRow(t, rows[1], target2, targets_check_1, expectedReverseMap)
+			checkRow(t, rows[2], target3, targets_check_2, expectedReverseMap)
 
 		},
 	},

@@ -2258,7 +2258,12 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 				// only set fk relations - the rest are added later
 				// in the dedupe rows object.
 				if relType == attrs.RelManyToOne {
-					setRelatedObjects(name, relType, parent, []Relation{&baseRelation{object: obj}})
+					setRelatedObjects(
+						name,
+						relType,
+						parent,
+						[]Relation{&baseRelation{object: obj}},
+					)
 				}
 
 				instances[key] = obj

@@ -209,17 +209,13 @@ func newSettableRelation[T any](typ reflect.Type) T {
 
 func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Definer, relatedObjects []Relation) {
 
-	var (
-		fieldDefs = obj.FieldDefs()
-	)
-
+	var fieldDefs = obj.FieldDefs()
 	var field, ok = fieldDefs.Field(relName)
 	if !ok {
 		panic(fmt.Sprintf("relation %s not found in field defs of %T", relName, obj))
 	}
 
 	switch relTyp {
-
 	case attrs.RelManyToOne:
 		// handle foreign keys
 		//
@@ -340,6 +336,8 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 		default:
 			panic(fmt.Sprintf("expected field %s to be a slice, got %s", relName, typ))
 		}
+	default:
+		panic(fmt.Sprintf("unknown relation type %s for field %s in %T", relTyp, relName, obj))
 	}
 }
 

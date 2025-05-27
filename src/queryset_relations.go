@@ -3,35 +3,24 @@ package queries
 import "github.com/Nigel2392/go-django/src/core/attrs"
 
 var (
-	_ Relation                     = (*typedRelation[attrs.Definer, attrs.Definer])(nil)
 	_ Relation                     = (*baseRelation)(nil)
 	_ Relation                     = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
 	_ SettableThroughRelation      = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
 	_ SettableMultiThroughRelation = (*RelM2M[attrs.Definer, attrs.Definer])(nil)
 )
 
-type typedRelation[T1, T2 attrs.Definer] struct {
-	object  T1
-	through T2
+type baseRelation struct {
+	object  attrs.Definer
+	through attrs.Definer
 }
 
-func (r *typedRelation[T1, T2]) Model() attrs.Definer {
+func (r *baseRelation) Model() attrs.Definer {
 	return r.object
 }
 
-func (r *typedRelation[T1, T2]) Through() attrs.Definer {
+func (r *baseRelation) Through() attrs.Definer {
 	return r.through
 }
-
-func (r *typedRelation[T1, T2]) Instance() T1 {
-	return r.object
-}
-
-func (r *typedRelation[T1, T2]) InstanceThrough() T2 {
-	return r.through
-}
-
-type baseRelation = typedRelation[attrs.Definer, attrs.Definer]
 
 type RelO2O[ModelType, ThroughModelType attrs.Definer] struct {
 	Object        ModelType
@@ -75,4 +64,11 @@ func (rl *RelM2M[T1, T2]) SetValues(rel []Relation) {
 	}
 
 	*rl = trs
+}
+
+func (rl *RelM2M[T1, T2]) Len() int {
+	if rl == nil {
+		return 0
+	}
+	return len(*rl)
 }

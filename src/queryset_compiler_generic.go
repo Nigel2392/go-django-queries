@@ -362,6 +362,9 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 	if len(objects) > 0 {
 		fieldLen = len(objects[0].Fields)
 	}
+	if primary != nil {
+		fieldLen++
+	}
 
 	return &QueryObject[[][]interface{}]{
 		sql:   g.queryInfo.DBX.Rebind(query.String()),
@@ -409,7 +412,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 				defer rows.Close()
 
 				for rows.Next() {
-					var result = make([]interface{}, fieldLen+1)
+					var result = make([]interface{}, fieldLen)
 					for i := range result {
 						result[i] = new(interface{})
 					}

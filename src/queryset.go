@@ -2073,7 +2073,11 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 		exprMap[fieldName] = expr
 	}
 
-	var infos = make([]UpdateInfo, 0, len(objects))
+	var (
+		infos = make([]UpdateInfo, 0, len(objects))
+		where = slices.Clone(qs.internals.Where)
+		joins = slices.Clone(qs.internals.Joins)
+	)
 	for _, obj := range objects {
 
 		var defs, fields = qs.attrFields(obj)
@@ -2131,11 +2135,11 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 				primary.Name(), primary.GetValue(),
 			)}
 		} else {
-			info.Where = slices.Clone(qs.internals.Where)
+			info.Where = where
 		}
 
 		if len(qs.internals.Joins) > 0 {
-			info.Joins = slices.Clone(qs.internals.Joins)
+			info.Joins = joins
 		}
 
 		infos = append(infos, info)
@@ -2173,10 +2177,10 @@ type scannableField struct {
 	field     attrs.Field
 	srcField  *scannableField
 	relType   attrs.RelationType
-	isThrough bool            // is this a through model field (many-to-many or one-to-one)
-	through   *scannableField // the through field if this is a many-to-many or one-to-one relation
-	chainPart string          // name of the field in the chain
-	chainKey  string          // the chain up to this point, joined by "."
+	isThrough bool          // is this a through model field (many-to-many or one-to-one)
+	through   attrs.Definer // the through field if this is a many-to-many or one-to-one relation
+	chainPart string        // name of the field in the chain
+	chainKey  string        // the chain up to this point, joined by "."
 }
 
 func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableField {
@@ -2290,10 +2294,12 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 		//
 		// this has to be before the final fields are added - the logic
 		// matches that in [FieldInfo.WriteFields].
-		var throughPrimary *scannableField
+		var throughObj attrs.Definer
 		if info.Through != nil {
 			var newObj = internal.NewObjectFromIface(info.Through.Model)
 			var newDefs = newObj.FieldDefs()
+			throughObj = newObj
+
 			for _, f := range info.Through.Fields {
 				var field, ok = newDefs.Field(f.Name())
 				if !ok {
@@ -2306,10 +2312,6 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 					object:    newObj,
 					field:     field,
 					relType:   info.Through.RelType,
-				}
-
-				if field.IsPrimary() {
-					throughPrimary = throughField
 				}
 
 				scannables = append(scannables, throughField)
@@ -2330,7 +2332,7 @@ func getScannableFields(fields []FieldInfo, root attrs.Definer) []*scannableFiel
 			cpy.idx = idx
 			cpy.object = final
 			cpy.field = field
-			cpy.through = throughPrimary
+			cpy.through = throughObj
 			scannables = append(scannables, &cpy)
 
 			idx++

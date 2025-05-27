@@ -94,7 +94,6 @@ const (
 )`
 
 	createTableModelManyToMany_through = `CREATE TABLE model_manytomany_through (
-    id INTEGER PRIMARY KEY,
     source_id INTEGER NOT NULL,
     target_id INTEGER NOT NULL,
     FOREIGN KEY(source_id) REFERENCES model_manytomany(id),
@@ -402,7 +401,6 @@ func (t *ModelManyToMany) FieldDefs() attrs.Definitions {
 
 type ModelManyToMany_Through struct {
 	models.Model
-	ID          int64
 	SourceModel *ModelManyToMany
 	TargetModel *ModelManyToMany_Target
 }
@@ -424,10 +422,6 @@ type ModelManyToMany_Through struct {
 
 func (t *ModelManyToMany_Through) FieldDefs() attrs.Definitions {
 	return t.Model.Define(t,
-		attrs.NewField(t, "ID", &attrs.FieldConfig{
-			Column:  "id",
-			Primary: true,
-		}),
 		attrs.NewField(t, "SourceModel", &attrs.FieldConfig{
 			Column: "source_id",
 			Null:   false,
@@ -571,6 +565,11 @@ func createObjects[T attrs.Definer](t *testing.T, objects ...T) (created []T, de
 			anyIDs      = make([]any, len(objects))
 			primaryName string
 		)
+
+		var defs = attrs.GetModelMeta(objects[0])
+		if defs.Definitions().Primary() == nil {
+			return fmt.Errorf("model %T has no primary key defined", objects[0])
+		}
 
 		for i, obj := range created {
 			var (

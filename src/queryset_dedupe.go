@@ -359,17 +359,12 @@ func buildChainParts(actualField *scannableField) []chainPart {
 			primary = defs.Primary()
 		)
 
-		var through attrs.Definer
-		if cur.through != nil {
-			through = cur.through.object
-		}
-
 		stack = append(stack, chainPart{
 			relTyp:  cur.relType,
 			chain:   cur.chainPart,
 			pk:      primary.GetValue(),
 			object:  inst,
-			through: through,
+			through: cur.through,
 		})
 	}
 

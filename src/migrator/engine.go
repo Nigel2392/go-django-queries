@@ -418,6 +418,7 @@ func (m *MigrationEngine) MakeMigrations() error {
 		for _, model := range def.Models() {
 
 			if !CanMigrate(model) {
+				logger.Debugf("Skipping model %T, migrations are disabled", model)
 				continue
 			}
 

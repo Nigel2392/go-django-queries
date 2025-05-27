@@ -2728,3 +2728,22 @@ func TestRunInTransaction(t *testing.T) {
 	}
 
 }
+
+//  func TestPluckRows(t *testing.T) {
+//  	var todos, err = queries.GetQuerySet[attrs.Definer](&Todo{}).
+//  		Select("*", "User.*", "User.Profile.*", "User.Profile.Image.*").
+//  		Filter("Done", false).
+//  		All()
+//
+//  	if err != nil {
+//  		t.Fatalf("Failed to get todos: %v", err)
+//  	}
+//
+//  	if len(todos) == 0 {
+//  		t.Fatalf("Expected at least 1 todo, got 0")
+//  	}
+//
+//  	for idx, value := range queries.PluckRowValues[string](todos, "Title") {
+//  		t.Logf("Row %d: %v\n", idx, value)
+//  	}
+//  }

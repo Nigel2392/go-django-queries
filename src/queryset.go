@@ -1407,10 +1407,26 @@ func (qs *QuerySet[T]) Annotate(aliasOrAliasMap interface{}, exprs ...expr.Expre
 	return qs
 }
 
-type Row[T attrs.Definer] struct {
-	Object      T
-	Annotations map[string]any
-	QuerySet    *QuerySet[T]
+// Scope is used to apply a scope to the QuerySet.
+//
+// It takes a function that modifies the QuerySet as an argument and returns a QuerySet with the applied scope.
+//
+// The queryset is modified in place, so the original QuerySet is changed.
+func (qs *QuerySet[T]) Scope(scopes ...func(*QuerySet[T]) *QuerySet[T]) *QuerySet[T] {
+	var (
+		newQs   = qs.Clone()
+		changed bool
+	)
+	for _, scopeFunc := range scopes {
+		newQs = scopeFunc(newQs)
+		if newQs != nil {
+			changed = true
+		}
+	}
+	if changed {
+		*qs = *newQs
+	}
+	return qs
 }
 
 func (qs *QuerySet[T]) queryAll(fields ...any) CompiledQuery[[][]interface{}] {
@@ -1484,7 +1500,7 @@ func (qs *QuerySet[T]) queryCount() CompiledQuery[int64] {
 // Each Row object contains the model object and a map of annotations.
 //
 // If no fields are provided, it selects all fields from the model, see `Select()` for more details.
-func (qs *QuerySet[T]) All() ([]*Row[T], error) {
+func (qs *QuerySet[T]) All() (Rows[T], error) {
 	if qs.cached != nil && qs.useCache {
 		return qs.cached.([]*Row[T]), nil
 	}

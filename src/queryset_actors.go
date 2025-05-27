@@ -9,7 +9,8 @@ import (
 type actorFlag int
 
 const (
-	actsAfterQuery actorFlag = 1 << iota
+	acts_INVALID actorFlag = iota
+	actsAfterQuery
 	actsBeforeSave
 	actsAfterSave
 	actsBeforeCreate
@@ -46,14 +47,6 @@ type ActsBeforeUpdate interface {
 
 type ActsAfterUpdate interface {
 	AfterUpdate(qs *GenericQuerySet) error
-}
-
-type ActsBeforeDelete interface {
-	BeforeDelete(qs *GenericQuerySet) error
-}
-
-type ActsAfterDelete interface {
-	AfterDelete(qs *GenericQuerySet) error
 }
 
 func runActor(which actorFlag, targetObj attrs.Definer, qs *QuerySet[attrs.Definer]) error {
@@ -97,14 +90,6 @@ func runActor(which actorFlag, targetObj attrs.Definer, qs *QuerySet[attrs.Defin
 		}
 		if s, ok := targetObj.(ActsAfterUpdate); ok {
 			return s.AfterUpdate(qs)
-		}
-	case which&actsBeforeDelete != 0:
-		if s, ok := targetObj.(ActsBeforeDelete); ok {
-			return s.BeforeDelete(qs)
-		}
-	case which&actsAfterDelete != 0:
-		if s, ok := targetObj.(ActsAfterDelete); ok {
-			return s.AfterDelete(qs)
 		}
 	default:
 		return fmt.Errorf("unknown actor flag: %d", which)

@@ -26,5 +26,7 @@ const (
 	// along with this error.
 	ErrAlreadyExecuted errs.Error = "Query already executed"
 
-	ErrTypeMismatch errs.Error = "received type does not match expected type"
+	ErrTypeMismatch  errs.Error = "received type does not match expected type"
+	ErrNilPointer    errs.Error = "received nil pointer, expected a pointer to initialized value"
+	ErrFieldNotFound errs.Error = "field not found in model definition"
 )

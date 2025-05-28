@@ -790,7 +790,7 @@ var manyToManyTests = []ManyToManyTest{
 		Name: "TestManyToOne_Reverse",
 		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
 			var rows, err = queries.Objects[*User](&User{}).
-				Select("*", "ModelManyToManySet.*", "ModelManyToManySet.User.*").
+				Select("*", "ModelManyToManySet.*", "ModelManyToManySet.User.*", "ModelManyToManySet.User.Profile.*").
 				Filter("ID__in", users[0].ID, users[1].ID).
 				OrderBy("ID").
 				All()
@@ -1161,7 +1161,11 @@ var manyToManyTests = []ManyToManyTest{
 
 			var checkRow = func(t *testing.T, row *queries.Row[*ModelManyToMany], actual *queries.RelM2M[*ModelManyToMany_Target, *ModelManyToMany_Through], expected []*ModelManyToMany_Target, expectedReverse map[int64][]*ModelManyToMany) {
 				var idx = 0
-				for i, item := range actual.Iter() {
+				if actual.Parent == nil || actual.Parent.Object == nil {
+					t.Fatalf("Expected actual.Parent.Object to be set: %+v\n\t%s", row.Object.Model, row.QuerySet.LatestQuery().SQL())
+				}
+
+				for i, item := range actual.Objects() {
 					target := item.Model().(*ModelManyToMany_Target)
 
 					if target.ID != expected[idx].ID {
@@ -1429,10 +1433,10 @@ func TestPluckRows(t *testing.T) {
 	}
 }
 
-func TestRowsValues(t *testing.T) {
+func TestPluckManyToManyRows(t *testing.T) {
 	var rows, err = queries.GetQuerySet(&ModelManyToMany{}).
-		Select("*", "User.*", "User.Profile.*").
-		OrderBy("User.Profile.ID").
+		Select("*", "Target.*", "Target.TargetReverse.*").
+		OrderBy("ID", "Target.ID", "Target.TargetReverse.ID").
 		All()
 
 	if err != nil {
@@ -1443,22 +1447,34 @@ func TestRowsValues(t *testing.T) {
 		t.Fatalf("Expected at least 1 row, got 0")
 	}
 
-	var values = rows.Values("User.Name", "User.Profile.ID")
-	if len(values) == 0 {
-		t.Fatalf("Expected at least 1 value, got 0")
+	var values = make([]int64, 0, len(rows))
+	for idx, value := range queries.PluckRowValues[int64](rows, "Target.TargetReverse.ID") {
+		t.Logf("Row %d: %v\n", idx, value)
+		values = append(values, value)
 	}
 
-	for idx, row := range rows {
-		var userName = row.Object.User.Name
-		var profileID = row.Object.User.Profile.ID
+	var idx = 0
+	for _, row := range rows {
+		for _, target := range row.Object.Target.Objects() {
+			var rev, ok = target.Object.ModelDataStore().GetValue("TargetReverse")
+			if !ok {
+				t.Fatalf("Expected Target.TargetReverse to be set: %+v\n\t%s", target.Object.Model, row.QuerySet.LatestQuery().SQL())
+			}
 
-		if userName != values[idx]["User.Name"] {
-			t.Errorf("Expected User Name %q, got %q", userName, values[idx]["User.Name"])
-		}
-		if profileID != values[idx]["User.Profile.ID"] {
-			t.Errorf("Expected Profile ID %d, got %d", profileID, values[idx]["User.Profile.ID"])
-		}
+			revList, ok := rev.([]queries.Relation)
+			if !ok {
+				t.Fatalf("Expected Target.TargetReverse to be a list: %+v\n\t%s", target.Object.Model, row.QuerySet.LatestQuery().SQL())
+			}
 
-		t.Logf("Values for row %d: %v", idx, values[idx])
+			for _, revItem := range revList {
+
+				revTarget := revItem.Model().(*ModelManyToMany)
+				if revTarget.ID != values[idx] {
+					t.Fatalf("Expected Target.TargetReverse[%d].ID to be %d, got %d", idx, values[idx], revTarget.ID)
+				}
+
+				idx++
+			}
+		}
 	}
 }

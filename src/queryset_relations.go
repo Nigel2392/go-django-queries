@@ -2,7 +2,6 @@ package queries
 
 import (
 	"fmt"
-	"iter"
 	"reflect"
 
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
@@ -12,10 +11,10 @@ import (
 )
 
 var (
-	_ Relation                     = (*baseRelation)(nil)
-	_ Relation                     = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
-	_ SettableThroughRelation      = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
-	_ SettableMultiThroughRelation = (*RelM2M[attrs.Definer, attrs.Definer])(nil)
+	_ Relation                  = (*baseRelation)(nil)
+	_ Relation                  = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
+	_ ThroughRelationValue      = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
+	_ MultiThroughRelationValue = (*RelM2M[attrs.Definer, attrs.Definer])(nil)
 )
 
 // A base relation type that implements the Relation interface.
@@ -48,8 +47,17 @@ func (r *baseRelation) Through() attrs.Definer {
 // This implements the [SettableThroughRelation] interface, which allows setting
 // the related object and its through object.
 type RelO2O[ModelType, ThroughModelType attrs.Definer] struct {
+	Parent        *ParentInfo // The parent model instance
 	Object        ModelType
 	ThroughObject ThroughModelType
+}
+
+func (rl *RelO2O[T1, T2]) BindToObject(parent *ParentInfo) error {
+	if rl == nil {
+		return nil
+	}
+	rl.Parent = parent
+	return nil
 }
 
 func (rl *RelO2O[T1, T2]) Model() attrs.Definer {
@@ -69,22 +77,41 @@ func (rl *RelO2O[T1, T2]) SetValue(instance attrs.Definer, through attrs.Definer
 	}
 }
 
+func (rl *RelO2O[T1, T2]) GetValue() (obj attrs.Definer, through attrs.Definer) {
+	if rl == nil {
+		return nil, nil
+	}
+	return rl.Object, rl.ThroughObject
+}
+
 // A value which can be used on models to represent a Many-to-Many relation
 // with a through model.
 //
 // This implements the [SettableMultiThroughRelation] interface, which allows setting
 // the related objects and their through objects.
 type RelM2M[T1, T2 attrs.Definer] struct {
-	relations *orderedmap.OrderedMap[any, RelO2O[T1, T2]]
+	Parent    *ParentInfo                                 // The parent model instance
+	relations *orderedmap.OrderedMap[any, RelO2O[T1, T2]] // can be changed to slice if needed
+	// relations []RelO2O[T1, T2] // can be changed to OrderedMap if needed
+}
+
+func (rl *RelM2M[T1, T2]) BindToObject(parent *ParentInfo) error {
+	if rl == nil {
+		return nil
+	}
+	rl.Parent = parent
+	return nil
 }
 
 func (rl *RelM2M[T1, T2]) SetValues(rel []Relation) {
 	if len(rel) == 0 {
 		rl.relations = orderedmap.NewOrderedMap[any, RelO2O[T1, T2]]()
+		// rl.relations = make([]RelO2O[T1, T2], 0)
 		return
 	}
 
 	rl.relations = orderedmap.NewOrderedMap[any, RelO2O[T1, T2]]()
+	// rl.relations = make([]RelO2O[T1, T2], 0, len(rel))
 	for _, r := range rel {
 		if r == nil {
 			continue
@@ -94,6 +121,8 @@ func (rl *RelM2M[T1, T2]) SetValues(rel []Relation) {
 			ThroughObject: r.Through().(T2),
 		}
 
+		// rl.relations = append(rl.relations, o2o)
+		//
 		var pkValue any
 		if canPk, ok := r.(interface{ PrimaryKey() any }); ok {
 			pkValue = canPk.PrimaryKey()
@@ -111,26 +140,40 @@ func (rl *RelM2M[T1, T2]) SetValues(rel []Relation) {
 	}
 }
 
-func (rl *RelM2M[T1, T2]) Iter() iter.Seq2[any, RelO2O[T1, T2]] {
+// GetValues returns the related objects and their through objects.
+func (rl *RelM2M[T1, T2]) GetValues() []Relation {
+	if rl == nil || rl.relations == nil {
+		return nil
+	}
+	// var relatedObjects = make([]Relation, len(rl.relations))
+	// for i, rel := range rl.relations {
+	// relatedObjects[i] = &rel
+	// }
+	// return relatedObjects
+	var relatedObjects = make([]Relation, 0, rl.relations.Len())
+	for relHead := rl.relations.Front(); relHead != nil; relHead = relHead.Next() {
+		relatedObjects = append(relatedObjects, &relHead.Value)
+	}
+	return relatedObjects
+}
+
+func (rl *RelM2M[T1, T2]) Objects() []RelO2O[T1, T2] {
 	if rl == nil || rl.relations == nil {
 		return nil
 	}
 
-	return iter.Seq2[any, RelO2O[T1, T2]](func(yield func(any, RelO2O[T1, T2]) bool) {
-		for relHead := rl.relations.Front(); relHead != nil; relHead = relHead.Next() {
-			var key = relHead.Key
-			var value = relHead.Value
-			if !yield(key, value) {
-				return // Stop iteration if the yield function returned false
-			}
-		}
-	})
+	var relatedObjects = make([]RelO2O[T1, T2], 0, rl.relations.Len())
+	for relHead := rl.relations.Front(); relHead != nil; relHead = relHead.Next() {
+		relatedObjects = append(relatedObjects, relHead.Value)
+	}
+	return relatedObjects
 }
 
 func (rl *RelM2M[T1, T2]) Len() int {
 	if rl == nil || rl.relations == nil {
 		return 0
 	}
+	// return len(rl.relations)
 	return rl.relations.Len()
 }
 
@@ -146,6 +189,27 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 	var field, ok = fieldDefs.Field(relName)
 	if !ok {
 		panic(fmt.Sprintf("relation %s not found in field defs of %T", relName, obj))
+	}
+
+	var (
+		fieldType  = field.Type()
+		fieldValue = field.GetValue()
+	)
+	switch {
+	case fieldType.Implements(reflect.TypeOf((*BindableRelationValue)(nil)).Elem()):
+		if fieldValue == nil {
+			fieldValue = newSettableRelation[BindableRelationValue](fieldType)
+			field.SetValue(fieldValue, true)
+		}
+
+		var bindable = fieldValue.(BindableRelationValue)
+		var err = bindable.BindToObject(&ParentInfo{
+			Object: obj,
+			Field:  field,
+		})
+		if err != nil {
+			panic(fmt.Sprintf("failed to bind relation %s to object %T: %v", relName, obj, err))
+		}
 	}
 
 	switch relTyp {
@@ -177,23 +241,22 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 			dm.ModelDataStore().SetValue(relName, related)
 		}
 
-		var typ = field.Type()
 		switch {
-		case typ == reflect.TypeOf(related):
+		case fieldType == reflect.TypeOf(related):
 			// If the field is a slice of Definer, we can set the related objects directly
 			field.SetValue(related, true)
 
-		case typ.Kind() == reflect.Slice:
+		case fieldType.Kind() == reflect.Slice:
 			// If the field is a slice, we can set the related objects directly after
 			// converting them to the appropriate type.
-			var slice = reflect.MakeSlice(typ, len(relatedObjects), len(relatedObjects))
+			var slice = reflect.MakeSlice(fieldType, len(relatedObjects), len(relatedObjects))
 			for i, relatedObj := range relatedObjects {
 				slice.Index(i).Set(reflect.ValueOf(relatedObj.Model()))
 			}
 			field.SetValue(slice.Interface(), true)
 
 		default:
-			panic(fmt.Sprintf("expected field %s to be a slice, got %s", relName, typ))
+			panic(fmt.Sprintf("expected field %s to be a slice, got %s", relName, fieldType))
 		}
 
 	case attrs.RelOneToOne:
@@ -210,21 +273,16 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 		}
 
 		switch {
-		case field.Type().Implements(reflect.TypeOf((*SettableThroughRelation)(nil)).Elem()):
+		case fieldType.Implements(reflect.TypeOf((*ThroughRelationValue)(nil)).Elem()):
 			// If the field is a SettableThroughRelation, we can set the related object directly
-			var value = field.GetValue()
-			if value == nil {
-				value = newSettableRelation[SettableThroughRelation](field.Type())
-				field.SetValue(value, true)
-			}
-			var rel = value.(SettableThroughRelation)
+			var rel = fieldValue.(ThroughRelationValue)
 			rel.SetValue(relatedObject.Model(), relatedObject.Through())
 
-		case field.Type().Implements(reflect.TypeOf((*Relation)(nil)).Elem()):
+		case fieldType.Implements(reflect.TypeOf((*Relation)(nil)).Elem()):
 			// If the field is a Relation, we can set the related object directly
 			field.SetValue(relatedObject, true)
 
-		case field.Type().Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
+		case fieldType.Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
 			// If the field is a Definer, we can set the related object directly
 			field.SetValue(relatedObject.Model(), true)
 
@@ -241,30 +299,23 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 			dm.ModelDataStore().SetValue(relName, relatedObjects)
 		}
 
-		var typ = field.Type()
 		switch {
-		case typ.Implements(reflect.TypeOf((*SettableMultiThroughRelation)(nil)).Elem()):
+		case fieldType.Implements(reflect.TypeOf((*MultiThroughRelationValue)(nil)).Elem()):
 			// If the field is a SettableMultiRelation, we can set the related objects directly
-			var value = field.GetValue()
-			if value == nil {
-				value = newSettableRelation[SettableMultiThroughRelation](typ)
-				field.SetValue(value, true)
-			}
-			var rel = value.(SettableMultiThroughRelation)
-			// Set the related objects
+			var rel = fieldValue.(MultiThroughRelationValue)
 			rel.SetValues(relatedObjects)
 
-		case typ.Kind() == reflect.Slice && typ.Elem().Implements(reflect.TypeOf((*Relation)(nil)).Elem()):
+		case fieldType.Kind() == reflect.Slice && fieldType.Elem().Implements(reflect.TypeOf((*Relation)(nil)).Elem()):
 			// If the field is a slice, we can set the related objects directly
-			var slice = reflect.MakeSlice(typ, len(relatedObjects), len(relatedObjects))
+			var slice = reflect.MakeSlice(fieldType, len(relatedObjects), len(relatedObjects))
 			for i, relatedObj := range relatedObjects {
 				slice.Index(i).Set(reflect.ValueOf(relatedObj))
 			}
 			fieldDefs.Set(relName, slice.Interface())
 
-		case typ.Kind() == reflect.Slice && typ.Elem().Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
+		case fieldType.Kind() == reflect.Slice && fieldType.Elem().Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
 			// If the field is a slice of Definer, we can set the related objects directly
-			var slice = reflect.MakeSlice(typ, len(relatedObjects), len(relatedObjects))
+			var slice = reflect.MakeSlice(fieldType, len(relatedObjects), len(relatedObjects))
 			for i, relatedObj := range relatedObjects {
 				var relatedDefiner = relatedObj.Model()
 				slice.Index(i).Set(reflect.ValueOf(relatedDefiner))
@@ -272,7 +323,7 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 			fieldDefs.Set(relName, slice.Interface())
 
 		default:
-			panic(fmt.Sprintf("expected field %s to be a slice, got %s", relName, typ))
+			panic(fmt.Sprintf("expected field %s to be a slice, got %s", relName, fieldType))
 		}
 	default:
 		panic(fmt.Sprintf("unknown relation type %s for field %s in %T", relTyp, relName, obj))
@@ -281,7 +332,6 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 
 type walkInfo struct {
 	idx       int
-	rowIdx    int
 	depth     int
 	fieldDefs attrs.Definitions
 	field     attrs.Field
@@ -300,7 +350,7 @@ type walkInfo struct {
 //
 // It yields each field found at the last depth of the chain, allowing for
 // custom processing of the field (e.g., collecting values).
-func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth, rowIdx int, yield func(walkInfo) bool) error {
+func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth int, yield func(walkInfo) bool) error {
 
 	if depth > len(chain)-1 {
 		return fmt.Errorf("depth %d exceeds chain length %d: %w", depth, len(chain), query_errors.ErrFieldNotFound)
@@ -315,7 +365,6 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth, row
 	if depth == len(chain)-1 {
 		if !yield(walkInfo{
 			idx:       *idx,
-			rowIdx:    rowIdx,
 			depth:     depth,
 			fieldDefs: obj,
 			field:     field,
@@ -333,16 +382,42 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth, row
 	}
 
 	var rTyp = reflect.TypeOf(value)
-
 	switch {
 	case rTyp.Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
 		// If the field is a Definer, we can walk its fields
 		var definer = value.(attrs.Definer).FieldDefs()
-		if err := walkFieldValues(definer, chain, idx, depth+1, rowIdx, yield); err != nil {
+		if err := walkFieldValues(definer, chain, idx, depth+1, yield); err != nil {
 			if errors.Is(err, query_errors.ErrNilPointer) {
 				return nil // Skip nil pointers
 			}
 			return fmt.Errorf("%s: %w", fieldName, err)
+		}
+	case rTyp.Implements(reflect.TypeOf((*ThroughRelationValue)(nil)).Elem()):
+		var value = value.(ThroughRelationValue)
+		var model, _ = value.GetValue()
+		if model == nil {
+			return query_errors.ErrNilPointer
+		}
+		if err := walkFieldValues(model.FieldDefs(), chain, idx, depth+1, yield); err != nil {
+			if errors.Is(err, query_errors.ErrNilPointer) {
+				return nil // Skip nil pointers
+			}
+			return fmt.Errorf("%s: %w", fieldName, err)
+		}
+	case rTyp.Implements(reflect.TypeOf((*MultiThroughRelationValue)(nil)).Elem()):
+		var value = value.(MultiThroughRelationValue)
+		var relatedObjects = value.GetValues()
+		if len(relatedObjects) == 0 {
+			return nil // Skip empty relations
+		}
+		for _, rel := range relatedObjects {
+			var modelDefs = rel.Model().FieldDefs()
+			if err := walkFieldValues(modelDefs, chain, idx, depth+1, yield); err != nil {
+				if errors.Is(err, query_errors.ErrNilPointer) {
+					continue // Skip nil relations
+				}
+				return fmt.Errorf("%s: %w", fieldName, err)
+			}
 		}
 	case rTyp.Kind() == reflect.Slice && rTyp.Elem().Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
 		// If the field is a slice of Definer, we can walk its fields
@@ -352,7 +427,7 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth, row
 			if elem == nil {
 				continue // Skip nil elements
 			}
-			if err := walkFieldValues(elem.(attrs.Definer).FieldDefs(), chain, idx, depth+1, rowIdx, yield); err != nil {
+			if err := walkFieldValues(elem.(attrs.Definer).FieldDefs(), chain, idx, depth+1, yield); err != nil {
 				if errors.Is(err, query_errors.ErrNilPointer) {
 					continue // Skip elements where the field is nil
 				}
@@ -371,7 +446,7 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth, row
 			if rel.Model() == nil {
 				continue // Skip relations with nil model
 			}
-			if err := walkFieldValues(rel.Model().FieldDefs(), chain, idx, depth+1, rowIdx, yield); err != nil {
+			if err := walkFieldValues(rel.Model().FieldDefs(), chain, idx, depth+1, yield); err != nil {
 				if errors.Is(err, query_errors.ErrNilPointer) {
 					continue // Skip elements where the field is nil
 				}
@@ -379,7 +454,7 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth, row
 			}
 		}
 	default:
-		return fmt.Errorf("expected field %s in object %T to be a Definer, slice of Definer, or slice of Relation, got %s", fieldName, obj, rTyp)
+		return fmt.Errorf("expected field %s in object %T to be a Definer, slice of Definer, or slice of Relation, got %s", fieldName, obj.Instance(), rTyp)
 	}
 	return nil
 }

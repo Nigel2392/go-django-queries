@@ -97,26 +97,43 @@ type Relation interface {
 	Through() attrs.Definer
 }
 
+// ParentInfo holds information about a relation's parent model instance
+// and the field on the parent model that holds the relation.
+type ParentInfo struct {
+	Object attrs.Definer
+	Field  attrs.Field
+}
+
+// BindableRelationValue is an interface that can be implemented by a model field's value
+// to indicate that the field's relation value can be bound to a parent model instance.
+type BindableRelationValue interface {
+	BindToObject(instance *ParentInfo) error
+}
+
 // A model field's value can adhere to this interface to indicate that the
-// field's value can be set to the relation.
+// field's relation value can be set or retrieved.
 //
 // This is used for OneToOne relations with a through table,
 // if no through table is specified, the field's value should be of type [attrs.Definer]
 //
 // A default implementation is provided with the [RelO2O] type.
-type SettableThroughRelation interface {
+type ThroughRelationValue interface {
+	BindableRelationValue
+	GetValue() (obj attrs.Definer, through attrs.Definer)
 	SetValue(instance attrs.Definer, through attrs.Definer)
 }
 
 // A model field's value can adhere to this interface to indicate that the
-// field's value can be set through a relation with multiple values.
+// field's relation values can be set or retrieved.
 //
 // This is used for ManyToMany relations with a through table,
 // a through table is required for ManyToMany relations.
 //
 // A default implementation is provided with the [RelM2M] type.
-type SettableMultiThroughRelation interface {
+type MultiThroughRelationValue interface {
+	BindableRelationValue
 	SetValues(instances []Relation)
+	GetValues() []Relation
 }
 
 // Annotations from the database are stored in the `Row` struct, and if the

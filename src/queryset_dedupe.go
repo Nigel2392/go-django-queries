@@ -2,7 +2,6 @@ package queries
 
 import (
 	"fmt"
-	"reflect"
 
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/forms/fields"
@@ -247,32 +246,6 @@ func (r *rows[T]) compile() ([]*Row[T], error) {
 	}
 
 	return root, nil
-}
-
-// newSettableRelation creates a new instance of a SettableRelation or SettableMultiThroughRelation.
-//
-// It checks if the type is a slice or a pointer, and returns a new instance of the appropriate type.
-func newSettableRelation[T any](typ reflect.Type) T {
-	var setterTyp = typ
-	if setterTyp.Kind() == reflect.Ptr {
-		setterTyp = setterTyp.Elem()
-	}
-
-	if setterTyp.Kind() == reflect.Slice {
-		var n = reflect.MakeSlice(setterTyp, 0, 0)
-		var sliceVal = n.Interface()
-		if n.Type().Implements(reflect.TypeOf((*T)(nil)).Elem()) {
-			return sliceVal.(T)
-		}
-		return n.Addr().Interface().(T)
-	}
-
-	var newVal = reflect.New(setterTyp)
-	if newVal.Type().Implements(reflect.TypeOf((*T)(nil)).Elem()) {
-		return newVal.Interface().(T)
-	}
-
-	return newVal.Addr().Interface().(T)
 }
 
 // a chainPart represents a part of a relation chain.

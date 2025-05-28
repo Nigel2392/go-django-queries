@@ -1535,6 +1535,10 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 		qs.internals.Fields, internal.NewObjectFromIface(qs.model),
 	)
 
+	// add possible duplicate fields to the list
+	//
+	// also add o2o relations, this will
+	// make sure the through model gets set later on
 	var rootScannable *scannableField
 	for _, scannable := range scannables {
 		// check if field is a multi-valued relation

@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
+	"github.com/Nigel2392/go-django/src/core/assert"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/forms/fields"
 )
@@ -16,7 +17,7 @@ var _ attrs.Field = &DataModelField[any]{}
 
 type DataModelField[T any] struct {
 	// model is the model that this field belongs to
-	Model any
+	Model attrs.Definer
 
 	// dataModel is the model that contains the data for this field
 	//
@@ -31,7 +32,7 @@ type DataModelField[T any] struct {
 	resultType reflect.Type
 }
 
-func NewDataModelField[T any](forModel any, dst any, name string) *DataModelField[T] {
+func NewDataModelField[T any](forModel attrs.Definer, dst any, name string) *DataModelField[T] {
 	if forModel == nil || dst == nil {
 		panic("NewDataModelField: model is nil")
 	}
@@ -172,6 +173,10 @@ func (e *DataModelField[T]) GetValue() interface{} {
 		return *new(T)
 	}
 
+	assert.Err(attrs.BindValueToModel(
+		e.Model, e, val,
+	))
+
 	valTyped, ok := val.(T)
 	if !ok {
 		return *new(T)
@@ -229,6 +234,10 @@ func (e *DataModelField[T]) SetValue(v interface{}, _ bool) error {
 		rV = reflect.New(e.resultType).Elem()
 		rT = rV.Type()
 	}
+
+	assert.Err(attrs.BindValueToModel(
+		e.Model, e, rV,
+	))
 
 	if rT != e.resultType {
 

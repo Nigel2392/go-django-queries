@@ -172,10 +172,6 @@ func (r *rows[T]) compile() ([]*Row[T], error) {
 		}
 
 		for relName, rel := range obj.relations {
-			if rel.objects.Len() == 0 {
-				continue
-			}
-
 			var relatedObjects = make([]Relation, 0, rel.objects.Len())
 			for relHead := rel.objects.Front(); relHead != nil; relHead = relHead.Next() {
 				var relatedObj = relHead.Value
@@ -200,10 +196,8 @@ func (r *rows[T]) compile() ([]*Row[T], error) {
 				})
 			}
 
-			// if the object has related objects we need to set them on the parent object
-			if len(relatedObjects) > 0 {
-				setRelatedObjects(relName, rel.relTyp, obj.obj, relatedObjects)
-			}
+			// aways set the related objects on the parent object
+			setRelatedObjects(relName, rel.relTyp, obj.obj, relatedObjects)
 		}
 
 		if r.forEach != nil {

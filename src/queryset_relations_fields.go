@@ -54,23 +54,6 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 		fieldValue = field.GetValue()
 	)
 
-	switch {
-	case fieldType.Implements(reflect.TypeOf((*BindableRelationValue)(nil)).Elem()):
-		if fieldValue == nil {
-			fieldValue = newSettableRelation[BindableRelationValue](fieldType)
-			field.SetValue(fieldValue, true)
-		}
-
-		var bindable = fieldValue.(BindableRelationValue)
-		var err = bindable.BindToObject(&ParentInfo{
-			Object: obj,
-			Field:  field,
-		})
-		if err != nil {
-			panic(fmt.Sprintf("failed to bind relation %s to object %T: %v", relName, obj, err))
-		}
-	}
-
 	switch relTyp {
 	case attrs.RelManyToOne:
 		// handle foreign keys

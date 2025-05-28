@@ -49,6 +49,21 @@ type RelatedField interface {
 	RelatedName() string
 }
 
+func getTargetField(f any, targetDefs attrs.Definitions) attrs.Field {
+	if f == nil {
+		goto retTarget
+	}
+
+	if rf, ok := f.(RelatedField); ok {
+		if targetField := rf.GetTargetField(); targetField != nil {
+			return targetField
+		}
+	}
+
+retTarget:
+	return targetDefs.Primary()
+}
+
 // ForUseInQueriesField is an interface that can be implemented by fields to indicate
 // that the field should be included in the query.
 //
@@ -110,15 +125,6 @@ type canPrimaryKey interface {
 	PrimaryKey() any
 }
 
-// BindableRelationValue is an interface that can be implemented by a model field's value
-// to indicate that the field's relation value can be bound to a parent model instance.
-//
-// This is used for OneToOne relations with a through table, or for ManyToMany relations with a through table.
-type BindableRelationValue interface {
-	ParentInfo() *ParentInfo
-	BindToObject(instance *ParentInfo) error
-}
-
 // A model field's value can adhere to this interface to indicate that the
 // field's relation value can be set or retrieved.
 //
@@ -127,7 +133,7 @@ type BindableRelationValue interface {
 //
 // A default implementation is provided with the [RelO2O] type.
 type ThroughRelationValue interface {
-	BindableRelationValue
+	attrs.Binder
 	GetValue() (obj attrs.Definer, through attrs.Definer)
 	SetValue(instance attrs.Definer, through attrs.Definer)
 }
@@ -140,7 +146,7 @@ type ThroughRelationValue interface {
 //
 // A default implementation is provided with the [RelM2M] type.
 type MultiThroughRelationValue interface {
-	BindableRelationValue
+	attrs.Binder
 	SetValues(instances []Relation)
 	GetValues() []Relation
 }

@@ -3,196 +3,235 @@ package queries
 import (
 	"fmt"
 
+	"github.com/Nigel2392/go-django-queries/internal"
+	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/elliotchance/orderedmap/v2"
+	"github.com/Nigel2392/go-django/src/forms/fields"
 )
 
-var (
-	_ canPrimaryKey             = (*baseRelation)(nil)
-	_ Relation                  = (*baseRelation)(nil)
-	_ Relation                  = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
-	_ ThroughRelationValue      = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
-	_ MultiThroughRelationValue = (*RelM2M[attrs.Definer, attrs.Definer])(nil)
-)
-
-// A base relation type that implements the Relation interface.
 //
-// It is used to set the related object and it's through object on a model.
-type baseRelation struct {
-	pk      any
-	object  attrs.Definer
-	through attrs.Definer
-}
-
-func (r *baseRelation) PrimaryKey() any {
-	if r == nil {
-		return nil
-	}
-	return r.pk
-}
-
-func (r *baseRelation) Model() attrs.Definer {
-	return r.object
-}
-
-func (r *baseRelation) Through() attrs.Definer {
-	return r.through
-}
-
-// A value which can be used on models to represent a One-to-One relation
-// with a through model.
+//  type throughProxy struct {
+//  	troughDefinition attrs.Through
+//  	object           attrs.Definer
+//  	defs             attrs.Definitions
+//  	sourceField      attrs.Field
+//  	targetField      attrs.Field
+//  }
 //
-// This implements the [SettableThroughRelation] interface, which allows setting
-// the related object and its through object.
-type RelO2O[ModelType, ThroughModelType attrs.Definer] struct {
-	Parent        *ParentInfo // The parent model instance
-	Object        ModelType
-	ThroughObject ThroughModelType
-}
-
-func (rl *RelO2O[T1, T2]) ParentInfo() *ParentInfo {
-	if rl == nil {
-		return nil
-	}
-	return rl.Parent
-}
-
-func (rl *RelO2O[T1, T2]) BindToObject(parent *ParentInfo) error {
-	if rl == nil {
-		return nil
-	}
-	rl.Parent = parent
-	return nil
-}
-
-func (rl *RelO2O[T1, T2]) Model() attrs.Definer {
-	return rl.Object
-}
-
-func (rl *RelO2O[T1, T2]) Through() attrs.Definer {
-	return rl.ThroughObject
-}
-
-func (rl *RelO2O[T1, T2]) SetValue(instance attrs.Definer, through attrs.Definer) {
-	if instance != nil {
-		rl.Object = instance.(T1)
-	}
-	if through != nil {
-		rl.ThroughObject = through.(T2)
-	}
-}
-
-func (rl *RelO2O[T1, T2]) GetValue() (obj attrs.Definer, through attrs.Definer) {
-	if rl == nil {
-		return nil, nil
-	}
-	return rl.Object, rl.ThroughObject
-}
-
-// A value which can be used on models to represent a Many-to-Many relation
-// with a through model.
+//  func newThroughProxy(throughInstance attrs.Definer, troughDefinition attrs.Through) *throughProxy {
+//  	var (
+//  		ok             bool
+//  		defs           = throughInstance.FieldDefs()
+//  		sourceFieldStr = troughDefinition.SourceField()
+//  		targetFieldStr = troughDefinition.TargetField()
+//  		proxy          = &throughProxy{
+//  			defs:             defs,
+//  			object:           throughInstance,
+//  			troughDefinition: troughDefinition,
+//  		}
+//  	)
 //
-// This implements the [SettableMultiThroughRelation] interface, which allows setting
-// the related objects and their through objects.
-type RelM2M[T1, T2 attrs.Definer] struct {
-	Parent    *ParentInfo                                 // The parent model instance
-	relations *orderedmap.OrderedMap[any, RelO2O[T1, T2]] // can be changed to slice if needed
-	// relations []RelO2O[T1, T2] // can be changed to OrderedMap if needed
+//  	if proxy.sourceField, ok = defs.Field(sourceFieldStr); !ok {
+//  		panic(fmt.Errorf(
+//  			"source field %s not found in through model %T: %w",
+//  			sourceFieldStr, throughInstance, query_errors.ErrFieldNotFound,
+//  		))
+//  	}
+//
+//  	if proxy.targetField, ok = defs.Field(targetFieldStr); !ok {
+//  		panic(fmt.Errorf(
+//  			"target field %s not found in through model %T: %w",
+//  			targetFieldStr, throughInstance, query_errors.ErrFieldNotFound,
+//  		))
+//  	}
+//
+//  	return proxy
+//  }
+
+type relatedQuerySet[T attrs.Definer] struct {
+	source     *ParentInfo
+	rel        attrs.Relation
+	originalQs QuerySet[T]
+	qs         *QuerySet[T]
 }
 
-func (rl *RelM2M[T1, T2]) ParentInfo() *ParentInfo {
-	if rl == nil {
-		return nil
+// NewrelatedQuerySet creates a new relatedQuerySet for the given model type.
+func newRelatedQuerySet[T attrs.Definer](source *ParentInfo, model T) *relatedQuerySet[T] {
+	var qs = GetQuerySet(model)
+	return &relatedQuerySet[T]{
+		source:     source,
+		originalQs: *qs,
+		qs:         qs,
 	}
-	return rl.Parent
 }
 
-func (rl *RelM2M[T1, T2]) BindToObject(parent *ParentInfo) error {
-	if rl == nil {
-		return nil
+func (t *relatedQuerySet[T]) createTargets(targets []T) ([]T, error) {
+	if t.qs == nil {
+		panic("QuerySet is nil, cannot create targets")
 	}
-	rl.Parent = parent
-	return nil
+
+	return t.originalQs.Clone().BulkCreate(targets)
 }
 
-func (rl *RelM2M[T1, T2]) SetValues(rel []Relation) {
-	if len(rel) == 0 {
-		rl.relations = orderedmap.NewOrderedMap[any, RelO2O[T1, T2]]()
-		// rl.relations = make([]RelO2O[T1, T2], 0)
-		return
+func (t *relatedQuerySet[T]) createThroughObjects(targets []T) ([]Relation, error) {
+	if t.rel == nil {
+		panic("Relation is nil, cannot create through object")
 	}
 
-	rl.relations = orderedmap.NewOrderedMap[any, RelO2O[T1, T2]]()
-	// rl.relations = make([]RelO2O[T1, T2], 0, len(rel))
-	for _, r := range rel {
-		if r == nil {
-			continue
+	var throughModel = t.rel.Through()
+	if throughModel == nil {
+		panic("Through model is nil, cannot create through object")
+	}
+
+	var targetsToSave = make([]T, 0, len(targets))
+	for _, target := range targets {
+		var (
+			defs    = target.FieldDefs()
+			primary = defs.Primary()
+			pkValue = primary.GetValue()
+		)
+
+		if fields.IsZero(pkValue) {
+			targetsToSave = append(targetsToSave, target)
+		}
+	}
+
+	if len(targetsToSave) > 0 {
+		var err error
+		targets, err = t.createTargets(targetsToSave)
+		if err != nil {
+			return nil, fmt.Errorf("failed to save targets: %w", err)
+		}
+	}
+
+	// Create a new instance of the through model
+	var (
+		throughObj            = throughModel.Model()
+		throughSourceFieldStr = throughModel.SourceField()
+		throughTargetFieldStr = throughModel.TargetField()
+
+		sourceObject        = t.source.Object.FieldDefs()
+		sourceObjectPrimary = sourceObject.Primary()
+		sourceObjectPk      = sourceObjectPrimary.GetValue()
+
+		relations     = make([]Relation, 0, len(targets))
+		throughModels = make([]attrs.Definer, 0, len(targets))
+	)
+
+	for _, target := range targets {
+		var (
+			// target related values
+			targetDefs    = target.FieldDefs()
+			targetPrimary = targetDefs.Primary()
+			targetPk      = targetPrimary.GetValue()
+
+			// through model values
+			ok          bool
+			sourceField attrs.Field
+			targetField attrs.Field
+			newInstance = internal.NewObjectFromIface(throughObj)
+			fieldDefs   = newInstance.FieldDefs()
+		)
+
+		if sourceField, ok = fieldDefs.Field(throughSourceFieldStr); !ok {
+			return nil, query_errors.ErrFieldNotFound
+		}
+		if targetField, ok = fieldDefs.Field(throughTargetFieldStr); !ok {
+			return nil, query_errors.ErrFieldNotFound
 		}
 
-		var o2o = RelO2O[T1, T2]{
-			Parent:        rl.Parent,
-			Object:        r.Model().(T1),
-			ThroughObject: r.Through().(T2),
+		if err := sourceField.SetValue(sourceObjectPk, true); err != nil {
+			return nil, err
+		}
+		if err := targetField.SetValue(targetPk, true); err != nil {
+			return nil, err
 		}
 
-		// rl.relations = append(rl.relations, o2o)
-
-		var pkValue any
-		if canPk, ok := r.(canPrimaryKey); ok {
-			pkValue = canPk.PrimaryKey()
+		// Create a new relation object
+		var rel = &baseRelation{
+			pk:      targetPk,
+			object:  target,
+			through: newInstance,
 		}
 
-		// First nil check we can get the primary key
-		// from the relation's definitions.
-		if pkValue == nil {
-			var objDefs = o2o.Object.FieldDefs()
-			var pkField = objDefs.Primary()
-			pkValue = pkField.GetValue()
-		}
-
-		// If the primary key is still nill it is OK to panic,
-		// because it means the object does not have a primary key set.
-		if pkValue == nil {
-			panic(fmt.Sprintf("cannot set related object %T with nil primary key", o2o.Object))
-		}
-
-		rl.relations.Set(pkValue, o2o)
+		throughModels = append(throughModels, newInstance)
+		relations = append(relations, rel)
 	}
+
+	throughModels, err := GetQuerySet(throughObj).BulkCreate(throughModels)
+	if err != nil {
+		return nil, err
+	}
+
+	return relations, nil
 }
 
-// GetValues returns the related objects and their through objects.
-func (rl *RelM2M[T1, T2]) GetValues() []Relation {
-	if rl == nil || rl.relations == nil {
-		return nil
+func (t *relatedQuerySet[T]) Select(fields ...any) *relatedQuerySet[T] {
+	if t.qs == nil {
+		panic("QuerySet is nil, cannot call Select()")
 	}
-	// var relatedObjects = make([]Relation, len(rl.relations))
-	// for i, rel := range rl.relations {
-	// relatedObjects[i] = &rel
-	// }
-	// return relatedObjects
-	var relatedObjects = make([]Relation, 0, rl.relations.Len())
-	for relHead := rl.relations.Front(); relHead != nil; relHead = relHead.Next() {
-		relatedObjects = append(relatedObjects, &relHead.Value)
-	}
-	return relatedObjects
+	t.qs = t.qs.Select(fields...)
+	return t
 }
 
-func (rl *RelM2M[T1, T2]) Objects() []RelO2O[T1, T2] {
-	if rl == nil || rl.relations == nil {
-		return nil
-	}
-
-	var relatedObjects = make([]RelO2O[T1, T2], 0, rl.relations.Len())
-	for relHead := rl.relations.Front(); relHead != nil; relHead = relHead.Next() {
-		relatedObjects = append(relatedObjects, relHead.Value)
-	}
-	return relatedObjects
+func (t *relatedQuerySet[T]) Filter(key any, vals ...any) *relatedQuerySet[T] {
+	t.qs = t.qs.Filter(key, vals...)
+	return t
 }
 
-func (rl *RelM2M[T1, T2]) Len() int {
-	if rl == nil || rl.relations == nil {
-		return 0
-	}
-	// return len(rl.relations)
-	return rl.relations.Len()
+func (t *relatedQuerySet[T]) OrderBy(fields ...string) *relatedQuerySet[T] {
+	t.qs = t.qs.OrderBy(fields...)
+	return t
 }
+
+func (t *relatedQuerySet[T]) Limit(limit int) *relatedQuerySet[T] {
+	t.qs = t.qs.Limit(limit)
+	return t
+}
+
+func (t *relatedQuerySet[T]) Offset(offset int) *relatedQuerySet[T] {
+	t.qs = t.qs.Offset(offset)
+	return t
+}
+
+func (t *relatedQuerySet[T]) Get() (*Row[T], error) {
+	if t.qs == nil {
+		panic("QuerySet is nil, cannot call Get()")
+	}
+	return t.qs.Get()
+}
+
+func (t *relatedQuerySet[T]) All() (Rows[T], error) {
+	if t.qs == nil {
+		panic("QuerySet is nil, cannot call All()")
+	}
+	return t.qs.All()
+}
+
+//
+//type RelOneToOneQuerySet[T attrs.Definer] struct {
+//	backRef             ThroughRelationValue
+//	*relatedQuerySet[T] // Embedding the relatedQuerySet to inherit its methods
+//}
+//
+//func NewRelOneToOneQuerySet[T attrs.Definer](backRef attrs.Binder, model T) *RelOneToOneQuerySet[T] {
+//	var parentInfo = backRef.ParentInfo()
+//	return &RelOneToOneQuerySet[T]{
+//		backRef:         backRef,
+//		relatedQuerySet: newRelatedQuerySet(parentInfo, model),
+//	}
+//}
+//
+//type RelManyToOneQuerySet[T attrs.Definer] struct {
+//	backRef             MultiThroughRelationValue
+//	*relatedQuerySet[T] // Embedding the relatedQuerySet to inherit its methods
+//}
+//
+//func NewRelManyToOneQuerySet[T attrs.Definer](backRef attrs.Binder, model T) *RelManyToOneQuerySet[T] {
+//	var parentInfo = backRef.ParentInfo()
+//	return &RelManyToOneQuerySet[T]{
+//		backRef:         backRef,
+//		relatedQuerySet: newRelatedQuerySet(parentInfo, model),
+//	}
+//}
+//

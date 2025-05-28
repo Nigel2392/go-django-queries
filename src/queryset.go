@@ -852,6 +852,10 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 		condB_Alias = targetTable
 	)
 
+	if relField == nil {
+		relField = targetDefs.Primary()
+	}
+
 	if len(aliases) == 1 {
 		condB_Alias = aliases[0]
 	} else if len(aliases) > 1 {
@@ -931,15 +935,16 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 		target      = manyToMany.Model()
 		targetDefs  = target.FieldDefs()
 		targetTable = targetDefs.TableName()
+		// targetField = getTargetField()
 
 		front, back = qs.compiler.Quote()
 	)
 
-	sourceField, ok := throughDefs.Field(through.SourceField())
+	throughSourceField, ok := throughDefs.Field(through.SourceField())
 	if !ok {
 		panic(fmt.Errorf("field %q not found in %T", through.SourceField(), throughModel))
 	}
-	targetField, ok := throughDefs.Field(through.TargetField())
+	throughTargetField, ok := throughDefs.Field(through.TargetField())
 	if !ok {
 		panic(fmt.Errorf("field %q not found in %T", through.TargetField(), throughModel))
 	}
@@ -954,6 +959,10 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 	var (
 		alias        = aliases[len(aliases)-1]
 		aliasThrough = fmt.Sprintf("%s_through", alias)
+		targetField  = getTargetField(
+			throughTargetField,
+			targetDefs,
+		)
 	)
 
 	// JOIN through table
@@ -972,7 +981,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 		ConditionB: fmt.Sprintf(
 			"%s%s%s.%s%s%s",
 			front, aliasThrough, back,
-			front, sourceField.ColumnName(), back,
+			front, throughSourceField.ColumnName(), back,
 		),
 	}
 
@@ -986,13 +995,13 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 		ConditionA: fmt.Sprintf(
 			"%s%s%s.%s%s%s",
 			front, aliasThrough, back,
-			front, targetField.ColumnName(), back,
+			front, throughTargetField.ColumnName(), back,
 		),
 		Operator: LogicalOpEQ,
 		ConditionB: fmt.Sprintf(
 			"%s%s%s.%s%s%s",
 			front, alias, back,
-			front, targetDefs.Primary().ColumnName(), back,
+			front, targetField.ColumnName(), back,
 		),
 	}
 

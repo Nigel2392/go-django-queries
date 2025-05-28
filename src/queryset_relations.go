@@ -8,6 +8,7 @@ import (
 )
 
 var (
+	_ canPrimaryKey             = (*baseRelation)(nil)
 	_ Relation                  = (*baseRelation)(nil)
 	_ Relation                  = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
 	_ ThroughRelationValue      = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
@@ -127,22 +128,30 @@ func (rl *RelM2M[T1, T2]) SetValues(rel []Relation) {
 		if r == nil {
 			continue
 		}
+
 		var o2o = RelO2O[T1, T2]{
+			Parent:        rl.Parent,
 			Object:        r.Model().(T1),
 			ThroughObject: r.Through().(T2),
 		}
 
 		// rl.relations = append(rl.relations, o2o)
-		//
+
 		var pkValue any
-		if canPk, ok := r.(CanPrimaryKey); ok {
+		if canPk, ok := r.(canPrimaryKey); ok {
 			pkValue = canPk.PrimaryKey()
-		} else {
+		}
+
+		// First nil check we can get the primary key
+		// from the relation's definitions.
+		if pkValue == nil {
 			var objDefs = o2o.Object.FieldDefs()
 			var pkField = objDefs.Primary()
 			pkValue = pkField.GetValue()
 		}
 
+		// If the primary key is still nill it is OK to panic,
+		// because it means the object does not have a primary key set.
 		if pkValue == nil {
 			panic(fmt.Sprintf("cannot set related object %T with nil primary key", o2o.Object))
 		}

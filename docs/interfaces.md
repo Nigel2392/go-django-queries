@@ -71,7 +71,7 @@ Values from `Row.Annotations` will also be stored in the model.
 
 ```go
 type DataModel interface {
-	ModelDataStore() ModelDataStore
+    ModelDataStore() ModelDataStore
 }
 ```
 
@@ -82,10 +82,10 @@ on the model which the datastore belongs to.
 
 ```go
 type ModelDataStore interface {
-	HasValue(key string) bool
-	GetValue(key string) (any, bool)
-	SetValue(key string, value any) error
-	DeleteValue(key string) error
+    HasValue(key string) bool
+    GetValue(key string) (any, bool)
+    SetValue(key string, value any) error
+    DeleteValue(key string) error
 }
 ```
 

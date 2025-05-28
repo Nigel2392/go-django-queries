@@ -104,13 +104,16 @@ type ParentInfo struct {
 	Field  attrs.Field
 }
 
-type CanPrimaryKey interface {
+// canPrimaryKey is an interface that can be implemented by a model field's value
+type canPrimaryKey interface {
 	// PrimaryKey returns the primary key of the relation.
 	PrimaryKey() any
 }
 
 // BindableRelationValue is an interface that can be implemented by a model field's value
 // to indicate that the field's relation value can be bound to a parent model instance.
+//
+// This is used for OneToOne relations with a through table, or for ManyToMany relations with a through table.
 type BindableRelationValue interface {
 	ParentInfo() *ParentInfo
 	BindToObject(instance *ParentInfo) error

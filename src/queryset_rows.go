@@ -24,12 +24,22 @@ type Row[T attrs.Definer] struct {
 	QuerySet    *QuerySet[T]
 }
 
+// A collection of Row[T] objects, where T is a type that implements attrs.Definer.
+//
+// This collection is used to represent the result set of a QuerySet.
 type Rows[T attrs.Definer] []*Row[T]
 
 func (r Rows[T]) Len() int {
 	return len(r)
 }
 
+// Pluck returns a sequence of field values from the rows based on the provided path to the field.
+//
+// The path to the field is a dot-separated string that specifies the field to pluck from each row.
+//
+// It traverses the field definitions of each row's object to find the specified field,
+// and yields the index of that field.
+// The index will be increased by one for each field processed.
 func (rows Rows[T]) Pluck(pathToField string) iter.Seq2[int, attrs.Field] {
 	var (
 		idx        = 0
@@ -55,6 +65,12 @@ func (rows Rows[T]) Pluck(pathToField string) iter.Seq2[int, attrs.Field] {
 	})
 }
 
+// PluckRowValues returns a sequence of values from the rows based on the provided path to the field.
+//
+// The path to the field is a dot-separated string that specifies the field to pluck from each row.
+// It traverses the field definitions of each row's object to find the specified field,
+// and yields the index of that field along with its value.
+// The index will be increased by one for each field processed.
 func PluckRowValues[ValueT any, ModelT attrs.Definer](rows Rows[ModelT], pathToField string) iter.Seq2[int, ValueT] {
 	return func(yield func(int, ValueT) bool) {
 		for idx, field := range rows.Pluck(pathToField) {

@@ -17,8 +17,6 @@ const (
 	actsAfterCreate
 	actsBeforeUpdate
 	actsAfterUpdate
-	actsBeforeDelete
-	actsAfterDelete
 )
 
 type ActsAfterQuery interface {

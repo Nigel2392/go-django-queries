@@ -49,6 +49,13 @@ type RelO2O[ModelType, ThroughModelType attrs.Definer] struct {
 	ThroughObject ThroughModelType
 }
 
+func (rl *RelO2O[T1, T2]) ParentInfo() *ParentInfo {
+	if rl == nil {
+		return nil
+	}
+	return rl.Parent
+}
+
 func (rl *RelO2O[T1, T2]) BindToObject(parent *ParentInfo) error {
 	if rl == nil {
 		return nil
@@ -90,6 +97,13 @@ type RelM2M[T1, T2 attrs.Definer] struct {
 	Parent    *ParentInfo                                 // The parent model instance
 	relations *orderedmap.OrderedMap[any, RelO2O[T1, T2]] // can be changed to slice if needed
 	// relations []RelO2O[T1, T2] // can be changed to OrderedMap if needed
+}
+
+func (rl *RelM2M[T1, T2]) ParentInfo() *ParentInfo {
+	if rl == nil {
+		return nil
+	}
+	return rl.Parent
 }
 
 func (rl *RelM2M[T1, T2]) BindToObject(parent *ParentInfo) error {

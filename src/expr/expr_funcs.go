@@ -49,7 +49,7 @@ func (e *Func) SQL(sb *strings.Builder) []any {
 
 	sql, params, err := e.sql(
 		innerBuf.String(),
-		append(e.args, args...),
+		slices.Clone(e.args),
 	)
 
 	if err != nil {
@@ -57,7 +57,8 @@ func (e *Func) SQL(sb *strings.Builder) []any {
 	}
 
 	sb.WriteString(sql)
-	return params
+
+	return append(args, params...)
 }
 
 func (e *Func) Clone() Expression {

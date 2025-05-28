@@ -60,7 +60,7 @@ func ListObjectsByIDs[T attrs.Definer, T2 any](object T, offset, limit uint64, i
 		primaryField = definitions.Primary()
 	)
 
-	var d, err = Objects[T](obj).
+	var d, err = GetQuerySet(obj).
 		Filter(
 			fmt.Sprintf("%s__in", primaryField.Name()),
 			attrs.InterfaceList(ids)...,
@@ -86,7 +86,7 @@ func ListObjectsByIDs[T attrs.Definer, T2 any](object T, offset, limit uint64, i
 // It takes an offset and a limit as parameters and returns a slice of objects of type T.
 func ListObjects[T attrs.Definer](object T, offset, limit uint64, ordering ...string) ([]T, error) {
 	var obj = internal.NewObjectFromIface(object).(T)
-	var d, err = Objects[T](obj).
+	var d, err = GetQuerySet(obj).
 		OrderBy(ordering...).
 		Limit(int(limit)).
 		Offset(int(offset)).
@@ -133,7 +133,7 @@ func GetObject[T attrs.Definer](object T, identifier any) (T, error) {
 		)
 	}
 
-	d, err := Objects[T](obj).
+	d, err := GetQuerySet(obj).
 		Filter(
 			fmt.Sprintf("%s__exact", primaryField.Name()),
 			primaryValue,
@@ -149,7 +149,7 @@ func GetObject[T attrs.Definer](object T, identifier any) (T, error) {
 
 // CountObjects counts the number of objects in the database.
 func CountObjects[T attrs.Definer](obj T) (int64, error) {
-	return Objects[T](obj).Count()
+	return GetQuerySet(obj).Count()
 }
 
 // SaveObject saves an object to the database.
@@ -188,7 +188,7 @@ func sendSignal(s signals.Signal[SignalSave], obj attrs.Definer, q QueryCompiler
 func CreateObject[T attrs.Definer](obj T) error {
 	var (
 		err error
-		qs  = Objects[T](obj).ExplicitSave()
+		qs  = GetQuerySet(obj).ExplicitSave()
 	)
 
 	_, err = qs.BulkCreate([]T{obj})
@@ -221,7 +221,7 @@ func UpdateObject[T attrs.Definer](obj T) (int64, error) {
 	}
 
 	var (
-		qs = Objects[T](obj).
+		qs = GetQuerySet(obj).
 			Filter(primary.Name(), primaryVal)
 		compiler = qs.Compiler()
 	)
@@ -281,7 +281,7 @@ func DeleteObject[T attrs.Definer](obj T) (int64, error) {
 		return 1, nil
 	}
 
-	d, err := Objects[T](obj).
+	d, err := GetQuerySet(obj).
 		Filter(primary.Name(), primaryVal).
 		Delete()
 	if err != nil {

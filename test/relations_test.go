@@ -1160,15 +1160,16 @@ var manyToManyTests = []ManyToManyTest{
 			}
 
 			var checkRow = func(t *testing.T, row *queries.Row[*ModelManyToMany], actual *queries.RelM2M[*ModelManyToMany_Target, *ModelManyToMany_Through], expected []*ModelManyToMany_Target, expectedReverse map[int64][]*ModelManyToMany) {
-				for i, item := range *actual {
+				var idx = 0
+				for i, item := range actual.Iter() {
 					target := item.Model().(*ModelManyToMany_Target)
 
-					if target.ID != expected[i].ID {
-						t.Fatalf("Expected target[%d].ID to be %d, got %d", i, expected[i].ID, target.ID)
+					if target.ID != expected[idx].ID {
+						t.Fatalf("Expected target[%d].ID to be %d, got %d", i, expected[idx].ID, target.ID)
 					}
 
-					if target.Name != expected[i].Name {
-						t.Fatalf("Expected target[%d].Name to be %q, got %q", i, expected[i].Name, target.Name)
+					if target.Name != expected[idx].Name {
+						t.Fatalf("Expected target[%d].Name to be %q, got %q", i, expected[idx].Name, target.Name)
 					}
 
 					rev, ok := target.ModelDataStore().GetValue("TargetReverse")
@@ -1210,6 +1211,7 @@ var manyToManyTests = []ManyToManyTest{
 							t.Fatalf("Expected revTarget[%d].Title to be %q, got %q", j, expectedRev[j].Title, revTarget.Title)
 						}
 					}
+					idx++
 				}
 			}
 
@@ -1258,7 +1260,7 @@ func TestManyToMany(t *testing.T) {
 	// 	m2m_targets[2] -> [m2m_sources[1], m2m_sources[2], m2m_sources[3]]
 	// 	m2m_targets[3] -> [m2m_sources[2], m2m_sources[3]]
 
-	var profiles, profile_delete = createObjects[*Profile](t,
+	var profiles, _ = createObjects[*Profile](t,
 		&Profile{
 			Name: "TestManyToManyProfile1",
 		},
@@ -1267,7 +1269,7 @@ func TestManyToMany(t *testing.T) {
 		},
 	)
 
-	var users, user_delete = createObjects[*User](t,
+	var users, _ = createObjects[*User](t,
 		&User{
 			Name:    "TestManyToManyUser1",
 			Profile: profiles[0],
@@ -1278,7 +1280,7 @@ func TestManyToMany(t *testing.T) {
 		},
 	)
 
-	var m2m_sources, m2m_source_delete = createObjects[*ModelManyToMany](t,
+	var m2m_sources, _ = createObjects[*ModelManyToMany](t,
 		&ModelManyToMany{
 			Title: "TestManyToMany1",
 			User:  &User{ID: int(users[0].ID)},
@@ -1293,7 +1295,7 @@ func TestManyToMany(t *testing.T) {
 		},
 	)
 
-	var m2m_targets, m2m_target_delete = createObjects[*ModelManyToMany_Target](t,
+	var m2m_targets, _ = createObjects[*ModelManyToMany_Target](t,
 		&ModelManyToMany_Target{
 			Name: "TestManyToMany_Target1",
 			Age:  25,
@@ -1312,7 +1314,7 @@ func TestManyToMany(t *testing.T) {
 		},
 	)
 
-	var m2m_throughs, m2m_through_delete = createObjects[*ModelManyToMany_Through](t,
+	var m2m_throughs, _ = createObjects[*ModelManyToMany_Through](t,
 		&ModelManyToMany_Through{
 			SourceModel: &ModelManyToMany{
 				ID: m2m_sources[0].ID,
@@ -1392,9 +1394,71 @@ func TestManyToMany(t *testing.T) {
 		})
 	}
 
-	profile_delete()
-	m2m_target_delete()
-	m2m_source_delete()
-	m2m_through_delete()
-	user_delete()
+	//profile_delete()
+	//m2m_target_delete()
+	//m2m_source_delete()
+	//m2m_through_delete()
+	//user_delete()
+}
+
+func TestPluckRows(t *testing.T) {
+	var rows, err = queries.GetQuerySet(&ModelManyToMany{}).
+		Select("*", "User.*", "User.Profile.*").
+		OrderBy("User.Profile.ID").
+		All()
+
+	if err != nil {
+		t.Fatalf("Failed to get rows: %v", err)
+	}
+
+	if len(rows) == 0 {
+		t.Fatalf("Expected at least 1 row, got 0")
+	}
+
+	var values = make([]int, 0, len(rows))
+	for idx, value := range queries.PluckRowValues[int](rows, "User.Profile.ID") {
+		t.Logf("Row %d: %v\n", idx, value)
+		values = append(values, value)
+	}
+
+	for idx, row := range rows {
+		var profileID = row.Object.User.Profile.ID
+		if profileID != values[idx] {
+			t.Errorf("Expected Profile ID %d, got %d", profileID, values[idx])
+		}
+	}
+}
+
+func TestRowsValues(t *testing.T) {
+	var rows, err = queries.GetQuerySet(&ModelManyToMany{}).
+		Select("*", "User.*", "User.Profile.*").
+		OrderBy("User.Profile.ID").
+		All()
+
+	if err != nil {
+		t.Fatalf("Failed to get rows: %v", err)
+	}
+
+	if len(rows) == 0 {
+		t.Fatalf("Expected at least 1 row, got 0")
+	}
+
+	var values = rows.Values("User.Name", "User.Profile.ID")
+	if len(values) == 0 {
+		t.Fatalf("Expected at least 1 value, got 0")
+	}
+
+	for idx, row := range rows {
+		var userName = row.Object.User.Name
+		var profileID = row.Object.User.Profile.ID
+
+		if userName != values[idx]["User.Name"] {
+			t.Errorf("Expected User Name %q, got %q", userName, values[idx]["User.Name"])
+		}
+		if profileID != values[idx]["User.Profile.ID"] {
+			t.Errorf("Expected Profile ID %d, got %d", profileID, values[idx]["User.Profile.ID"])
+		}
+
+		t.Logf("Values for row %d: %v", idx, values[idx])
+	}
 }

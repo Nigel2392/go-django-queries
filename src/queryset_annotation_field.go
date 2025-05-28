@@ -16,6 +16,8 @@ var (
 	_ VirtualField = &exprField{}
 )
 
+// a field used internally in queryset annotations
+// to represent a query expression.
 type queryField[T any] struct {
 	name  string
 	expr  expr.Expression
@@ -68,6 +70,10 @@ func (q *queryField[T]) HelpText() string             { return "" }
 
 var _ VirtualField = &exprField{}
 
+// a field used internally in queryset expressions
+// to represent an expression that can be used in SQL queries.
+//
+// it wraps the provided [attrs.Field] and implements the [VirtualField] interface.
 type exprField struct {
 	attrs.Field
 	expr expr.Expression

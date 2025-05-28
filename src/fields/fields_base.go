@@ -30,9 +30,13 @@ type DataModelField[T any] struct {
 
 	// resultType is the type of the result of the expression
 	resultType reflect.Type
+
+	// fieldRef is the back reference in case this field is embedded in another
+	// field type
+	fieldRef attrs.Field
 }
 
-func NewDataModelField[T any](forModel attrs.Definer, dst any, name string) *DataModelField[T] {
+func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref ...attrs.Field) *DataModelField[T] {
 	if forModel == nil || dst == nil {
 		panic("NewDataModelField: model is nil")
 	}
@@ -70,11 +74,21 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string) *Dat
 		}
 	}
 
+	var fRef attrs.Field
+	if len(ref) > 0 {
+		fRef = ref[0]
+	}
+
+	if len(ref) > 0 && fRef == nil {
+		panic(fmt.Errorf("NewDataModelField: fieldRef is nil for %T.%s", forModel, name))
+	}
+
 	var f = &DataModelField[T]{
 		Model:      forModel,
 		DataModel:  dst,
 		resultType: Type,
 		name:       name,
+		fieldRef:   fRef,
 	}
 
 	return f
@@ -173,9 +187,16 @@ func (e *DataModelField[T]) GetValue() interface{} {
 		return *new(T)
 	}
 
-	assert.Err(attrs.BindValueToModel(
-		e.Model, e, val,
-	))
+	switch {
+	case e.fieldRef != nil:
+		assert.Err(attrs.BindValueToModel(
+			e.Model, e.fieldRef, val,
+		))
+	default:
+		assert.Err(attrs.BindValueToModel(
+			e.Model, e, val,
+		))
+	}
 
 	valTyped, ok := val.(T)
 	if !ok {

@@ -84,12 +84,14 @@ func NewRelatedField[T any](forModel attrs.Definer, dst any, name string, revers
 	//	defs = inst.FieldDefs()
 	//)
 
-	return &RelationField[T]{
+	var f = &RelationField[T]{
 		DataModelField: NewDataModelField[T](forModel, dst, name),
 		col:            columnName,
 		name:           reverseName,
 		rel:            rel,
 	}
+	f.DataModelField.fieldRef = f // Set the field reference to itself
+	return f
 }
 
 func (m *RelationField[T]) Name() string {

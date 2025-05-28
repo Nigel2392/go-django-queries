@@ -85,6 +85,14 @@ type OrderBy struct {
 	Desc  bool
 }
 
+type JoinCondition struct {
+	ConditionA string         // The first condition to join on
+	ConditionB string         // The second condition to join on
+	Operator   LogicalOp      // The operator to use to join the two conditions
+	Args       []any          // Additional arguments to use in the join condition
+	Next       *JoinCondition // The next join condition, if any
+}
+
 // JoinDef represents a join definition in a query.
 //
 // It contains the table to join, the type of join, and the fields to join on.
@@ -92,11 +100,9 @@ type OrderBy struct {
 // See [JoinType] for different types of joins.
 // See [LogicalOp] for different logical operators.
 type JoinDef struct {
-	Table      Table
-	TypeJoin   JoinType
-	ConditionA string
-	Operator   LogicalOp
-	ConditionB string
+	Table         Table
+	TypeJoin      JoinType
+	JoinCondition *JoinCondition
 }
 
 // FieldInfo represents information about a field in a query.
@@ -274,6 +280,23 @@ type QuerySetInternals struct {
 	annotations *FieldInfo
 }
 
+func (i *QuerySetInternals) addJoin(join JoinDef) {
+	if i.joinsMap == nil {
+		i.joinsMap = make(map[string]bool)
+	}
+
+	var key = fmt.Sprintf(
+		"%s.%s",
+		join.JoinCondition.ConditionA,
+		join.JoinCondition.ConditionB,
+	)
+
+	if _, exists := i.joinsMap[key]; !exists {
+		i.joinsMap[key] = true
+		i.Joins = append(i.Joins, join)
+	}
+}
+
 // QuerySet is a struct that represents a query set in the database.
 //
 // It contains methods to filter, order, and limit the results of a query.
@@ -353,7 +376,11 @@ func GetQuerySet[T attrs.Definer](model T) *QuerySet[T] {
 func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
 	var modelV = reflect.ValueOf(model)
 
-	if !modelV.IsValid() || modelV.IsNil() {
+	if !modelV.IsValid() {
+		panic("QuerySet: model is not a valid value")
+	}
+
+	if modelV.IsNil() {
 		panic("QuerySet: model is nil")
 	}
 
@@ -693,11 +720,20 @@ func (qs *QuerySet[T]) GoString() string {
 				sb.WriteString(join.Table.Alias)
 			}
 			sb.WriteString(" ON ")
-			sb.WriteString(join.ConditionA)
-			sb.WriteString(" ")
-			sb.WriteString(string(join.Operator))
-			sb.WriteString(" ")
-			sb.WriteString(join.ConditionB)
+			var cond = join.JoinCondition
+			for cond != nil {
+				sb.WriteString(cond.ConditionA)
+				sb.WriteString(" ")
+				sb.WriteString(string(cond.Operator))
+				sb.WriteString(" ")
+				sb.WriteString(cond.ConditionB)
+
+				cond = cond.Next
+
+				if cond != nil {
+					sb.WriteString(" AND ")
+				}
+			}
 		}
 		sb.WriteString("\n\t],")
 	}
@@ -912,9 +948,11 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 			Name:  targetTable,
 			Alias: aliases[len(aliases)-1],
 		},
-		ConditionA: condA,
-		Operator:   LogicalOpEQ,
-		ConditionB: condB,
+		JoinCondition: &JoinCondition{
+			ConditionA: condA,
+			Operator:   LogicalOpEQ,
+			ConditionB: condB,
+		},
 	}
 
 	return []*FieldInfo{info}, []JoinDef{join}
@@ -972,17 +1010,19 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 			Name:  throughTable,
 			Alias: aliasThrough,
 		},
-		ConditionA: fmt.Sprintf(
-			"%s%s%s.%s%s%s",
-			front, parentAlias, back,
-			front, parentField.ColumnName(), back,
-		),
-		Operator: LogicalOpEQ,
-		ConditionB: fmt.Sprintf(
-			"%s%s%s.%s%s%s",
-			front, aliasThrough, back,
-			front, throughSourceField.ColumnName(), back,
-		),
+		JoinCondition: &JoinCondition{
+			ConditionA: fmt.Sprintf(
+				"%s%s%s.%s%s%s",
+				front, parentAlias, back,
+				front, parentField.ColumnName(), back,
+			),
+			Operator: LogicalOpEQ,
+			ConditionB: fmt.Sprintf(
+				"%s%s%s.%s%s%s",
+				front, aliasThrough, back,
+				front, throughSourceField.ColumnName(), back,
+			),
+		},
 	}
 
 	// JOIN target table
@@ -992,28 +1032,30 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 			Name:  targetTable,
 			Alias: alias,
 		},
-		ConditionA: fmt.Sprintf(
-			"%s%s%s.%s%s%s",
-			front, aliasThrough, back,
-			front, throughTargetField.ColumnName(), back,
-		),
-		Operator: LogicalOpEQ,
-		ConditionB: fmt.Sprintf(
-			"%s%s%s.%s%s%s",
-			front, alias, back,
-			front, targetField.ColumnName(), back,
-		),
+		JoinCondition: &JoinCondition{
+			ConditionA: fmt.Sprintf(
+				"%s%s%s.%s%s%s",
+				front, aliasThrough, back,
+				front, throughTargetField.ColumnName(), back,
+			),
+			Operator: LogicalOpEQ,
+			ConditionB: fmt.Sprintf(
+				"%s%s%s.%s%s%s",
+				front, alias, back,
+				front, targetField.ColumnName(), back,
+			),
+		},
 	}
 
 	// Prevent duplicate joins
 	var joins = make([]JoinDef, 0, 2)
-	if _, ok := joinM[join1.ConditionA+"."+join1.ConditionB]; !ok {
+	if _, ok := joinM[join1.JoinCondition.ConditionA+"."+join1.JoinCondition.ConditionB]; !ok {
 		joins = append(joins, join1)
-		joinM[join1.ConditionA+"."+join1.ConditionB] = true
+		joinM[join1.JoinCondition.ConditionA+"."+join1.JoinCondition.ConditionB] = true
 	}
-	if _, ok := joinM[join2.ConditionA+"."+join2.ConditionB]; !ok {
+	if _, ok := joinM[join2.JoinCondition.ConditionA+"."+join2.JoinCondition.ConditionB]; !ok {
 		joins = append(joins, join2)
-		joinM[join2.ConditionA+"."+join2.ConditionB] = true
+		joinM[join2.JoinCondition.ConditionA+"."+join2.JoinCondition.ConditionB] = true
 	}
 
 	var includedFields = []attrs.Field{field}
@@ -1084,22 +1126,10 @@ func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 	}
 
 	if len(fields) == 0 {
-		fields = make([]any, 0, len(qs.queryInfo.Fields))
-		for _, field := range qs.queryInfo.Fields {
-			if ForSelectAll(field) {
-				fields = append(fields, field.Name())
-			}
-		}
-	} else if len(fields) > 0 && fields[0] == "*" {
-		var f = make([]any, 0, len(qs.queryInfo.Fields)+(len(fields)-1))
-		for _, field := range qs.queryInfo.Fields {
-			if ForSelectAll(field) {
-				f = append(f, field.Name())
-			}
-		}
-		fields = append(f, fields[1:]...)
+		fields = []any{"*"}
 	}
 
+fieldsLoop:
 	for _, selectedFieldObj := range fields {
 
 		var selectedField string
@@ -1112,14 +1142,33 @@ func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 			if selectedField == "" {
 				panic(fmt.Errorf("Select: empty field name for %T", v))
 			}
+		case *FieldInfo:
+			qs.internals.Fields = append(qs.internals.Fields, v)
+			continue fieldsLoop
 		default:
 			panic(fmt.Errorf("Select: invalid field type %T, can be one of [string, NamedExpression]", v))
 		}
 
 		var allFields bool
-		if strings.HasSuffix(strings.ToLower(selectedField), ".*") {
-			selectedField = selectedField[:len(selectedField)-2]
+		if strings.HasSuffix(selectedField, "*") {
+			selectedField = strings.TrimSuffix(selectedField, "*")
+			selectedField = strings.TrimSuffix(selectedField, ".")
 			allFields = true
+		}
+
+		if selectedField == "" && !allFields {
+			panic(fmt.Errorf("Select: empty field path, cannot select field \"\""))
+		}
+
+		if selectedField == "" && allFields {
+			qs.internals.Fields = append(qs.internals.Fields, &FieldInfo{
+				Model: qs.model,
+				Table: Table{
+					Name: qs.queryInfo.TableName,
+				},
+				Fields: ForSelectAllFields[attrs.Field](qs.model),
+			})
+			continue fieldsLoop
 		}
 
 		var current, parent, field, chain, aliases, isRelated, err = internal.WalkFields(
@@ -1134,7 +1183,7 @@ func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 					},
 					Fields: []attrs.Field{field},
 				})
-				continue
+				continue fieldsLoop
 			}
 
 			panic(err)
@@ -1203,7 +1252,7 @@ func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 				qs.internals.Joins = append(qs.internals.Joins, join...)
 			}
 
-			continue
+			continue fieldsLoop
 		}
 
 		qs.internals.Fields = append(qs.internals.Fields, &FieldInfo{
@@ -1548,7 +1597,10 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 	//
 	// also add o2o relations, this will
 	// make sure the through model gets set later on
-	var rootScannable *scannableField
+	var (
+		rootScannable     *scannableField
+		anyOfRowScannable *scannableField
+	)
 	for _, scannable := range scannables {
 		// check if field is a multi-valued relation
 		if (scannable.relType == attrs.RelManyToMany ||
@@ -1562,6 +1614,10 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 
 		if scannable.relType == -1 && scannable.field.IsPrimary() && rootScannable == nil {
 			rootScannable = scannable
+		}
+
+		if scannable.relType == -1 && anyOfRowScannable == nil {
+			anyOfRowScannable = scannable
 		}
 	}
 
@@ -1603,7 +1659,7 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 			val := row[j]
 
 			if err := f.Scan(val); err != nil {
-				return nil, errors.Wrapf(err, "failed to scan field %q in %T", f.Name(), obj)
+				return nil, errors.Wrapf(err, "failed to scan field %q (%T) in %T", f.Name(), f, f.Instance())
 			}
 
 			// If it's a virtual field not in the model, store as annotation
@@ -1624,7 +1680,10 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 			}
 		}
 
-		var pk any
+		var (
+			pk         any
+			throughObj attrs.Definer
+		)
 		if rootScannable != nil {
 			pk = scannables[rootScannable.idx].field.GetValue()
 		} else {
@@ -1633,8 +1692,13 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 			pk = resultIndex
 		}
 
+		// required in case the root object has a through relation bound to it
+		if anyOfRowScannable != nil {
+			throughObj = scannables[anyOfRowScannable.idx].through
+		}
+
 		rows.addRoot(
-			pk, obj, annotations,
+			pk, obj, throughObj, annotations,
 		)
 
 		for _, possibleDuplicate := range possibleDuplicates {
@@ -1645,7 +1709,7 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 		}
 	}
 
-	return rows.compile()
+	return rows.compile(qs)
 }
 
 // ValuesList is used to retrieve a list of values from the database.
@@ -2444,7 +2508,37 @@ func getScannableFields(fields []*FieldInfo, root attrs.Definer) []*scannableFie
 		rootScannable *scannableField
 		idx           = 0
 	)
+
 	for _, info := range fields {
+		// handle through objects
+		//
+		// this has to be before the final fields are added - the logic
+		// matches that in [FieldInfo.WriteFields].
+		var throughObj attrs.Definer
+		if info.Through != nil {
+			var newObj = internal.NewObjectFromIface(info.Through.Model)
+			var newDefs = newObj.FieldDefs()
+			throughObj = newObj
+
+			for _, f := range info.Through.Fields {
+				var field, ok = newDefs.Field(f.Name())
+				if !ok {
+					panic(fmt.Errorf("field %q not found in %T", f.Name(), newObj))
+				}
+
+				var throughField = &scannableField{
+					isThrough: true,
+					idx:       idx,
+					object:    newObj,
+					field:     field,
+					relType:   info.RelType,
+				}
+
+				scannables = append(scannables, throughField)
+				idx++
+			}
+		}
+
 		if info.SourceField == nil {
 			defs := root.FieldDefs()
 			for _, f := range info.Fields {
@@ -2461,10 +2555,12 @@ func getScannableFields(fields []*FieldInfo, root attrs.Definer) []*scannableFie
 				if !ok {
 					panic(fmt.Errorf("field %q not found in %T", f.Name(), root))
 				}
+
 				var sf = &scannableField{
 					idx:     idx,
 					field:   field,
 					object:  root,
+					through: throughObj,
 					relType: -1,
 				}
 
@@ -2536,36 +2632,6 @@ func getScannableFields(fields []*FieldInfo, root attrs.Definer) []*scannableFie
 			parentScannable = parentFields[key]
 			parentObj = instances[key]
 			parentKey = key
-		}
-
-		// handle through objects
-		//
-		// this has to be before the final fields are added - the logic
-		// matches that in [FieldInfo.WriteFields].
-		var throughObj attrs.Definer
-		if info.Through != nil {
-			var newObj = internal.NewObjectFromIface(info.Through.Model)
-			var newDefs = newObj.FieldDefs()
-			throughObj = newObj
-
-			for _, f := range info.Through.Fields {
-				var field, ok = newDefs.Field(f.Name())
-				if !ok {
-					panic(fmt.Errorf("field %q not found in %T", f.Name(), newObj))
-				}
-
-				var throughField = &scannableField{
-					isThrough: true,
-					idx:       idx,
-					object:    newObj,
-					field:     field,
-					relType:   info.Through.RelType,
-				}
-
-				scannables = append(scannables, throughField)
-
-				idx++
-			}
 		}
 
 		var final = parentObj

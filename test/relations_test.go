@@ -1398,6 +1398,28 @@ func TestManyToMany(t *testing.T) {
 		})
 	}
 
+	var row, err = queries.GetQuerySet(&ModelManyToMany{}).
+		Select("*", "Target.*", "Target.TargetReverse.*").
+		Filter("ID", m2m_sources[0].ID).
+		First()
+	if err != nil {
+		t.Fatalf("Failed to get row: %v", err)
+	}
+
+	a, err := row.Object.Target.QuerySet.All()
+	if err != nil {
+		t.Fatalf("Failed to get Target objects for row 0: %v", err)
+	}
+
+	t.Logf("QuerySet Arguments: %+v", row.QuerySet.LatestQuery().Args())
+	for _, item := range a {
+		var through = item.Through.(*ModelManyToMany_Through)
+		t.Logf("___________________________________________")
+		t.Logf("Row [1] Target item from queryset: %+v", item.Object)
+		t.Logf("Row [2] Target item from queryset: %+v", through.SourceModel)
+		t.Logf("Row [3] Target item from queryset: %+v", through.TargetModel)
+	}
+
 	//profile_delete()
 	//m2m_target_delete()
 	//m2m_source_delete()

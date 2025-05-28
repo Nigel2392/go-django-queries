@@ -68,7 +68,7 @@ type rows[T attrs.Definer] struct {
 // it has to be called before any relations are added - technically
 // root objects can be added inside of the [addRelationChain] method,
 // but this would lose any annotations that are associated with the root object.
-func (r *rows[T]) addRoot(pk any, obj attrs.Definer, annotations map[string]any) *rootObject {
+func (r *rows[T]) addRoot(pk any, obj attrs.Definer, through attrs.Definer, annotations map[string]any) *rootObject {
 	if pk == nil {
 		panic("cannot add root object with nil primary key")
 	}
@@ -87,6 +87,7 @@ func (r *rows[T]) addRoot(pk any, obj attrs.Definer, annotations map[string]any)
 			pk:        pk,
 			obj:       obj,
 			fieldDefs: defs,
+			through:   through,
 			relations: make(map[string]*objectRelation),
 		},
 		annotations: annotations,
@@ -161,7 +162,7 @@ func (r *rows[T]) addRelationChain(chain []chainPart) {
 	}
 }
 
-func (r *rows[T]) compile() ([]*Row[T], error) {
+func (r *rows[T]) compile(qs *QuerySet[T]) (Rows[T], error) {
 	var addRelations func(*object, uint64) error
 	// addRelations is a recursive function that traverses the object and its relations,
 	// and sets the related objects on the provided parent object.
@@ -234,6 +235,8 @@ func (r *rows[T]) compile() ([]*Row[T], error) {
 		}
 
 		root = append(root, &Row[T]{
+			QuerySet:    qs,
+			Through:     obj.object.through,
 			Object:      definer.(T),
 			Annotations: obj.annotations,
 		})

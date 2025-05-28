@@ -9,44 +9,44 @@ import (
 	"github.com/Nigel2392/go-django/src/forms/fields"
 )
 
-//
-//  type throughProxy struct {
-//  	troughDefinition attrs.Through
-//  	object           attrs.Definer
-//  	defs             attrs.Definitions
-//  	sourceField      attrs.Field
-//  	targetField      attrs.Field
-//  }
-//
-//  func newThroughProxy(throughInstance attrs.Definer, troughDefinition attrs.Through) *throughProxy {
-//  	var (
-//  		ok             bool
-//  		defs           = throughInstance.FieldDefs()
-//  		sourceFieldStr = troughDefinition.SourceField()
-//  		targetFieldStr = troughDefinition.TargetField()
-//  		proxy          = &throughProxy{
-//  			defs:             defs,
-//  			object:           throughInstance,
-//  			troughDefinition: troughDefinition,
-//  		}
-//  	)
-//
-//  	if proxy.sourceField, ok = defs.Field(sourceFieldStr); !ok {
-//  		panic(fmt.Errorf(
-//  			"source field %s not found in through model %T: %w",
-//  			sourceFieldStr, throughInstance, query_errors.ErrFieldNotFound,
-//  		))
-//  	}
-//
-//  	if proxy.targetField, ok = defs.Field(targetFieldStr); !ok {
-//  		panic(fmt.Errorf(
-//  			"target field %s not found in through model %T: %w",
-//  			targetFieldStr, throughInstance, query_errors.ErrFieldNotFound,
-//  		))
-//  	}
-//
-//  	return proxy
-//  }
+type throughProxy struct {
+	throughDefinition attrs.Through
+	object            attrs.Definer
+	defs              attrs.Definitions
+	sourceField       attrs.Field
+	targetField       attrs.Field
+}
+
+func newThroughProxy(throughDefinition attrs.Through) *throughProxy {
+	var (
+		ok              bool
+		sourceFieldStr  = throughDefinition.SourceField()
+		targetFieldStr  = throughDefinition.TargetField()
+		throughInstance = throughDefinition.Model()
+		defs            = throughInstance.FieldDefs()
+		proxy           = &throughProxy{
+			defs:              defs,
+			object:            throughInstance,
+			throughDefinition: throughDefinition,
+		}
+	)
+
+	if proxy.sourceField, ok = defs.Field(sourceFieldStr); !ok {
+		panic(fmt.Errorf(
+			"source field %s not found in through model %T: %w",
+			sourceFieldStr, throughInstance, query_errors.ErrFieldNotFound,
+		))
+	}
+
+	if proxy.targetField, ok = defs.Field(targetFieldStr); !ok {
+		panic(fmt.Errorf(
+			"target field %s not found in through model %T: %w",
+			targetFieldStr, throughInstance, query_errors.ErrFieldNotFound,
+		))
+	}
+
+	return proxy
+}
 
 type relatedQuerySet[T attrs.Definer] struct {
 	source     *ParentInfo
@@ -56,9 +56,86 @@ type relatedQuerySet[T attrs.Definer] struct {
 }
 
 // NewrelatedQuerySet creates a new relatedQuerySet for the given model type.
-func newRelatedQuerySet[T attrs.Definer](source *ParentInfo, model T) *relatedQuerySet[T] {
-	var qs = GetQuerySet(model)
+func newRelatedQuerySet[T attrs.Definer](rel attrs.Relation, source *ParentInfo) *relatedQuerySet[T] {
+	var (
+		qs           = GetQuerySet(internal.NewDefiner[T]())
+		throughModel = rel.Through()
+		front, back  = qs.compiler.Quote()
+	)
+
+	var targetFieldInfo = &FieldInfo{
+		Model: qs.model,
+		Table: Table{
+			Name: qs.queryInfo.TableName,
+		},
+		Fields: ForSelectAllFields[attrs.Field](
+			qs.queryInfo.Fields,
+		),
+	}
+
+	if throughModel != nil {
+		var throughObject = newThroughProxy(throughModel)
+
+		targetFieldInfo.Through = &FieldInfo{
+			Model: throughObject.object,
+			Table: Table{
+				Name: throughObject.defs.TableName(),
+				Alias: fmt.Sprintf(
+					"%s_through",
+					qs.queryInfo.TableName,
+				),
+			},
+			Fields: ForSelectAllFields[attrs.Field](throughObject.defs),
+		}
+
+		var condition = &JoinCondition{
+			Operator: LogicalOpEQ,
+			ConditionA: fmt.Sprintf(
+				"%s%s%s.%s%s%s",
+				front, targetFieldInfo.Table.Name, back,
+				front, source.Field.ColumnName(), back,
+			),
+			ConditionB: fmt.Sprintf(
+				"%s%s%s.%s%s%s",
+				front, targetFieldInfo.Through.Table.Alias, back,
+				front, throughObject.targetField.ColumnName(), back,
+			),
+		}
+
+		condition.Next = &JoinCondition{
+			Operator: LogicalOpEQ,
+			ConditionA: fmt.Sprintf(
+				"%s%s%s.%s%s%s",
+				front, targetFieldInfo.Through.Table.Alias, back,
+				front, throughObject.sourceField.ColumnName(), back,
+			),
+			ConditionB: "?",
+			Args: []any{
+				source.Object.FieldDefs().Primary().GetValue(),
+			},
+		}
+
+		var join = JoinDef{
+			TypeJoin: TypeJoinInner,
+			Table: Table{
+				Name: throughObject.defs.TableName(),
+				Alias: fmt.Sprintf(
+					"%s_through",
+					qs.queryInfo.TableName,
+				),
+			},
+			JoinCondition: condition,
+		}
+
+		qs.internals.addJoin(join)
+	}
+
+	qs.internals.Fields = append(
+		qs.internals.Fields, targetFieldInfo,
+	)
+
 	return &relatedQuerySet[T]{
+		rel:        rel,
 		source:     source,
 		originalQs: *qs,
 		qs:         qs,
@@ -166,14 +243,6 @@ func (t *relatedQuerySet[T]) createThroughObjects(targets []T) ([]Relation, erro
 	return relations, nil
 }
 
-func (t *relatedQuerySet[T]) Select(fields ...any) *relatedQuerySet[T] {
-	if t.qs == nil {
-		panic("QuerySet is nil, cannot call Select()")
-	}
-	t.qs = t.qs.Select(fields...)
-	return t
-}
-
 func (t *relatedQuerySet[T]) Filter(key any, vals ...any) *relatedQuerySet[T] {
 	t.qs = t.qs.Filter(key, vals...)
 	return t
@@ -208,30 +277,34 @@ func (t *relatedQuerySet[T]) All() (Rows[T], error) {
 	return t.qs.All()
 }
 
-//
-//type RelOneToOneQuerySet[T attrs.Definer] struct {
-//	backRef             ThroughRelationValue
-//	*relatedQuerySet[T] // Embedding the relatedQuerySet to inherit its methods
-//}
-//
-//func NewRelOneToOneQuerySet[T attrs.Definer](backRef attrs.Binder, model T) *RelOneToOneQuerySet[T] {
-//	var parentInfo = backRef.ParentInfo()
-//	return &RelOneToOneQuerySet[T]{
-//		backRef:         backRef,
-//		relatedQuerySet: newRelatedQuerySet(parentInfo, model),
-//	}
-//}
-//
-//type RelManyToOneQuerySet[T attrs.Definer] struct {
-//	backRef             MultiThroughRelationValue
-//	*relatedQuerySet[T] // Embedding the relatedQuerySet to inherit its methods
-//}
-//
-//func NewRelManyToOneQuerySet[T attrs.Definer](backRef attrs.Binder, model T) *RelManyToOneQuerySet[T] {
-//	var parentInfo = backRef.ParentInfo()
-//	return &RelManyToOneQuerySet[T]{
-//		backRef:         backRef,
-//		relatedQuerySet: newRelatedQuerySet(parentInfo, model),
-//	}
-//}
-//
+type RelManyToManyQuerySet[T attrs.Definer] struct {
+	backRef             MultiThroughRelationValue
+	*relatedQuerySet[T] // Embedding the relatedQuerySet to inherit its methods
+}
+
+func NewRelManyToManyQuerySet[T attrs.Definer](backRef MultiThroughRelationValue) *RelManyToManyQuerySet[T] {
+	var parentInfo = backRef.ParentInfo()
+	return &RelManyToManyQuerySet[T]{
+		backRef:         backRef,
+		relatedQuerySet: newRelatedQuerySet[T](parentInfo.Field.Rel(), parentInfo),
+	}
+}
+
+func (r *RelManyToManyQuerySet[T]) AddTarget(target T) error {
+	if r.backRef == nil {
+		return fmt.Errorf("back reference is nil, cannot add target")
+	}
+
+	var relations, err = r.createThroughObjects([]T{target})
+	if err != nil {
+		return fmt.Errorf("failed to create through objects: %w", err)
+	}
+
+	if len(relations) != 1 {
+		return fmt.Errorf("no relations created for target %T", target)
+	}
+
+	var info = r.backRef.ParentInfo()
+	setRelatedObjects(info.Field.Name(), attrs.RelManyToOne, info.Object, relations)
+	return nil
+}

@@ -20,6 +20,7 @@ const errStopIteration errs.Error = "stop iteration"
 // such as calculated fields or additional information derived from the query.
 type Row[T attrs.Definer] struct {
 	Object      T
+	Through     attrs.Definer // The through model instance, if applicable
 	Annotations map[string]any
 	QuerySet    *QuerySet[T]
 }

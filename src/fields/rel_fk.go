@@ -22,6 +22,7 @@ func NewForeignKeyField[T any](forModel attrs.Definer, dst any, name string, rev
 			},
 		),
 	}
+	f.DataModelField.fieldRef = f // Set the field reference to itself
 	return f
 }
 
@@ -43,6 +44,7 @@ func NewForeignKeyReverseField[T any](forModel attrs.Definer, dst any, name stri
 			},
 		),
 	}
+	f.DataModelField.fieldRef = f // Set the field reference to itself
 	return f
 }
 

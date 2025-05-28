@@ -153,7 +153,7 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 
 	query.WriteString(" FROM ")
 	g.writeTableName(query)
-	g.writeJoins(query, joins)
+	args = append(args, g.writeJoins(query, joins)...)
 	args = append(args, g.writeWhereClause(query, inf, where)...)
 	args = append(args, g.writeGroupBy(query, inf, groupBy)...)
 	args = append(args, g.writeHaving(query, inf, having)...)
@@ -231,11 +231,13 @@ func (g *genericQueryBuilder) BuildCountQuery(
 	}
 	var model = qs.Model()
 	var query = new(strings.Builder)
+	var args = make([]any, 0)
 	query.WriteString("SELECT COUNT(*) FROM ")
 	g.writeTableName(query)
-	g.writeJoins(query, joins)
-	args := g.writeWhereClause(query, inf, where)
-	g.writeGroupBy(query, inf, groupBy)
+
+	args = append(args, g.writeJoins(query, joins)...)
+	args = append(args, g.writeWhereClause(query, inf, where)...)
+	args = append(args, g.writeGroupBy(query, inf, groupBy)...)
 	args = append(args, g.writeLimitOffset(query, limit, offset)...)
 
 	return &QueryObject[int64]{
@@ -505,7 +507,10 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 			}
 		}
 
-		g.writeJoins(query, info.Joins)
+		args = append(
+			args,
+			g.writeJoins(query, info.Joins)...,
+		)
 
 		args = append(
 			args,
@@ -542,13 +547,17 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 	}
 	var model = qs.Model()
 	var query = new(strings.Builder)
+	var args = make([]any, 0)
 	query.WriteString("DELETE FROM ")
 	query.WriteString(g.quote)
 	query.WriteString(g.queryInfo.TableName)
 	query.WriteString(g.quote)
-	g.writeJoins(query, joins)
 
-	var args = make([]any, 0)
+	args = append(
+		args,
+		g.writeJoins(query, joins)...,
+	)
+
 	args = append(
 		args,
 		g.writeWhereClause(query, inf, where)...,
@@ -576,7 +585,8 @@ func (g *genericQueryBuilder) writeTableName(sb *strings.Builder) {
 	sb.WriteString(g.quote)
 }
 
-func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) {
+func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) []any {
+	var args = make([]any, 0)
 	for _, join := range joins {
 		sb.WriteString(" ")
 		sb.WriteString(string(join.TypeJoin))
@@ -593,12 +603,25 @@ func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) {
 		}
 
 		sb.WriteString(" ON ")
-		sb.WriteString(join.ConditionA)
-		sb.WriteString(" ")
-		sb.WriteString(string(join.Operator))
-		sb.WriteString(" ")
-		sb.WriteString(join.ConditionB)
+		var condition = join.JoinCondition
+		for condition != nil {
+			sb.WriteString(condition.ConditionA)
+			sb.WriteString(" ")
+			sb.WriteString(string(condition.Operator))
+			sb.WriteString(" ")
+			sb.WriteString(condition.ConditionB)
+
+			args = append(args, condition.Args...)
+
+			if condition.Next != nil {
+				sb.WriteString(" AND ")
+			}
+
+			condition = condition.Next
+		}
 	}
+
+	return args
 }
 
 func (g *genericQueryBuilder) writeWhereClause(sb *strings.Builder, inf *expr.ExpressionInfo, where []expr.LogicalExpression) []any {

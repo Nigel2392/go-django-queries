@@ -22,6 +22,7 @@ func NewVirtualField[T any](forModel attrs.Definer, dst any, name string, expr e
 		DataModelField: NewDataModelField[T](forModel, dst, name),
 		expr:           expr,
 	}
+	f.DataModelField.fieldRef = f // Set the field reference to itself
 	return f
 }
 

@@ -96,6 +96,28 @@ func ForSelectAll(f attrs.Field) bool {
 	return true
 }
 
+func ForSelectAllFields[T any](fields any) []T {
+	switch fieldsValue := fields.(type) {
+	case []attrs.Field:
+		var result = make([]T, 0, len(fieldsValue))
+		for _, f := range fieldsValue {
+			if ForSelectAll(f) {
+				result = append(result, f.(T))
+			}
+		}
+		return result
+	case attrs.Definer:
+		var defs = fieldsValue.FieldDefs()
+		var fields = defs.Fields()
+		return ForSelectAllFields[T](fields)
+	case attrs.Definitions:
+		var fields = fieldsValue.Fields()
+		return ForSelectAllFields[T](fields)
+	default:
+		panic(fmt.Errorf("cannot get ForSelectAllFields from %T", fields))
+	}
+}
+
 // A base interface for relations.
 //
 // This interface should only be used for OneToOne relations with a through table,
@@ -134,6 +156,7 @@ type canPrimaryKey interface {
 // A default implementation is provided with the [RelO2O] type.
 type ThroughRelationValue interface {
 	attrs.Binder
+	ParentInfo() *ParentInfo
 	GetValue() (obj attrs.Definer, through attrs.Definer)
 	SetValue(instance attrs.Definer, through attrs.Definer)
 }
@@ -147,6 +170,7 @@ type ThroughRelationValue interface {
 // A default implementation is provided with the [RelM2M] type.
 type MultiThroughRelationValue interface {
 	attrs.Binder
+	ParentInfo() *ParentInfo
 	SetValues(instances []Relation)
 	GetValues() []Relation
 }

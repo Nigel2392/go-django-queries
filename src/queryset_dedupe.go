@@ -5,7 +5,6 @@ import (
 	"reflect"
 
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/Nigel2392/go-django/src/forms/fields"
 	"github.com/elliotchance/orderedmap/v2"
 )
 
@@ -86,18 +85,6 @@ func (r *rows[T]) addRelationChain(chain []chainPart) {
 	for idx < len(chain) {
 		var part = chain[idx]
 
-		// If the primary key is zero and the relation is not a ManyToOne or OneToOne,
-		// we can stop traversing the chain, as there is no data for this relation
-		//
-		// This is to exclude empty rows in the result set when querying multiple- valued relations.
-		//
-		// ManyToOne and OneToOne relations are special cases where the primary key can be zero.
-		//
-		// This also means that any deeper relations cannot be traversed, I.E. we break the loop.
-		if fields.IsZero(part.pk) && !(part.relTyp == attrs.RelManyToOne || part.relTyp == attrs.RelOneToOne) {
-			break
-		}
-
 		var next, ok = current.relations[part.chain]
 		if !ok {
 			next = &objectRelation{
@@ -109,7 +96,7 @@ func (r *rows[T]) addRelationChain(chain []chainPart) {
 
 		child, ok := next.objects.Get(part.pk)
 		if !ok {
-
+			// child does not exist, create and add it
 			var through attrs.Definer
 			if part.through != nil {
 				// If there is a through object, we need to set it

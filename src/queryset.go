@@ -31,21 +31,15 @@ const MAX_GET_RESULTS = 21
 
 var QUERYSET_USE_CACHE_DEFAULT = true
 
-type Table struct {
-	Name  string
-	Alias string
-}
-
-type JoinDef struct {
-	Table      Table
-	TypeJoin   JoinType
-	ConditionA string
-	Operator   LogicalOp
-	ConditionB string
-}
-
 type (
-	JoinType  string
+	// JoinType represents the type of join to use in a query.
+	//
+	// It is used to specify how to join two tables in a query.
+	JoinType string
+
+	// LogicalOp represents the logical operator to use in a query.
+	//
+	// It is used to compare two fields in a join condition.
 	LogicalOp string
 )
 
@@ -64,6 +58,54 @@ const (
 	LogicalOpLTE LogicalOp = "<="
 )
 
+// A row represents a single row in the result set of a QuerySet.
+//
+// It contains the model object, a map of annotations, and a pointer to the QuerySet.
+//
+// The annotations map contains additional data that is not part of the model object,
+// such as calculated fields or additional information derived from the query.
+type Row[T attrs.Definer] struct {
+	Object      T
+	Annotations map[string]any
+	QuerySet    *QuerySet[T]
+}
+
+// A table represents a database table.
+type Table struct {
+	Name  string
+	Alias string
+}
+
+// OrderBy represents an order by clause in a query.
+//
+// It contains the table to order by, the field to order by, an optional alias for the field,
+// and a boolean indicating whether to order in descending order.
+//
+// It is used to specify how to order the results of a query.
+type OrderBy struct {
+	Table Table
+	Field string
+	Alias string
+	Desc  bool
+}
+
+// JoinDef represents a join definition in a query.
+//
+// It contains the table to join, the type of join, and the fields to join on.
+//
+// See [JoinType] for different types of joins.
+// See [LogicalOp] for different logical operators.
+type JoinDef struct {
+	Table      Table
+	TypeJoin   JoinType
+	ConditionA string
+	Operator   LogicalOp
+	ConditionB string
+}
+
+// FieldInfo represents information about a field in a query.
+//
+// It is both used by the QuerySet and by the QueryCompiler.
 type FieldInfo struct {
 	SourceField attrs.Field
 	Model       attrs.Definer
@@ -72,13 +114,6 @@ type FieldInfo struct {
 	Chain       []string
 	Fields      []attrs.Field
 	Through     *FieldInfo
-}
-
-type OrderBy struct {
-	Table Table
-	Field string
-	Alias string
-	Desc  bool
 }
 
 func (f *FieldInfo) WriteFields(sb *strings.Builder, inf *expr.ExpressionInfo) []any {
@@ -740,21 +775,12 @@ func (qs *QuerySet[T]) attrFields(obj attrs.Definer) (attrs.Definitions, []attrs
 }
 
 func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]FieldInfo, []JoinDef) {
-	var target = foreignKey.Model()
-	var relField = foreignKey.Field()
-	// var relField attrs.Field
-	var targetDefs = target.FieldDefs()
-	var targetTable = targetDefs.TableName()
-	// if relFieldGetter, ok := field.(RelatedField); ok {
-	// relField = relFieldGetter.GetTargetField()
-	// } else {
-	// if relField == nil {
-	// relField = targetDefs.Primary()
-	// }
-
-	var front, back = qs.compiler.Quote()
-
 	var (
+		target      = foreignKey.Model()
+		relField    = foreignKey.Field()
+		targetDefs  = target.FieldDefs()
+		targetTable = targetDefs.TableName()
+		front, back = qs.compiler.Quote()
 		condA_Alias = parentDefs.TableName()
 		condB_Alias = targetTable
 	)
@@ -825,15 +851,22 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 
 func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]FieldInfo, []JoinDef) {
 	var through = manyToMany.Through()
-
 	if through == nil {
 		panic(fmt.Errorf("manyToMany relation %T.%s does not have a through table", manyToMany.Model(), field.Name()))
 	}
 
 	// through model info
-	var throughModel = through.Model()
-	var throughDefs = throughModel.FieldDefs()
-	var throughTable = throughDefs.TableName()
+	var (
+		throughModel = through.Model()
+		throughDefs  = throughModel.FieldDefs()
+		throughTable = throughDefs.TableName()
+
+		target      = manyToMany.Model()
+		targetDefs  = target.FieldDefs()
+		targetTable = targetDefs.TableName()
+
+		front, back = qs.compiler.Quote()
+	)
 
 	sourceField, ok := throughDefs.Field(through.SourceField())
 	if !ok {
@@ -844,22 +877,20 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 		panic(fmt.Errorf("field %q not found in %T", through.TargetField(), throughModel))
 	}
 
-	var target = manyToMany.Model()
-	var targetDefs = target.FieldDefs()
-	var targetTable = targetDefs.TableName()
-
-	front, back := qs.compiler.Quote()
 	var parentAlias string
 	if len(aliases) > 1 {
 		parentAlias = aliases[len(aliases)-2]
 	} else {
 		parentAlias = parentDefs.TableName()
 	}
-	alias := aliases[len(aliases)-1]
-	aliasThrough := fmt.Sprintf("%s_through", alias)
+
+	var (
+		alias        = aliases[len(aliases)-1]
+		aliasThrough = fmt.Sprintf("%s_through", alias)
+	)
 
 	// JOIN through table
-	join1 := JoinDef{
+	var join1 = JoinDef{
 		TypeJoin: TypeJoinLeft,
 		Table: Table{
 			Name:  throughTable,
@@ -879,7 +910,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 	}
 
 	// JOIN target table
-	join2 := JoinDef{
+	var join2 = JoinDef{
 		TypeJoin: TypeJoinLeft,
 		Table: Table{
 			Name:  targetTable,
@@ -899,7 +930,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 	}
 
 	// Prevent duplicate joins
-	joins := make([]JoinDef, 0, 2)
+	var joins = make([]JoinDef, 0, 2)
 	if _, ok := joinM[join1.ConditionA+"."+join1.ConditionB]; !ok {
 		joins = append(joins, join1)
 		joinM[join1.ConditionA+"."+join1.ConditionB] = true
@@ -909,7 +940,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 		joinM[join2.ConditionA+"."+join2.ConditionB] = true
 	}
 
-	includedFields := []attrs.Field{field}
+	var includedFields = []attrs.Field{field}
 	if all {
 		includedFields = nil
 		for _, f := range targetDefs.Fields() {
@@ -1322,12 +1353,6 @@ func (qs *QuerySet[T]) Annotate(aliasOrAliasMap interface{}, exprs ...expr.Expre
 	return qs
 }
 
-type Row[T attrs.Definer] struct {
-	Object      T
-	Annotations map[string]any
-	QuerySet    *QuerySet[T]
-}
-
 func (qs *QuerySet[T]) queryAll(fields ...any) CompiledQuery[[][]interface{}] {
 	// Select all fields if no fields are provided
 	//
@@ -1665,20 +1690,37 @@ func (qs *QuerySet[T]) Get() (*Row[T], error) {
 // This method executes a transaction to ensure that the object is created only once.
 //
 // It panics if the queryset has no where clause.
-func (qs *QuerySet[T]) GetOrCreate(value T) (T, error) {
+func (qs *QuerySet[T]) GetOrCreate(value T) (T, bool, error) {
 
 	if len(qs.internals.Where) == 0 {
 		panic(query_errors.ErrNoWhereClause)
 	}
 
-	// Create a new transaction
-	var ctx = context.Background()
-	var transaction, err = qs.compiler.StartTransaction(ctx)
-	if err != nil {
-		return *new(T), err
+	// Create a new transaction if the queryset is not already in a transaction
+	//
+	// If the queryset is already in a transaction, that transaction will be used
+	// automatically.
+	var transaction Transaction
+	var commitTransaction = func() error {
+		if transaction == nil {
+			return nil
+		}
+		return transaction.Commit()
 	}
 
-	defer transaction.Rollback()
+	if !qs.compiler.InTransaction() {
+		var (
+			err error
+			ctx = context.Background()
+		)
+
+		transaction, err = qs.compiler.StartTransaction(ctx)
+		if err != nil {
+			return *new(T), false, err
+		}
+
+		defer transaction.Rollback()
+	}
 
 	// Check if the object already exists
 	qs.useCache = false
@@ -1687,24 +1729,24 @@ func (qs *QuerySet[T]) GetOrCreate(value T) (T, error) {
 		if errors.Is(err, query_errors.ErrNoRows) {
 			goto create
 		} else {
-			return *new(T), err
+			return *new(T), false, err
 		}
 	}
 
 	// Object already exists, return it and commit the transaction
 	if row != nil {
-		return row.Object, transaction.Commit()
+		return row.Object, false, commitTransaction()
 	}
 
 	// Object does not exist, create it
 create:
 	obj, err := qs.Create(value)
 	if err != nil {
-		return *new(T), err
+		return *new(T), false, err
 	}
 
 	// Object was created successfully, commit the transaction
-	return obj, transaction.Commit()
+	return obj, true, commitTransaction()
 }
 
 // First is used to retrieve the first row from the database.

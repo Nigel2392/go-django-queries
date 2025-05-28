@@ -1889,7 +1889,7 @@ func TestQueryGetOrCreate(t *testing.T) {
 	var _todo = *todo
 	_todo.User.Name = ""
 
-	var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).
+	var dbTodo, _, err = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
 		Filter("Title", todo.Title).
 		GetOrCreate(&_todo)
@@ -2041,7 +2041,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 		var todo = &Todo{Title: "LatestQuery_TestGetOrCreate"}
 
 		t.Run("TestGetOrCreate_Create", func(t *testing.T) {
-			var _, err = query.GetOrCreate(todo)
+			var _, _, err = query.GetOrCreate(todo)
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
 				return
@@ -2060,7 +2060,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 		})
 
 		t.Run("TestGetOrCreate_Get", func(t *testing.T) {
-			var _, err = query.GetOrCreate(todo)
+			var _, _, err = query.GetOrCreate(todo)
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
 				return
@@ -2654,5 +2654,48 @@ func TestRunInTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to run transaction: %v", err)
 	}
+}
 
+func TestGetOrCreateInTransaction(t *testing.T) {
+	var todo = &Todo{
+		Title:       "TestGetOrCreateInTransaction",
+		Description: "This is a new test todo",
+		Done:        false,
+	}
+
+	var err = queries.RunInTransaction(context.Background(), func(NewQuerySet queries.NewQuerySetFunc[*Todo]) error {
+		var todo, created, err = NewQuerySet(&Todo{}).
+			Select("ID", "Title", "Description", "Done", "User").
+			Filter("Title", todo.Title).
+			GetOrCreate(todo)
+		if err != nil {
+			return fmt.Errorf("failed to get or create todo: %w", err)
+		}
+
+		if !created {
+			return fmt.Errorf("expected todo to be created, but it already exists")
+		}
+
+		if todo.ID == 0 {
+			return fmt.Errorf("expected todo ID to be not 0, got %d", todo.ID)
+		}
+
+		if todo.Title != "TestGetOrCreateInTransaction" {
+			return fmt.Errorf("expected todo title %q, got %q", "TestGetOrCreateInTransaction", todo.Title)
+		}
+
+		if todo.Description != "This is a new test todo" {
+			return fmt.Errorf("expected todo description %q, got %q", "This is a new test todo", todo.Description)
+		}
+
+		if todo.Done != false {
+			return fmt.Errorf("expected todo done %v, got %v", false, todo.Done)
+		}
+
+		t.Logf("Created or retrieved todo: %+v", todo)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Failed to run transaction: %v", err)
+	}
 }

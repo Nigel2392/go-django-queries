@@ -99,7 +99,7 @@ func (rl *RelO2O[T1, T2]) GetValue() (obj attrs.Definer, through attrs.Definer) 
 // the related objects and their through objects.
 type RelM2M[ModelType, ThroughModelType attrs.Definer] struct {
 	Parent    *ParentInfo                                                      // The parent model instance
-	QuerySet  *RelManyToManyQuerySet[ModelType]                                // The query set for this relation
+	Relations *RelManyToManyQuerySet[ModelType]                                // The query set for this relation
 	relations *orderedmap.OrderedMap[any, RelO2O[ModelType, ThroughModelType]] // can be changed to slice if needed
 
 	// relations []RelO2O[T1, T2] // can be changed to OrderedMap if needed
@@ -120,8 +120,8 @@ func (rl *RelM2M[T1, T2]) BindToModel(parent attrs.Definer, parentField attrs.Fi
 		Object: parent,
 		Field:  parentField,
 	}
-	if rl.QuerySet == nil {
-		rl.QuerySet = NewRelManyToManyQuerySet[T1](rl)
+	if rl.Relations == nil {
+		rl.Relations = ManyToManyQuerySet[T1](rl)
 	}
 	return nil
 }

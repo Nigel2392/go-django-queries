@@ -9,7 +9,9 @@ import (
 
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	django "github.com/Nigel2392/go-django/src"
+	"github.com/Nigel2392/go-django/src/core/assert"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/Nigel2392/go-django/src/forms/fields"
 
 	// Register all schema editors for the migrator package.
 	_ "github.com/Nigel2392/go-django-queries/src/migrator/sql/mysql"
@@ -116,6 +118,47 @@ func ForSelectAllFields[T any](fields any) []T {
 	default:
 		panic(fmt.Errorf("cannot get ForSelectAllFields from %T", fields))
 	}
+}
+
+// New initializes a model's field definitions.
+//
+// It also sets up relations and other necessary fields.
+func New[T attrs.Definer](model T) T {
+	var defs = model.FieldDefs()
+	if defs == nil {
+		panic(fmt.Errorf("model %T has no field definitions", model))
+	}
+
+	var objFields = defs.Fields()
+	for _, field := range objFields {
+		var rel = field.Rel()
+		if rel == nil {
+			continue
+		}
+
+		var (
+			shouldSet bool
+			value     = field.GetValue()
+			dftValue  = field.GetDefault()
+		)
+
+		if fields.IsZero(value) && !fields.IsZero(dftValue) {
+			shouldSet = true
+			value = dftValue
+		}
+
+		assert.Err(attrs.BindValueToModel(
+			model, field, value,
+		))
+
+		if shouldSet && value != nil {
+			// If the field has a default value, set it.
+			// This is useful for fields that are not set yet.
+			field.SetValue(value, true)
+		}
+	}
+
+	return model
 }
 
 // A base interface for relations.

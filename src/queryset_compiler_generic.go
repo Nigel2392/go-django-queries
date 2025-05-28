@@ -563,7 +563,10 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 		g.writeWhereClause(query, inf, where)...,
 	)
 
-	g.writeGroupBy(query, inf, groupBy)
+	args = append(
+		args,
+		g.writeGroupBy(query, inf, groupBy)...,
+	)
 
 	return &QueryObject[int64]{
 		sql:   g.queryInfo.DBX.Rebind(query.String()),

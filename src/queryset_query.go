@@ -35,10 +35,10 @@ func (q *QueryObject[T1]) Exec() (T1, error) {
 	var result, err = q.exec(q.sql, q.args...)
 	if LogQueries {
 		if err != nil {
-			logger.Errorf("Query (%T, %T): %s: %s", q.Model(), *new(T1), err.Error(), q.sql)
+			logger.Errorf("Query (%T, %T): %s: %s %v", q.Model(), *new(T1), err.Error(), q.sql, q.args)
 			return result, err
 		}
-		logger.Debugf("Query (%T, %T): %s", q.Model(), *new(T1), q.sql)
+		logger.Debugf("Query (%T, %T): %s %v", q.Model(), *new(T1), q.sql, q.args)
 	}
 	return result, err
 }

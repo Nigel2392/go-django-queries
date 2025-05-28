@@ -99,6 +99,22 @@ func NewObjectFromIface(obj attrs.Definer) attrs.Definer {
 	return reflect.New(objTyp.Elem()).Interface().(attrs.Definer)
 }
 
+func ListUnpack(list ...any) []any {
+	var result = make([]any, 0, len(list))
+	for _, item := range list {
+		var rVal = reflect.ValueOf(item)
+		switch rVal.Kind() {
+		case reflect.Slice, reflect.Array:
+			for j := 0; j < rVal.Len(); j++ {
+				result = append(result, ListUnpack(rVal.Index(j).Interface())...)
+			}
+		default:
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
 type walkFieldsResult struct {
 	definer   attrs.Definer
 	parent    attrs.Definer

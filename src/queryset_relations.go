@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Nigel2392/go-django-queries/internal"
+	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/forms/fields"
@@ -48,16 +49,20 @@ func newThroughProxy(throughDefinition attrs.Through) *throughProxy {
 	return proxy
 }
 
-type relatedQuerySet[T attrs.Definer] struct {
-	source     *ParentInfo
-	rel        attrs.Relation
-	originalQs QuerySet[T]
-	qs         *QuerySet[T]
+type relatedQuerySet[T attrs.Definer, T2 any] struct {
+	embedder      T2
+	source        *ParentInfo
+	joinCondition *JoinCondition
+	rel           attrs.Relation
+	originalQs    QuerySet[T]
+	qs            *QuerySet[T]
 }
 
 // NewrelatedQuerySet creates a new relatedQuerySet for the given model type.
-func newRelatedQuerySet[T attrs.Definer](rel attrs.Relation, source *ParentInfo) *relatedQuerySet[T] {
+func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation, source *ParentInfo) *relatedQuerySet[T, T2] {
 	var (
+		condition *JoinCondition
+
 		qs           = GetQuerySet(internal.NewDefiner[T]())
 		throughModel = rel.Through()
 		front, back  = qs.compiler.Quote()
@@ -88,7 +93,7 @@ func newRelatedQuerySet[T attrs.Definer](rel attrs.Relation, source *ParentInfo)
 			Fields: ForSelectAllFields[attrs.Field](throughObject.defs),
 		}
 
-		var condition = &JoinCondition{
+		condition = &JoinCondition{
 			Operator: LogicalOpEQ,
 			ConditionA: fmt.Sprintf(
 				"%s%s%s.%s%s%s",
@@ -134,15 +139,17 @@ func newRelatedQuerySet[T attrs.Definer](rel attrs.Relation, source *ParentInfo)
 		qs.internals.Fields, targetFieldInfo,
 	)
 
-	return &relatedQuerySet[T]{
-		rel:        rel,
-		source:     source,
-		originalQs: *qs,
-		qs:         qs,
+	return &relatedQuerySet[T, T2]{
+		embedder:      embedder,
+		rel:           rel,
+		source:        source,
+		originalQs:    *qs,
+		joinCondition: condition,
+		qs:            qs,
 	}
 }
 
-func (t *relatedQuerySet[T]) createTargets(targets []T) ([]T, error) {
+func (t *relatedQuerySet[T, T2]) createTargets(targets []T) ([]T, error) {
 	if t.qs == nil {
 		panic("QuerySet is nil, cannot create targets")
 	}
@@ -150,7 +157,7 @@ func (t *relatedQuerySet[T]) createTargets(targets []T) ([]T, error) {
 	return t.originalQs.Clone().BulkCreate(targets)
 }
 
-func (t *relatedQuerySet[T]) createThroughObjects(targets []T) ([]Relation, error) {
+func (t *relatedQuerySet[T, T2]) createThroughObjects(targets []T) (rels []Relation, created int64, _ error) {
 	if t.rel == nil {
 		panic("Relation is nil, cannot create through object")
 	}
@@ -160,7 +167,10 @@ func (t *relatedQuerySet[T]) createThroughObjects(targets []T) ([]Relation, erro
 		panic("Through model is nil, cannot create through object")
 	}
 
-	var targetsToSave = make([]T, 0, len(targets))
+	var (
+		targetsToSave   = make([]T, 0, len(targets))
+		existingTargets = make([]T, 0, len(targets))
+	)
 	for _, target := range targets {
 		var (
 			defs    = target.FieldDefs()
@@ -170,16 +180,21 @@ func (t *relatedQuerySet[T]) createThroughObjects(targets []T) ([]Relation, erro
 
 		if fields.IsZero(pkValue) {
 			targetsToSave = append(targetsToSave, target)
+		} else {
+			existingTargets = append(existingTargets, target)
 		}
 	}
 
 	if len(targetsToSave) > 0 {
 		var err error
-		targets, err = t.createTargets(targetsToSave)
+		targetsToSave, err = t.createTargets(targetsToSave)
 		if err != nil {
-			return nil, fmt.Errorf("failed to save targets: %w", err)
+			return nil, 0, fmt.Errorf("failed to save targets: %w", err)
 		}
+		created = int64(len(targetsToSave))
 	}
+
+	targets = append(existingTargets, targetsToSave...)
 
 	// Create a new instance of the through model
 	var (
@@ -189,18 +204,21 @@ func (t *relatedQuerySet[T]) createThroughObjects(targets []T) ([]Relation, erro
 
 		sourceObject        = t.source.Object.FieldDefs()
 		sourceObjectPrimary = sourceObject.Primary()
-		sourceObjectPk      = sourceObjectPrimary.GetValue()
+		sourceObjectPk, err = sourceObjectPrimary.Value()
 
 		relations     = make([]Relation, 0, len(targets))
 		throughModels = make([]attrs.Definer, 0, len(targets))
 	)
+	if err != nil {
+		return nil, created, fmt.Errorf("failed to get primary key for source object %T: %w", t.source.Object, err)
+	}
 
 	for _, target := range targets {
 		var (
 			// target related values
 			targetDefs    = target.FieldDefs()
 			targetPrimary = targetDefs.Primary()
-			targetPk      = targetPrimary.GetValue()
+			targetPk, err = targetPrimary.Value()
 
 			// through model values
 			ok          bool
@@ -209,19 +227,22 @@ func (t *relatedQuerySet[T]) createThroughObjects(targets []T) ([]Relation, erro
 			newInstance = internal.NewObjectFromIface(throughObj)
 			fieldDefs   = newInstance.FieldDefs()
 		)
+		if err != nil {
+			return nil, created, fmt.Errorf("failed to get primary key for target %T: %w", target, err)
+		}
 
 		if sourceField, ok = fieldDefs.Field(throughSourceFieldStr); !ok {
-			return nil, query_errors.ErrFieldNotFound
+			return nil, created, query_errors.ErrFieldNotFound
 		}
 		if targetField, ok = fieldDefs.Field(throughTargetFieldStr); !ok {
-			return nil, query_errors.ErrFieldNotFound
+			return nil, created, query_errors.ErrFieldNotFound
 		}
 
-		if err := sourceField.SetValue(sourceObjectPk, true); err != nil {
-			return nil, err
+		if err := sourceField.Scan(sourceObjectPk); err != nil {
+			return nil, created, err
 		}
-		if err := targetField.SetValue(targetPk, true); err != nil {
-			return nil, err
+		if err := targetField.Scan(targetPk); err != nil {
+			return nil, created, err
 		}
 
 		// Create a new relation object
@@ -235,42 +256,42 @@ func (t *relatedQuerySet[T]) createThroughObjects(targets []T) ([]Relation, erro
 		relations = append(relations, rel)
 	}
 
-	throughModels, err := GetQuerySet(throughObj).BulkCreate(throughModels)
+	throughModels, err = GetQuerySet(throughObj).BulkCreate(throughModels)
 	if err != nil {
-		return nil, err
+		return nil, created, err
 	}
 
-	return relations, nil
+	return relations, created, nil
 }
 
-func (t *relatedQuerySet[T]) Filter(key any, vals ...any) *relatedQuerySet[T] {
+func (t *relatedQuerySet[T, T2]) Filter(key any, vals ...any) T2 {
 	t.qs = t.qs.Filter(key, vals...)
-	return t
+	return t.embedder
 }
 
-func (t *relatedQuerySet[T]) OrderBy(fields ...string) *relatedQuerySet[T] {
+func (t *relatedQuerySet[T, T2]) OrderBy(fields ...string) T2 {
 	t.qs = t.qs.OrderBy(fields...)
-	return t
+	return t.embedder
 }
 
-func (t *relatedQuerySet[T]) Limit(limit int) *relatedQuerySet[T] {
+func (t *relatedQuerySet[T, T2]) Limit(limit int) T2 {
 	t.qs = t.qs.Limit(limit)
-	return t
+	return t.embedder
 }
 
-func (t *relatedQuerySet[T]) Offset(offset int) *relatedQuerySet[T] {
+func (t *relatedQuerySet[T, T2]) Offset(offset int) T2 {
 	t.qs = t.qs.Offset(offset)
-	return t
+	return t.embedder
 }
 
-func (t *relatedQuerySet[T]) Get() (*Row[T], error) {
+func (t *relatedQuerySet[T, T2]) Get() (*Row[T], error) {
 	if t.qs == nil {
 		panic("QuerySet is nil, cannot call Get()")
 	}
 	return t.qs.Get()
 }
 
-func (t *relatedQuerySet[T]) All() (Rows[T], error) {
+func (t *relatedQuerySet[T, T2]) All() (Rows[T], error) {
 	if t.qs == nil {
 		panic("QuerySet is nil, cannot call All()")
 	}
@@ -278,33 +299,189 @@ func (t *relatedQuerySet[T]) All() (Rows[T], error) {
 }
 
 type RelManyToManyQuerySet[T attrs.Definer] struct {
-	backRef             MultiThroughRelationValue
-	*relatedQuerySet[T] // Embedding the relatedQuerySet to inherit its methods
+	backRef                                        MultiThroughRelationValue
+	*relatedQuerySet[T, *RelManyToManyQuerySet[T]] // Embedding the relatedQuerySet to inherit its methods
 }
 
-func NewRelManyToManyQuerySet[T attrs.Definer](backRef MultiThroughRelationValue) *RelManyToManyQuerySet[T] {
+func ManyToManyQuerySet[T attrs.Definer](backRef MultiThroughRelationValue) *RelManyToManyQuerySet[T] {
 	var parentInfo = backRef.ParentInfo()
-	return &RelManyToManyQuerySet[T]{
-		backRef:         backRef,
-		relatedQuerySet: newRelatedQuerySet[T](parentInfo.Field.Rel(), parentInfo),
+	var mQs = &RelManyToManyQuerySet[T]{
+		backRef: backRef,
 	}
+	mQs.relatedQuerySet = newRelatedQuerySet[T](mQs, parentInfo.Field.Rel(), parentInfo)
+	return mQs
 }
 
-func (r *RelManyToManyQuerySet[T]) AddTarget(target T) error {
-	if r.backRef == nil {
-		return fmt.Errorf("back reference is nil, cannot add target")
-	}
-
-	var relations, err = r.createThroughObjects([]T{target})
+func (r *RelManyToManyQuerySet[T]) AddTarget(target T) (created bool, err error) {
+	added, err := r.AddTargets(target)
 	if err != nil {
-		return fmt.Errorf("failed to create through objects: %w", err)
+		return false, err
+	}
+	return added == 1, nil
+}
+
+func (r *RelManyToManyQuerySet[T]) AddTargets(targets ...T) (int64, error) {
+	if r.backRef == nil {
+		return 0, fmt.Errorf("back reference is nil, cannot add targets")
 	}
 
-	if len(relations) != 1 {
-		return fmt.Errorf("no relations created for target %T", target)
+	var relations, added, err = r.createThroughObjects(targets)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create through objects: %w", err)
 	}
 
-	var info = r.backRef.ParentInfo()
-	setRelatedObjects(info.Field.Name(), attrs.RelManyToOne, info.Object, relations)
-	return nil
+	if len(relations) == 0 {
+		return added, fmt.Errorf("no relations created for targets %T", targets)
+	}
+
+	var relList = r.backRef.GetValues()
+	if relList == nil {
+		relList = make([]Relation, 0)
+	}
+
+	relList = append(relList, relations...)
+
+	r.backRef.SetValues(relList)
+	return added, nil
+}
+
+func (r *RelManyToManyQuerySet[T]) SetTargets(targets []T) (added int64, err error) {
+	if r.backRef == nil {
+		return 0, fmt.Errorf("back reference is nil, cannot set targets")
+	}
+
+	_, err = r.ClearTargets()
+	if err != nil {
+		return 0, fmt.Errorf("failed to clear targets: %w", err)
+	}
+
+	relations, added, err := r.createThroughObjects(targets)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create through objects: %w", err)
+	}
+
+	if len(relations) == 0 {
+		return added, fmt.Errorf("no relations created for targets %T", targets)
+	}
+
+	r.backRef.SetValues(relations)
+	return added, nil
+}
+
+func (r *RelManyToManyQuerySet[T]) RemoveTargets(targets ...any) (int64, error) {
+	if r.backRef == nil {
+		return 0, fmt.Errorf("back reference is nil, cannot remove targets")
+	}
+
+	targets = internal.ListUnpack(targets)
+
+	var (
+		pkValues = make([]any, 0, len(targets))
+		pkMap    = make(map[any]struct{}, len(targets))
+	)
+targetLoop:
+	for _, target := range targets {
+		var pkValue any
+		if canPk, ok := target.(canPrimaryKey); ok {
+			pkValue = canPk.PrimaryKey()
+		}
+
+		if pkValue != nil {
+			pkValues = append(pkValues, pkValue)
+			pkMap[pkValue] = struct{}{}
+			continue targetLoop
+		}
+
+		switch t := target.(type) {
+		case attrs.Definer:
+			var defs = t.FieldDefs()
+			var pkField = defs.Primary()
+			pkValue = pkField.GetValue()
+		case attrs.Definitions:
+			var pkField = t.Primary()
+			pkValue = pkField.GetValue()
+		default:
+			return 0, fmt.Errorf("target %T does not have a primary key", target)
+		}
+
+		if pkValue == nil {
+			return 0, fmt.Errorf("target %T does not have a valid primary key", target)
+		}
+
+		pkValues = append(pkValues, pkValue)
+		pkMap[pkValue] = struct{}{}
+	}
+
+	var throughModel = newThroughProxy(r.rel.Through())
+	var throughQs = GetQuerySet(throughModel.object).
+		Filter(
+			expr.Q(
+				throughModel.sourceField.Name(),
+				r.source.Object.FieldDefs().Primary().GetValue(),
+			),
+			expr.Q(
+				fmt.Sprintf(
+					"%s__in",
+					throughModel.targetField.Name(),
+				),
+				pkValues...,
+			),
+		)
+
+	var deleted, err = throughQs.Delete()
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete through objects: %w", err)
+	}
+
+	if deleted == 0 {
+		return 0, fmt.Errorf("no through objects deleted for targets %v", pkValues)
+	}
+
+	var relList = r.backRef.GetValues()
+	if len(relList) == 0 {
+		return deleted, nil
+	}
+
+	var newRels = make([]Relation, 0, len(relList))
+	for _, rel := range relList {
+		var model = rel.Model()
+		var fieldDefs = model.FieldDefs()
+		var pkValue = fieldDefs.Primary().GetValue()
+		if _, ok := pkMap[pkValue]; !ok {
+			newRels = append(newRels, rel)
+		}
+	}
+
+	r.backRef.SetValues(newRels)
+	return deleted, nil
+}
+
+func (r *RelManyToManyQuerySet[T]) ClearTargets() (int64, error) {
+	if r.backRef == nil {
+		return 0, fmt.Errorf("back reference is nil, cannot clear targets")
+	}
+
+	var throughModel = newThroughProxy(r.rel.Through())
+	var throughQs = GetQuerySet(throughModel.object).
+		Filter(
+			expr.Q(
+				throughModel.sourceField.Name(),
+				r.source.Object.FieldDefs().Primary().GetValue(),
+			),
+			SubqueryIn(
+				throughModel.targetField.Name(),
+				ChangeObjectsType[T, attrs.Definer](
+					r.qs.Select(r.qs.queryInfo.Primary.Name()),
+				),
+			),
+		)
+
+	var deleted, err = throughQs.Delete()
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete through objects: %w", err)
+	}
+
+	r.backRef.SetValues([]Relation{}) // Clear the back reference values
+
+	return deleted, nil
 }

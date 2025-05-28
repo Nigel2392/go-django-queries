@@ -1238,6 +1238,124 @@ var manyToManyTests = []ManyToManyTest{
 
 		},
 	},
+	{
+		Name: "TestManyToMany_RelManyToManyQuerySet",
+		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
+			var row, err = queries.GetQuerySet(&ModelManyToMany{}).
+				Select("*", "Target.*", "Target.TargetReverse.*").
+				Filter("ID", m2m_sources[0].ID).
+				First()
+			if err != nil {
+				t.Fatalf("Failed to get row: %v", err)
+			}
+
+			created, err := row.Object.Target.Relations.AddTarget(m2m_targets[3])
+			if err != nil {
+				t.Fatalf("Failed to add Target object: %v", err)
+			}
+
+			if created {
+				t.Fatalf("Expected Target object to already exist, but it was created")
+			}
+
+			created, err = row.Object.Target.Relations.AddTarget(&ModelManyToMany_Target{
+				Name: "TestManyToMany_Target__AddTarget",
+				Age:  35,
+			})
+			if err != nil {
+				t.Fatalf("Failed to add Target object: %v", err)
+			}
+
+			if !created {
+				t.Fatalf("Expected Target object to be created, but it already exists")
+			}
+
+			a, err := row.Object.Target.Relations.All()
+			if err != nil {
+				t.Fatalf("Failed to get Target objects for row 0: %v", err)
+			}
+
+			t.Logf("QuerySet Arguments: %+v", row.QuerySet.LatestQuery().Args())
+
+			var targetObjects = make([]*ModelManyToMany_Target, 0, len(a))
+			for _, item := range a {
+				var through = item.Through.(*ModelManyToMany_Through)
+				t.Logf("___________________________________________")
+				t.Logf("Row [1] Target item from queryset: %+v", item.Object)
+				t.Logf("Row [2] Target item from queryset: %+v", through.SourceModel)
+				t.Logf("Row [3] Target item from queryset: %+v", through.TargetModel)
+
+				targetObjects = append(targetObjects, item.Object)
+			}
+
+			removed, err := row.Object.Target.Relations.Filter("ID__in", targetObjects[0].ID, targetObjects[1].ID).ClearTargets()
+			// removed, err := row.Object.Target.Relations.RemoveTargets(targetObjects)
+			if err != nil {
+				t.Fatalf("Failed to remove targets: %v", err)
+			}
+
+			if int(removed) != 2 {
+				t.Fatalf("Expected to remove %d targets, got %d", len(targetObjects), removed)
+			}
+
+			a, err = row.Object.Target.Relations.All()
+			if err != nil {
+				t.Fatalf("Failed to get Target objects for row 0: %v", err)
+			}
+
+			t.Logf("QuerySet Arguments: %+v", row.QuerySet.LatestQuery().Args())
+
+			for _, item := range a {
+				var through = item.Through.(*ModelManyToMany_Through)
+				t.Logf("___________________________________________")
+				t.Logf("Row [1] Target item from queryset: %+v", item.Object)
+				t.Logf("Row [2] Target item from queryset: %+v", through.SourceModel)
+				t.Logf("Row [3] Target item from queryset: %+v", through.TargetModel)
+			}
+		},
+	},
+	{
+		Name: "TestManyToMany_RelManyToManyQuerySet_New",
+		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
+			var obj = &ModelManyToMany{
+				Title: "TestManyToMany_New",
+				User:  &User{ID: int(users[0].ID)},
+			}
+			if err := queries.CreateObject(obj); err != nil {
+				t.Fatalf("Failed to create object: %v", err)
+			}
+
+			obj = queries.New(obj)
+
+			t.Logf("Created new ModelManyToMany object: %+v", obj)
+			t.Logf("Adding targets to new ModelManyToMany object %v", obj.Target)
+
+			var created, err = obj.Target.Relations.AddTarget(&ModelManyToMany_Target{
+				Name: "TestManyToMany_Target_New_1",
+				Age:  40,
+			})
+			if err != nil {
+				t.Fatalf("Failed to add Target object: %v", err)
+			}
+			if !created {
+				t.Fatalf("Expected Target object to be created, but it already exists")
+			}
+
+			a, err := obj.Target.Relations.All()
+			if err != nil {
+				t.Fatalf("Failed to get Target objects for row: %v", err)
+			}
+
+			for _, item := range a {
+				var through = item.Through.(*ModelManyToMany_Through)
+				t.Logf("___________________________________________")
+				t.Logf("Row [1] Target item from queryset: %+v", item.Object)
+				t.Logf("Row [2] Target item from queryset: %+v", through.SourceModel)
+				t.Logf("Row [3] Target item from queryset: %+v", through.TargetModel)
+			}
+
+		},
+	},
 }
 
 func TestManyToMany(t *testing.T) {
@@ -1313,7 +1431,7 @@ func TestManyToMany(t *testing.T) {
 			Age:  25,
 		},
 		&ModelManyToMany_Target{
-			Name: "TestOneToOne_Target4",
+			Name: "TestManyToMany_Target4",
 			Age:  30,
 		},
 	)
@@ -1396,28 +1514,6 @@ func TestManyToMany(t *testing.T) {
 		t.Run(test.Name, func(t *testing.T) {
 			test.Test(t, profiles, users, m2m_sources, m2m_targets, m2m_throughs)
 		})
-	}
-
-	var row, err = queries.GetQuerySet(&ModelManyToMany{}).
-		Select("*", "Target.*", "Target.TargetReverse.*").
-		Filter("ID", m2m_sources[0].ID).
-		First()
-	if err != nil {
-		t.Fatalf("Failed to get row: %v", err)
-	}
-
-	a, err := row.Object.Target.QuerySet.All()
-	if err != nil {
-		t.Fatalf("Failed to get Target objects for row 0: %v", err)
-	}
-
-	t.Logf("QuerySet Arguments: %+v", row.QuerySet.LatestQuery().Args())
-	for _, item := range a {
-		var through = item.Through.(*ModelManyToMany_Through)
-		t.Logf("___________________________________________")
-		t.Logf("Row [1] Target item from queryset: %+v", item.Object)
-		t.Logf("Row [2] Target item from queryset: %+v", through.SourceModel)
-		t.Logf("Row [3] Target item from queryset: %+v", through.TargetModel)
 	}
 
 	//profile_delete()

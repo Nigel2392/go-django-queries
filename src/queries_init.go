@@ -257,6 +257,11 @@ func getUniqueFields(modelMeta attrs.ModelMeta) [][]string {
 	return uniqueFields
 }
 
+type keyPart struct {
+	name  string
+	value any
+}
+
 // Use the model meta to get the unique key for an object.
 //
 // If the model has a primary key defined, it will return the primary key value.
@@ -335,7 +340,7 @@ createKey:
 
 uniqueFieldsLoop:
 	for _, fieldNames := range uniqueFields {
-		var uniqueKeyParts = make([]string, 0, len(uniqueFields)*2)
+		var uniqueKeyParts = make([]keyPart, 0, len(uniqueFields)*2)
 		for _, fieldName := range fieldNames {
 			var field, ok = objDefs.Field(fieldName)
 			if !ok {
@@ -354,14 +359,30 @@ uniqueFieldsLoop:
 				continue uniqueFieldsLoop
 			}
 
-			uniqueKeyParts = append(uniqueKeyParts, fmt.Sprintf("%s:%v", fieldName, val))
+			uniqueKeyParts = append(uniqueKeyParts, keyPart{
+				name:  fieldName,
+				value: val,
+			})
 		}
 
 		if len(uniqueKeyParts) == 0 {
 			continue uniqueFieldsLoop
 		}
 
-		return strings.Join(uniqueKeyParts, ":"), nil
+		if len(uniqueKeyParts) == 1 {
+			// If there is only one unique field, return its value directly
+			return uniqueKeyParts[0].value, nil
+		}
+
+		var sb strings.Builder
+		for i, part := range uniqueKeyParts {
+			if i > 0 {
+				sb.WriteString(":")
+			}
+			sb.WriteString(part.name)
+			sb.WriteString(":")
+			fmt.Fprintf(&sb, "%v", part.value)
+		}
 	}
 
 	return nil, fmt.Errorf(

@@ -423,24 +423,13 @@ targetLoop:
 			continue targetLoop
 		}
 
-		switch t := target.(type) {
-		case attrs.Definer:
-			var defs = t.FieldDefs()
-			var pkField = defs.Primary()
-			pkValue = pkField.GetValue()
-		case attrs.Definitions:
-			var pkField = t.Primary()
-			pkValue = pkField.GetValue()
-		default:
-			return 0, fmt.Errorf("target %T does not have a primary key", target)
+		var val, err = GetUniqueKey(target)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get unique key for target %T: %w", target, err)
 		}
 
-		if pkValue == nil {
-			return 0, fmt.Errorf("target %T does not have a valid primary key", target)
-		}
-
-		pkValues = append(pkValues, pkValue)
-		pkMap[pkValue] = struct{}{}
+		pkValues = append(pkValues, val)
+		pkMap[val] = struct{}{}
 	}
 
 	var throughModel = newThroughProxy(r.rel.Through())
@@ -475,10 +464,27 @@ targetLoop:
 
 	var newRels = make([]Relation, 0, len(relList))
 	for _, rel := range relList {
-		var model = rel.Model()
-		var fieldDefs = model.FieldDefs()
-		var pkValue = fieldDefs.Primary().GetValue()
+		var (
+			model     = rel.Model()
+			fieldDefs = model.FieldDefs()
+			pkValue   = fieldDefs.Primary().GetValue()
+		)
+
+		if fields.IsZero(pkValue) {
+			goto uniqueKeyCheck
+		}
+
 		if _, ok := pkMap[pkValue]; !ok {
+			newRels = append(newRels, rel)
+		}
+
+	uniqueKeyCheck:
+		var val, err = GetUniqueKey(model)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get unique key for relation %T: %w", model, err)
+		}
+
+		if _, ok := pkMap[val]; !ok {
 			newRels = append(newRels, rel)
 		}
 	}

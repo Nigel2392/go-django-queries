@@ -110,22 +110,21 @@ func (rl *RelRevFK[T]) SetValues(objects []attrs.Definer) {
 			continue
 		}
 
-		var pkValue any
+		var uniqueKey any
 		if canPk, ok := obj.(canPrimaryKey); ok {
-			pkValue = canPk.PrimaryKey()
+			uniqueKey = canPk.PrimaryKey()
 		}
 
-		if pkValue == nil {
-			var defs = obj.FieldDefs()
-			var pkField = defs.Primary()
-			pkValue = pkField.GetValue()
+		if uniqueKey == nil {
+			var err error
+			uniqueKey, err = GetUniqueKey(obj)
+
+			if err != nil {
+				panic(fmt.Sprintf("cannot set related object %T without a generated unique key: %v", obj, err))
+			}
 		}
 
-		if pkValue == nil {
-			panic(fmt.Sprintf("cannot set related object %T with nil primary key", obj))
-		}
-
-		rl.relations.Set(pkValue, obj.(T))
+		rl.relations.Set(uniqueKey, obj.(T))
 	}
 }
 
@@ -261,26 +260,22 @@ func (rl *RelM2M[T1, T2]) SetValues(rel []Relation) {
 
 		// rl.relations = append(rl.relations, o2o)
 
-		var pkValue any
+		var uniqueKey any
 		if canPk, ok := r.(canPrimaryKey); ok {
-			pkValue = canPk.PrimaryKey()
+			uniqueKey = canPk.PrimaryKey()
 		}
 
 		// First nil check we can get the primary key
 		// from the relation's definitions.
-		if pkValue == nil {
-			var objDefs = o2o.Object.FieldDefs()
-			var pkField = objDefs.Primary()
-			pkValue = pkField.GetValue()
+		if uniqueKey == nil {
+			var err error
+			uniqueKey, err = GetUniqueKey(r.Model())
+			if err != nil {
+				panic(fmt.Sprintf("cannot set related object %T without a generated unique key: %v", r.Model(), err))
+			}
 		}
 
-		// If the primary key is still nill it is OK to panic,
-		// because it means the object does not have a primary key set.
-		if pkValue == nil {
-			panic(fmt.Sprintf("cannot set related object %T with nil primary key", o2o.Object))
-		}
-
-		rl.relations.Set(pkValue, o2o)
+		rl.relations.Set(uniqueKey, o2o)
 	}
 }
 

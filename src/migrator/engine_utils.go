@@ -10,31 +10,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-func getFromAttrs[T any](attrMap map[string]any, key string) (T, bool) {
-	var n T
-	if v, ok := attrMap[key]; ok {
-		if t, ok := v.(T); ok {
-			return t, true
-		}
-		var (
-			rT = reflect.TypeOf((*T)(nil)).Elem()
-			vT = reflect.TypeOf(v)
-			vV = reflect.ValueOf(v)
-		)
-
-		if vT.AssignableTo(rT) {
-			return vV.Interface().(T), true
-		}
-
-		if vT.ConvertibleTo(rT) {
-			return vV.Convert(rT).Interface().(T), true
-		}
-
-		return n, false
-	}
-	return n, false
-}
-
 var suffixWithoutDot = strings.TrimPrefix(MIGRATION_FILE_SUFFIX, ".")
 
 func parseMigrationFileName(n string) (orderNum int, name string, err error) {

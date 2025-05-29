@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"slices"
 
+	"github.com/Nigel2392/go-django-queries/internal"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/core/contenttypes"
 	"github.com/elliotchance/orderedmap/v2"
@@ -75,20 +76,20 @@ func NewModelTable(object attrs.Definer) *ModelTable {
 	for _, field := range fields {
 		var atts = field.Attrs()
 
-		attrUseInDB, ok := getFromAttrs[bool](atts, AttrUseInDBKey)
+		attrUseInDB, ok := internal.GetFromAttrs[bool](atts, AttrUseInDBKey)
 		if !ok {
 			attrUseInDB = true
 		}
 
-		attrMaxLength, _ := getFromAttrs[int64](atts, attrs.AttrMaxLengthKey)
-		attrMinLength, _ := getFromAttrs[int64](atts, attrs.AttrMinLengthKey)
-		attrMinValue, _ := getFromAttrs[float64](atts, attrs.AttrMinValueKey)
-		attrMaxValue, _ := getFromAttrs[float64](atts, attrs.AttrMaxValueKey)
-		attrAutoIncrement, _ := getFromAttrs[bool](atts, attrs.AttrAutoIncrementKey)
-		attrUnique, _ := getFromAttrs[bool](atts, attrs.AttrUniqueKey)
-		attrReverseAlias, _ := getFromAttrs[string](atts, attrs.AttrReverseAliasKey)
-		attrOnDelete, _ := getFromAttrs[Action](atts, AttrOnDeleteKey)
-		attrOnUpdate, _ := getFromAttrs[Action](atts, AttrOnUpdateKey)
+		attrMaxLength, _ := internal.GetFromAttrs[int64](atts, attrs.AttrMaxLengthKey)
+		attrMinLength, _ := internal.GetFromAttrs[int64](atts, attrs.AttrMinLengthKey)
+		attrMinValue, _ := internal.GetFromAttrs[float64](atts, attrs.AttrMinValueKey)
+		attrMaxValue, _ := internal.GetFromAttrs[float64](atts, attrs.AttrMaxValueKey)
+		attrAutoIncrement, _ := internal.GetFromAttrs[bool](atts, attrs.AttrAutoIncrementKey)
+		attrUnique, _ := internal.GetFromAttrs[bool](atts, attrs.AttrUniqueKey)
+		attrReverseAlias, _ := internal.GetFromAttrs[string](atts, attrs.AttrReverseAliasKey)
+		attrOnDelete, _ := internal.GetFromAttrs[Action](atts, AttrOnDeleteKey)
+		attrOnUpdate, _ := internal.GetFromAttrs[Action](atts, AttrOnUpdateKey)
 
 		var rel *MigrationRelation
 		var fRel = field.Rel()

@@ -11,67 +11,67 @@ import (
 )
 
 func init() {
-	RegisterLookup("exact", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("exact", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s = ?", field), value, nil
 	})
-	RegisterLookup("not", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("not", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s != ?", field), value, nil
 	})
-	RegisterLookup("bitand", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("bitand", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		if len(value) != 1 {
 			return "", value, fmt.Errorf("lookup requires exactly one value, got %d %+v", len(value), value)
 		}
 		value = []any{value[0], value[0]}
 		return fmt.Sprintf("%s & ? = ?", field), value, nil
 	})
-	RegisterLookup("bitor", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("bitor", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		if len(value) != 1 {
 			return "", value, fmt.Errorf("lookup requires exactly one value, got %d %+v", len(value), value)
 		}
 		value = []any{value[0], value[0]}
 		return fmt.Sprintf("%s | ? = ?", field), value, nil
 	})
-	RegisterLookup("bitxor", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("bitxor", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		if len(value) != 1 {
 			return "", value, fmt.Errorf("lookup requires exactly one value, got %d %+v", len(value), value)
 		}
 		value = []any{value[0], value[0]}
 		return fmt.Sprintf("%s ^ ? = ?", field), value, nil
 	})
-	RegisterLookup("iexact", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("iexact", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("LOWER(%s) = LOWER(?)", field), normalizeArgs("iexact", value), nil
 	})
-	RegisterLookup("icontains", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("icontains", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", field), normalizeArgs("icontains", value), nil
 	})
-	RegisterLookup("istartswith", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("istartswith", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", field), normalizeArgs("istartswith", value), nil
 	})
-	RegisterLookup("iendswith", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("iendswith", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("LOWER(%s) LIKE LOWER(?)", field), normalizeArgs("iendswith", value), nil
 	})
-	RegisterLookup("contains", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("contains", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s LIKE ?", field), normalizeArgs("contains", value), nil
 	})
-	RegisterLookup("startswith", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("startswith", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s LIKE ?", field), normalizeArgs("startswith", value), nil
 	})
-	RegisterLookup("endswith", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("endswith", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s LIKE ?", field), normalizeArgs("endswith", value), nil
 	})
-	RegisterLookup("gt", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("gt", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s > ?", field), value, nil
 	})
-	RegisterLookup("gte", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("gte", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s >= ?", field), value, nil
 	})
-	RegisterLookup("lt", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("lt", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s < ?", field), value, nil
 	})
-	RegisterLookup("lte", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("lte", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s <= ?", field), value, nil
 	})
-	RegisterLookup("in", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("in", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		if len(value) == 0 {
 			return "", value, fmt.Errorf("no values provided for IN lookup")
 		}
@@ -102,7 +102,7 @@ func init() {
 
 		return fmt.Sprintf("%s IN (%s)", field, strings.Join(placeholders, ",")), inList, nil
 	})
-	RegisterLookup("isnull", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("isnull", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		if len(value) != 1 {
 			return "", value, fmt.Errorf("ISNULL lookup requires exactly one value, got %d %+v", len(value), value)
 		}
@@ -111,66 +111,97 @@ func init() {
 		}
 		return fmt.Sprintf("%s IS NULL", field), []any{}, nil
 	})
-	RegisterLookup("range", func(field string, value []any) (string, []any, error) {
+	RegisterLookup("range", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		if len(value) != 2 {
 			return "", value, fmt.Errorf("RANGE lookup requires exactly two values")
 		}
 		return fmt.Sprintf("%s BETWEEN ? AND ?", field), value, nil
 	})
 
-	RegisterFunc("SUM", func(c any, value []any) (sql string, args []any, err error) {
+	RegisterFunc("SUM", func(d driver.Driver, c any, value []any) (sql string, args []any, err error) {
 		col := c.(string)
 		return fmt.Sprintf("SUM(%s)", col), value, nil
 	})
-	RegisterFunc("COUNT", func(c any, value []any) (sql string, args []any, err error) {
+	RegisterFunc("COUNT", func(d driver.Driver, c any, value []any) (sql string, args []any, err error) {
 		col := c.(string)
 		return fmt.Sprintf("COUNT(%s)", col), value, nil
 	})
-	RegisterFunc("AVG", func(c any, value []any) (sql string, args []any, err error) {
+	RegisterFunc("AVG", func(d driver.Driver, c any, value []any) (sql string, args []any, err error) {
 		col := c.(string)
 		return fmt.Sprintf("AVG(%s)", col), value, nil
 	})
-	RegisterFunc("MAX", func(c any, value []any) (sql string, args []any, err error) {
+	RegisterFunc("MAX", func(d driver.Driver, c any, value []any) (sql string, args []any, err error) {
 		col := c.(string)
 		return fmt.Sprintf("MAX(%s)", col), value, nil
 	})
-	RegisterFunc("MIN", func(c any, value []any) (sql string, args []any, err error) {
+	RegisterFunc("MIN", func(d driver.Driver, c any, value []any) (sql string, args []any, err error) {
 		col := c.(string)
 		return fmt.Sprintf("MIN(%s)", col), value, nil
 	})
-	RegisterFunc("COALESCE", func(c any, value []any) (sql string, args []any, err error) {
+	RegisterFunc("COALESCE", func(d driver.Driver, c any, value []any) (sql string, args []any, err error) {
 		col := c.(string)
 		return fmt.Sprintf("COALESCE(%s)", col), value, nil
 	})
-	RegisterFunc("CONCAT", func(c any, value []any) (sql string, args []any, err error) {
+	RegisterFunc("CONCAT", func(d driver.Driver, c any, value []any) (sql string, args []any, err error) {
 		col := c.(string)
 		return fmt.Sprintf("CONCAT(%s)", col), value, nil
 	})
-	RegisterFunc("SUBSTR", func(c any, value []any) (sql string, args []any, err error) {
+	RegisterFunc("SUBSTR", func(d driver.Driver, c any, value []any) (sql string, args []any, err error) {
 		col := c.(string)
 		if len(value) != 2 {
 			return "", value, fmt.Errorf("SUBSTR lookup requires exactly two values")
 		}
 		return fmt.Sprintf("SUBSTR(%s, ?, ?)", col), value, nil
 	})
-	RegisterFunc("TRIM", func(c any, value []any) (sql string, args []any, err error) {
+	RegisterFunc("TRIM", func(d driver.Driver, c any, value []any) (sql string, args []any, err error) {
 		col := c.(string)
 		return fmt.Sprintf("TRIM(%s)", col), value, nil
 	})
-	RegisterFunc("UPPER", func(c any, value []any) (sql string, args []any, err error) {
+	RegisterFunc("UPPER", func(d driver.Driver, c any, value []any) (sql string, args []any, err error) {
 		col := c.(string)
 		return fmt.Sprintf("UPPER(%s)", col), value, nil
 	})
-	RegisterFunc("LOWER", func(c any, value []any) (sql string, args []any, err error) {
+	RegisterFunc("LOWER", func(d driver.Driver, c any, value []any) (sql string, args []any, err error) {
 		col := c.(string)
 		return fmt.Sprintf("LOWER(%s)", col), value, nil
 	})
-	RegisterFunc("LENGTH", func(c any, value []any) (sql string, args []any, err error) {
+	RegisterFunc("LENGTH", func(d driver.Driver, c any, value []any) (sql string, args []any, err error) {
 		col := c.(string)
 		return fmt.Sprintf("LENGTH(%s)", col), value, nil
 	})
-	RegisterFunc("NOW", func(c any, value []any) (sql string, args []any, err error) {
+	RegisterFunc("NOW", func(d driver.Driver, c any, value []any) (sql string, args []any, err error) {
 		return "NOW()", value, nil
+	})
+	RegisterFunc("CAST", func(d driver.Driver, c any, value []any) (string, []any, error) {
+		var (
+			col         = c.(string)
+			castTypeObj = value[0]
+			castType    CastType
+			ok          bool
+		)
+
+		if castType, ok = castTypeObj.(CastType); !ok {
+			return "", value, fmt.Errorf("CAST type must be of type expr.CastType, got %T", castType)
+		}
+
+		var castLookupArgs []any
+		if len(value) > 1 {
+			castLookupArgs = value[1:]
+		}
+		var castTypeSql, _, err = castLookups.lookup(d, col, castType, castLookupArgs)
+		if err != nil {
+			return "", value, fmt.Errorf("error looking up CAST type %d: %w", castType, err)
+		}
+
+		if castTypeSql == "" {
+			return "", value, fmt.Errorf(
+				"CAST type %d is not implemented: %w",
+				castType, ErrCastTypeNotImplemented,
+			)
+		}
+
+		var sql = fmt.Sprintf("CAST(%s AS %s)", col, castTypeSql)
+		return sql, []any{}, nil
 	})
 }
 
@@ -183,13 +214,13 @@ func normalizeDefinerArg(v any) any {
 	return v
 }
 
-type _lookups[T1 any] struct {
-	m              map[string]func(col T1, value []any) (sql string, args []any, err error)
-	d_m            map[reflect.Type]map[string]func(col T1, value []any) (sql string, args []any, err error)
-	onBeforeLookup func(col T1, lookup string, value []any) (T1, []any, error)
+type _lookups[T1 any, T2 comparable] struct {
+	m              map[T2]func(d driver.Driver, col T1, value []any) (sql string, args []any, err error)
+	d_m            map[reflect.Type]map[T2]func(d driver.Driver, col T1, value []any) (sql string, args []any, err error)
+	onBeforeLookup func(col T1, lookup T2, value []any) (T1, []any, error)
 }
 
-func (l *_lookups[T1]) lookupFunc(driver driver.Driver, lookup string) (func(col T1, value []any) (sql string, args []any, err error), bool) {
+func (l *_lookups[T1, T2]) lookupFunc(driver driver.Driver, lookup T2) (func(d driver.Driver, col T1, value []any) (sql string, args []any, err error), bool) {
 	var m, ok = l.d_m[reflect.TypeOf(driver)]
 	if !ok {
 		m = l.m
@@ -202,7 +233,7 @@ func (l *_lookups[T1]) lookupFunc(driver driver.Driver, lookup string) (func(col
 	return fn, ok
 }
 
-func (l *_lookups[T1]) lookup(driver driver.Driver, col T1, lookup string, value []any) (string, []any, error) {
+func (l *_lookups[T1, T2]) lookup(driver driver.Driver, col T1, lookup T2, value []any) (string, []any, error) {
 	var m, ok = l.d_m[reflect.TypeOf(driver)]
 	if !ok {
 		m = l.m
@@ -220,59 +251,61 @@ func (l *_lookups[T1]) lookup(driver driver.Driver, col T1, lookup string, value
 		var err error
 		col, value, err = l.onBeforeLookup(col, lookup, value)
 		if err != nil {
-			return "", nil, fmt.Errorf("error in onBeforeLookup for lookup \"%s\": %w", lookup, err)
+			return "", nil, fmt.Errorf("error in onBeforeLookup for lookup \"%v\": %w", lookup, err)
 		}
 	}
 
-	var sql, args, err = fn(col, value)
+	var sql, args, err = fn(driver, col, value)
 	if err != nil {
-		return "", nil, fmt.Errorf("error in lookup \"%s\": %w", lookup, err)
+		return "", nil, fmt.Errorf("error in lookup \"%v\": %w", lookup, err)
 	}
 
 	return sql, args, nil
 }
 
-func (l *_lookups[T1]) register(lookup string, fn func(col T1, value []any) (sql string, args []any, err error), drivers ...driver.Driver) {
+func (l *_lookups[T1, T2]) register(lookup T2, fn func(d driver.Driver, col T1, value []any) (sql string, args []any, err error), drivers ...driver.Driver) {
 	if len(drivers) == 0 {
 		l.m[lookup] = fn
 		return
 	}
 
-	for _, driver := range drivers {
-		var t = reflect.TypeOf(driver)
+	for _, drv := range drivers {
+		var t = reflect.TypeOf(drv)
 		if _, ok := l.d_m[t]; !ok {
-			l.d_m[t] = make(map[string]func(col T1, value []any) (sql string, args []any, err error))
+			l.d_m[t] = make(map[T2]func(d driver.Driver, col T1, value []any) (sql string, args []any, err error))
 		}
 		l.d_m[t][lookup] = fn
 	}
 }
 
-var typeLookups = &_lookups[string]{
-	m:   make(map[string]func(col string, value []any) (sql string, args []any, err error)),
-	d_m: make(map[reflect.Type]map[string]func(col string, value []any) (sql string, args []any, err error)),
+var typeLookups = &_lookups[string, string]{
+	m:   make(map[string]func(d driver.Driver, col string, value []any) (sql string, args []any, err error)),
+	d_m: make(map[reflect.Type]map[string]func(d driver.Driver, col string, value []any) (sql string, args []any, err error)),
 }
 
-func RegisterLookup(lookup string, fn func(col string, value []any) (sql string, args []any, err error), drivers ...driver.Driver) {
+func RegisterLookup(lookup string, fn func(d driver.Driver, col string, value []any) (sql string, args []any, err error), drivers ...driver.Driver) {
 	typeLookups.register(lookup, fn, drivers...)
 }
 
-var funcLookups = &_lookups[any]{
-	m:   make(map[string]func(col any, value []any) (sql string, args []any, err error)),
-	d_m: make(map[reflect.Type]map[string]func(col any, value []any) (sql string, args []any, err error)),
-	onBeforeLookup: func(col any, _ string, value []any) (any, []any, error) {
-		switch c := col.(type) {
-		case string:
-			return c, value, nil
-		case Expression:
-			var sb strings.Builder
-			var args = c.SQL(&sb)
-			return sb.String(), append(args, value...), nil
-		default:
-			return "", nil, fmt.Errorf("unsupported column type %T", col)
-		}
-	},
+func handleExprLookups[T1 comparable](col any, lookup T1, value []any) (any, []any, error) {
+	switch c := col.(type) {
+	case string:
+		return c, value, nil
+	case Expression:
+		var sb strings.Builder
+		var args = c.SQL(&sb)
+		return sb.String(), append(args, value...), nil
+	default:
+		return "", nil, fmt.Errorf("unsupported column type %T", col)
+	}
 }
 
-func RegisterFunc(funcName string, fn func(col any, value []any) (sql string, args []any, err error), drivers ...driver.Driver) {
+var funcLookups = &_lookups[any, string]{
+	m:              make(map[string]func(d driver.Driver, col any, value []any) (sql string, args []any, err error)),
+	d_m:            make(map[reflect.Type]map[string]func(d driver.Driver, col any, value []any) (sql string, args []any, err error)),
+	onBeforeLookup: handleExprLookups[string],
+}
+
+func RegisterFunc(funcName string, fn func(d driver.Driver, col any, value []any) (sql string, args []any, err error), drivers ...driver.Driver) {
 	funcLookups.register(funcName, fn, drivers...)
 }

@@ -9,9 +9,7 @@ import (
 
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	django "github.com/Nigel2392/go-django/src"
-	"github.com/Nigel2392/go-django/src/core/assert"
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/Nigel2392/go-django/src/forms/fields"
 
 	// Register all schema editors for the migrator package.
 	_ "github.com/Nigel2392/go-django-queries/src/migrator/sql/mysql"
@@ -20,6 +18,12 @@ import (
 )
 
 const (
+	// MetaUniqueTogetherKey is the key used to store the unique together
+	// fields in the model's metadata.
+	//
+	// It is used to determine which fields are unique together in the model
+	// and can be used to enforce uniqueness, generate SQL clauses for selections,
+	// and to generate unique keys for the model in code.
 	MetaUniqueTogetherKey = "unique_together"
 )
 
@@ -122,61 +126,6 @@ func ForSelectAllFields[T any](fields any) []T {
 	default:
 		panic(fmt.Errorf("cannot get ForSelectAllFields from %T", fields))
 	}
-}
-
-// New initializes a model's field definitions and binds
-// the model's values to the model.
-//
-// The model has to be saved to the database before it can be used,
-// otherwise it will panic.
-func New[T attrs.Definer](model T) T {
-	var defs = model.FieldDefs()
-	if defs == nil {
-		panic(fmt.Errorf("model %T has no field definitions", model))
-	}
-
-	var primary = defs.Primary()
-	if primary == nil {
-		panic(fmt.Errorf("model %T has no primary field defined, cannot initialize", model))
-	}
-
-	if primary.GetValue() == nil {
-		panic(fmt.Errorf(
-			"model %T has no primary key set, the model has to be saved before it can be used",
-			model,
-		))
-	}
-
-	var objFields = defs.Fields()
-	for _, field := range objFields {
-		var rel = field.Rel()
-		if rel == nil {
-			continue
-		}
-
-		var (
-			shouldSet bool
-			value     = field.GetValue()
-			dftValue  = field.GetDefault()
-		)
-
-		if fields.IsZero(value) && !fields.IsZero(dftValue) {
-			shouldSet = true
-			value = dftValue
-		}
-
-		assert.Err(attrs.BindValueToModel(
-			model, field, value,
-		))
-
-		if shouldSet {
-			// If the field has a default value, set it.
-			// This is useful for fields that are not set yet.
-			field.SetValue(value, true)
-		}
-	}
-
-	return model
 }
 
 // A base interface for relations.

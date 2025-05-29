@@ -6,9 +6,10 @@ import (
 	"strings"
 )
 
-type Func struct {
+type function[LookupType comparable] struct {
+	reg        *_lookups[any, LookupType]
 	sql        func(col any, value []any) (sql string, args []any, err error)
-	funcLookup string
+	funcLookup LookupType
 	field      string
 	args       []any
 	used       bool
@@ -16,7 +17,9 @@ type Func struct {
 	inner      []Expression
 }
 
-func (e *Func) FieldName() string {
+type Func = function[string]
+
+func (e *function[T]) FieldName() string {
 	if e.field != "" {
 		return e.field
 	}
@@ -33,9 +36,9 @@ func (e *Func) FieldName() string {
 	return ""
 }
 
-func (e *Func) SQL(sb *strings.Builder) []any {
+func (e *function[T]) SQL(sb *strings.Builder) []any {
 	if e.sql == nil {
-		panic(fmt.Errorf("SQL function %q not provided", e.funcLookup))
+		panic(fmt.Errorf("SQL function %v not provided", e.funcLookup))
 	}
 
 	var innerBuf strings.Builder
@@ -61,13 +64,13 @@ func (e *Func) SQL(sb *strings.Builder) []any {
 	return append(args, params...)
 }
 
-func (e *Func) Clone() Expression {
+func (e *function[T]) Clone() Expression {
 	var inner = slices.Clone(e.inner)
 	for i := range inner {
 		inner[i] = inner[i].Clone()
 	}
 
-	return &Func{
+	return &function[T]{
 		sql:        e.sql,
 		funcLookup: e.funcLookup,
 		field:      e.field,
@@ -78,12 +81,12 @@ func (e *Func) Clone() Expression {
 	}
 }
 
-func (e *Func) Resolve(inf *ExpressionInfo) Expression {
+func (e *function[T]) Resolve(inf *ExpressionInfo) Expression {
 	if inf.Model == nil || e.used {
 		return e
 	}
 
-	var nE = e.Clone().(*Func)
+	var nE = e.Clone().(*function[T])
 	nE.used = true
 
 	if len(nE.inner) > 0 {
@@ -92,12 +95,15 @@ func (e *Func) Resolve(inf *ExpressionInfo) Expression {
 		}
 	}
 
-	var ok bool
-	nE.sql, ok = funcLookups.lookupFunc(
+	var sql, ok = e.reg.lookupFunc(
 		inf.Driver, nE.funcLookup,
 	)
 	if !ok {
-		panic(fmt.Errorf("could not resolve SQL function %s", nE.funcLookup))
+		panic(fmt.Errorf("could not resolve SQL function %v", nE.funcLookup))
+	}
+
+	nE.sql = func(col any, value []any) (string, []any, error) {
+		return sql(inf.Driver, col, value)
 	}
 
 	if nE.field != "" {
@@ -111,7 +117,7 @@ func (e *Func) Resolve(inf *ExpressionInfo) Expression {
 	return nE
 }
 
-func newFunc(funcLookup string, value []any, expr ...any) *Func {
+func newFunc[T comparable](registry *_lookups[any, T], funcLookup T, value []any, expr ...any) *function[T] {
 	var inner = make([]Expression, 0, len(expr))
 	for _, e := range expr {
 		switch v := e.(type) {
@@ -127,7 +133,8 @@ func newFunc(funcLookup string, value []any, expr ...any) *Func {
 		}
 	}
 
-	return &Func{
+	return &function[T]{
+		reg:        registry,
 		funcLookup: funcLookup,
 		args:       value,
 		inner:      inner,
@@ -135,49 +142,49 @@ func newFunc(funcLookup string, value []any, expr ...any) *Func {
 }
 
 func FuncSum(expr ...any) *Func {
-	return newFunc("SUM", []any{}, expr...)
+	return newFunc(funcLookups, "SUM", []any{}, expr...)
 }
 
 func FuncCount(expr ...any) *Func {
-	return newFunc("COUNT", []any{}, expr...)
+	return newFunc(funcLookups, "COUNT", []any{}, expr...)
 }
 
 func FuncAvg(expr ...any) *Func {
-	return newFunc("AVG", []any{}, expr...)
+	return newFunc(funcLookups, "AVG", []any{}, expr...)
 }
 
 func FuncMax(expr ...any) *Func {
-	return newFunc("MAX", []any{}, expr...)
+	return newFunc(funcLookups, "MAX", []any{}, expr...)
 }
 
 func FuncMin(expr ...any) *Func {
-	return newFunc("MIN", []any{}, expr...)
+	return newFunc(funcLookups, "MIN", []any{}, expr...)
 }
 
 func FuncCoalesce(expr ...any) *Func {
-	return newFunc("COALESCE", []any{}, expr...)
+	return newFunc(funcLookups, "COALESCE", []any{}, expr...)
 }
 
 func FuncConcat(expr ...any) *Func {
-	return newFunc("CONCAT", []any{}, expr...)
+	return newFunc(funcLookups, "CONCAT", []any{}, expr...)
 }
 
 func FuncSubstr(expr any, start, length any) *Func {
-	return newFunc("SUBSTR", []any{start, length}, expr)
+	return newFunc(funcLookups, "SUBSTR", []any{start, length}, expr)
 }
 
 func FuncUpper(expr any) *Func {
-	return newFunc("UPPER", []any{}, expr)
+	return newFunc(funcLookups, "UPPER", []any{}, expr)
 }
 
 func FuncLower(expr any) *Func {
-	return newFunc("LOWER", []any{}, expr)
+	return newFunc(funcLookups, "LOWER", []any{}, expr)
 }
 
 func FuncLength(expr any) *Func {
-	return newFunc("LENGTH", []any{}, expr)
+	return newFunc(funcLookups, "LENGTH", []any{}, expr)
 }
 
 func FuncNow() *Func {
-	return newFunc("NOW", []any{}, nil)
+	return newFunc(funcLookups, "NOW", []any{}, nil)
 }

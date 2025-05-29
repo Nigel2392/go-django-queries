@@ -1328,7 +1328,7 @@ var manyToManyTests = []ManyToManyTest{
 				t.Fatalf("Failed to create object: %v", err)
 			}
 
-			obj = queries.New(obj)
+			obj = queries.Setup(obj)
 
 			t.Logf("Created new ModelManyToMany object: %+v", obj)
 			t.Logf("Adding targets to new ModelManyToMany object %v", obj.Target)

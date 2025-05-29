@@ -27,6 +27,15 @@ type modelDefiner = interface {
 	Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinitions
 }
 
+// Setup initializes a model's field definitions and binds
+// the model's values to the model.
+//
+// The model has to be saved to the database before it can be used,
+// otherwise it will panic.
+func Setup[T attrs.Definer](model T) T {
+	return queries.Setup(model)
+}
+
 func Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinitions {
 	var model, err = ExtractModel(def)
 	if err != nil {

@@ -19,6 +19,10 @@ import (
 	_ "github.com/Nigel2392/go-django-queries/src/migrator/sql/sqlite"
 )
 
+const (
+	MetaUniqueTogetherKey = "unique_together"
+)
+
 // A field can adhere to this interface to indicate that the field should be
 // aliased when generating the SQL for the field.
 //

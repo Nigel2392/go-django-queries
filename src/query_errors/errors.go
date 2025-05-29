@@ -29,5 +29,6 @@ const (
 	ErrTypeMismatch  errs.Error = "received type does not match expected type"
 	ErrNilPointer    errs.Error = "received nil pointer, expected a pointer to initialized value"
 	ErrFieldNotFound errs.Error = "field not found in model definition"
+	ErrNoUniqueKey   errs.Error = "could not find unique key for model"
 	ErrSaveFailed    errs.Error = "failed to save model"
 )

@@ -3,6 +3,7 @@ package queries
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/Nigel2392/go-django-queries/internal"
 	"github.com/Nigel2392/go-django-queries/src/expr"
@@ -218,9 +219,156 @@ func GenerateObjectsWhereClause[T attrs.Definer](objects ...T) ([]expr.LogicalEx
 	}
 }
 
-const (
-	MetaUniqueTogetherKey = "unique_together"
-)
+func getUniqueFields(modelMeta attrs.ModelMeta) [][]string {
+	var (
+		modelDefs    = modelMeta.Definitions()
+		uniqueFields [][]string
+	)
+	var uniqueTogetherObj, ok = modelMeta.Storage(MetaUniqueTogetherKey)
+	if ok {
+		var fields = make([][]string, 0, 1)
+		switch uqFields := uniqueTogetherObj.(type) {
+		case []string:
+			fields = append(fields, uqFields)
+		case [][]string:
+			fields = append(fields, uqFields...)
+		default:
+			panic(fmt.Sprintf("unexpected type for ModelMeta.Storage(%q): %T, expected []string or [][]string", MetaUniqueTogetherKey, uqFields))
+		}
+		uniqueFields = make([][]string, len(fields), len(fields))
+		for i, fieldNames := range fields {
+			uniqueFields[i] = make([]string, 0, len(fieldNames))
+			for _, fieldName := range fieldNames {
+				if fieldDef, ok := modelDefs.Field(fieldName); ok {
+					uniqueFields[i] = append(uniqueFields[i], fieldDef.Name())
+				} else {
+					panic(fmt.Sprintf("field %q not found in model %T", fieldName, modelMeta.Model()))
+				}
+			}
+		}
+	}
+	for _, field := range modelDefs.Fields() {
+		var attributes = field.Attrs()
+		var isUnique, _ = internal.GetFromAttrs[bool](attributes, attrs.AttrUniqueKey)
+		if isUnique {
+			uniqueFields = append(uniqueFields, []string{field.Name()})
+		}
+	}
+	return uniqueFields
+}
+
+// Use the model meta to get the unique key for an object.
+//
+// If the model has a primary key defined, it will return the primary key value.
+//
+// If the model does not have a primary key defined, it will return the unique fields
+// or unique together fields as a string of [fieldName]:[fieldValue]:[fieldName]:[fieldValue] pairs.
+func GetUniqueKey(modelObject any) (any, error) {
+
+	var (
+		obj     attrs.Definer
+		objDefs attrs.Definitions
+	)
+	switch o := modelObject.(type) {
+	case attrs.Definer:
+		obj = o
+		objDefs = o.FieldDefs()
+	case attrs.Definitions:
+		obj = o.Instance()
+		objDefs = o
+	case attrs.Field:
+		obj = o.Instance()
+		if o.IsPrimary() {
+			var val, err = o.Value()
+			if err != nil {
+				return nil, fmt.Errorf(
+					"error getting primary key value for field %q in object %T: %w",
+					o.Name(), obj, err,
+				)
+			}
+
+			if !fields.IsZero(val) {
+				return val, nil
+			}
+
+			goto createKey
+		}
+
+		objDefs = obj.FieldDefs()
+
+	default:
+		return nil, fmt.Errorf(
+			"unexpected type for model object %T, expected attrs.Definer or attrs.Definitions",
+			modelObject,
+		)
+	}
+
+createKey:
+	var (
+		modelMeta    = attrs.GetModelMeta(obj)
+		primaryField = objDefs.Primary()
+		primaryVal   any
+		err          error
+	)
+
+	if primaryField != nil {
+		primaryVal, err = primaryField.Value()
+		if err != nil {
+			return nil, fmt.Errorf(
+				"error getting primary key value for object %T: %w",
+				obj, err,
+			)
+		}
+
+		if !fields.IsZero(primaryVal) {
+			return primaryVal, nil
+		}
+	}
+
+	var uniqueFields = getUniqueFields(modelMeta)
+	if len(uniqueFields) == 0 {
+		return nil, fmt.Errorf(
+			"model %T (%v) has no unique fields or unique together fields, cannot generate unique key: %w",
+			obj, primaryVal, query_errors.ErrNoUniqueKey,
+		)
+	}
+
+uniqueFieldsLoop:
+	for _, fieldNames := range uniqueFields {
+		var uniqueKeyParts = make([]string, 0, len(uniqueFields)*2)
+		for _, fieldName := range fieldNames {
+			var field, ok = objDefs.Field(fieldName)
+			if !ok {
+				panic(fmt.Sprintf("field %q not found in model %T", fieldName, obj))
+			}
+
+			var val, err = field.Value()
+			if err != nil {
+				return nil, fmt.Errorf(
+					"error getting value for field %q in model %T: %w",
+					fieldName, obj, err,
+				)
+			}
+
+			if val == nil || fields.IsZero(val) {
+				continue uniqueFieldsLoop
+			}
+
+			uniqueKeyParts = append(uniqueKeyParts, fmt.Sprintf("%s:%v", fieldName, val))
+		}
+
+		if len(uniqueKeyParts) == 0 {
+			continue uniqueFieldsLoop
+		}
+
+		return strings.Join(uniqueKeyParts, ":"), nil
+	}
+
+	return nil, fmt.Errorf(
+		"model %T has does not have enough unique fields or unique together fields set to generate a unique key: %w",
+		obj, query_errors.ErrNoUniqueKey,
+	)
+}
 
 // Registers a function to generate a where clause for a model
 // without a primary key defined.
@@ -242,41 +390,7 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.Definer], d 
 		return nil
 	}
 
-	var uniqueFields [][]string
-	var uniqueTogetherObj, ok = modelMeta.Storage(MetaUniqueTogetherKey)
-	if ok {
-		var fields = make([][]string, 0, 1)
-		switch uqFields := uniqueTogetherObj.(type) {
-		case []string:
-			fields = append(fields, uqFields)
-		case [][]string:
-			fields = append(fields, uqFields...)
-		default:
-			panic(fmt.Sprintf("unexpected type for ModelMeta.Storage(%q): %T, expected []string or [][]string", MetaUniqueTogetherKey, uqFields))
-		}
-
-		uniqueFields = make([][]string, len(fields), len(fields))
-		for i, fieldNames := range fields {
-			uniqueFields[i] = make([]string, 0, len(fieldNames))
-
-			for _, fieldName := range fieldNames {
-				if fieldDef, ok := modelDefs.Field(fieldName); ok {
-					uniqueFields[i] = append(uniqueFields[i], fieldDef.Name())
-				} else {
-					panic(fmt.Sprintf("field %q not found in model %T", fieldName, d))
-				}
-			}
-		}
-	}
-
-	for _, field := range modelDefs.Fields() {
-		var attributes = field.Attrs()
-		var isUnique, _ = internal.GetFromAttrs[bool](attributes, attrs.AttrUniqueKey)
-		if isUnique {
-			uniqueFields = append(uniqueFields, []string{field.Name()})
-		}
-	}
-
+	var uniqueFields = getUniqueFields(modelMeta)
 	if len(uniqueFields) == 0 {
 		return fmt.Errorf(
 			"model %T has no unique fields or unique together fields, cannot generate where clause: %w",

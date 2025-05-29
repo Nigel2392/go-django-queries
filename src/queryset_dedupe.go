@@ -3,9 +3,11 @@ package queries
 import (
 	"fmt"
 
+	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/forms/fields"
 	"github.com/elliotchance/orderedmap/v2"
+	"github.com/pkg/errors"
 )
 
 // objectRelation contains metadata about the list of related objects and
@@ -26,7 +28,7 @@ type object struct {
 	through attrs.Definer
 
 	// the primary key of the object
-	pk any
+	uniqueValue any
 
 	// the field defs of the object
 	fieldDefs attrs.Definitions
@@ -68,12 +70,12 @@ type rows[T attrs.Definer] struct {
 // it has to be called before any relations are added - technically
 // root objects can be added inside of the [addRelationChain] method,
 // but this would lose any annotations that are associated with the root object.
-func (r *rows[T]) addRoot(pk any, obj attrs.Definer, through attrs.Definer, annotations map[string]any) *rootObject {
-	if pk == nil {
+func (r *rows[T]) addRoot(uniqueValue any, obj attrs.Definer, through attrs.Definer, annotations map[string]any) *rootObject {
+	if uniqueValue == nil {
 		panic("cannot add root object with nil primary key")
 	}
 
-	if root, ok := r.objects.Get(pk); ok {
+	if root, ok := r.objects.Get(uniqueValue); ok {
 		return root
 	}
 
@@ -84,16 +86,16 @@ func (r *rows[T]) addRoot(pk any, obj attrs.Definer, through attrs.Definer, anno
 
 	var root = &rootObject{
 		object: &object{
-			pk:        pk,
-			obj:       obj,
-			fieldDefs: defs,
-			through:   through,
-			relations: make(map[string]*objectRelation),
+			uniqueValue: uniqueValue,
+			obj:         obj,
+			fieldDefs:   defs,
+			through:     through,
+			relations:   make(map[string]*objectRelation),
 		},
 		annotations: annotations,
 	}
 
-	r.objects.Set(pk, root)
+	r.objects.Set(uniqueValue, root)
 	return root
 }
 
@@ -107,9 +109,9 @@ func (r *rows[T]) addRoot(pk any, obj attrs.Definer, through attrs.Definer, anno
 func (r *rows[T]) addRelationChain(chain []chainPart) {
 
 	var root = chain[0]
-	var obj, ok = r.objects.Get(root.pk)
+	var obj, ok = r.objects.Get(root.uniqueValue)
 	if !ok {
-		panic(fmt.Sprintf("root object with primary key %v not found in rows, root needs to be added with rows.addRoot", root.pk))
+		panic(fmt.Sprintf("root object with primary key %v not found in rows, root needs to be added with rows.addRoot", root.uniqueValue))
 	}
 	var current = obj.object
 	var idx = 1
@@ -124,7 +126,7 @@ func (r *rows[T]) addRelationChain(chain []chainPart) {
 		// ManyToOne and OneToOne relations are special cases where the primary key can be zero.
 		//
 		// This also means that any deeper relations cannot be traversed, I.E. we break the loop.
-		if fields.IsZero(part.pk) && !(part.relTyp == attrs.RelManyToOne || part.relTyp == attrs.RelOneToOne) {
+		if fields.IsZero(part.uniqueValue) && !(part.relTyp == attrs.RelManyToOne || part.relTyp == attrs.RelOneToOne) {
 			break
 		}
 
@@ -137,7 +139,7 @@ func (r *rows[T]) addRelationChain(chain []chainPart) {
 			current.relations[part.chain] = next
 		}
 
-		child, ok := next.objects.Get(part.pk)
+		child, ok := next.objects.Get(part.uniqueValue)
 		if !ok {
 			// child does not exist, create and add it
 			var through attrs.Definer
@@ -147,14 +149,14 @@ func (r *rows[T]) addRelationChain(chain []chainPart) {
 			}
 
 			child = &object{
-				pk:        part.pk,
-				fieldDefs: part.object.FieldDefs(),
-				obj:       part.object,
-				relations: make(map[string]*objectRelation),
-				through:   through,
+				uniqueValue: part.uniqueValue,
+				fieldDefs:   part.object.FieldDefs(),
+				obj:         part.object,
+				relations:   make(map[string]*objectRelation),
+				through:     through,
 			}
 
-			next.objects.Set(part.pk, child)
+			next.objects.Set(part.uniqueValue, child)
 		}
 
 		current = child
@@ -168,7 +170,7 @@ func (r *rows[T]) compile(qs *QuerySet[T]) (Rows[T], error) {
 	// and sets the related objects on the provided parent object.
 	addRelations = func(obj *object, depth uint64) error {
 
-		if obj.pk == nil {
+		if obj.uniqueValue == nil {
 			panic(fmt.Sprintf("object %T has no primary key, cannot deduplicate relations", obj.obj))
 		}
 
@@ -191,7 +193,7 @@ func (r *rows[T]) compile(qs *QuerySet[T]) (Rows[T], error) {
 				}
 
 				relatedObjects = append(relatedObjects, &baseRelation{
-					pk:      relatedObj.pk,
+					pk:      relatedObj.uniqueValue,
 					object:  relatedObj.obj,
 					through: throughObj,
 				})
@@ -226,7 +228,7 @@ func (r *rows[T]) compile(qs *QuerySet[T]) (Rows[T], error) {
 		}
 
 		if err := addRelations(obj.object, 0); err != nil {
-			return nil, fmt.Errorf("failed to add relations for object with primary key %v: %w", obj.object.pk, err)
+			return nil, fmt.Errorf("failed to add relations for object with primary key %v: %w", obj.object.uniqueValue, err)
 		}
 
 		var definer = obj.object.obj
@@ -248,11 +250,11 @@ func (r *rows[T]) compile(qs *QuerySet[T]) (Rows[T], error) {
 // a chainPart represents a part of a relation chain.
 // it contains information about the relation and object.
 type chainPart struct {
-	relTyp  attrs.RelationType
-	chain   string
-	pk      any
-	object  attrs.Definer
-	through attrs.Definer
+	relTyp      attrs.RelationType
+	chain       string
+	uniqueValue any
+	object      attrs.Definer
+	through     attrs.Definer
 }
 
 // buildChainParts builds a chain of parts from the actual field to the parent field.
@@ -272,12 +274,28 @@ func buildChainParts(actualField *scannableField) []chainPart {
 			primary = defs.Primary()
 		)
 
+		var (
+			pk         = primary.GetValue()
+			primaryVal = pk
+		)
+		if primaryVal == nil || fields.IsZero(primaryVal) {
+			var err error
+			pk, err = GetUniqueKey(defs)
+			if err != nil && !errors.Is(err, query_errors.ErrNoUniqueKey) {
+				panic(fmt.Sprintf("error getting unique key for field %s: %v", cur.field.Name(), err))
+			}
+		}
+
+		if pk == nil && primaryVal != nil {
+			pk = primaryVal
+		}
+
 		stack = append(stack, chainPart{
-			relTyp:  cur.relType,
-			chain:   cur.chainPart,
-			pk:      primary.GetValue(),
-			object:  inst,
-			through: cur.through,
+			relTyp:      cur.relType,
+			chain:       cur.chainPart,
+			uniqueValue: pk,
+			object:      inst,
+			through:     cur.through,
 		})
 	}
 

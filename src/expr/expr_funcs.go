@@ -71,6 +71,7 @@ func (e *function[T]) Clone() Expression {
 	}
 
 	return &function[T]{
+		reg:        e.reg,
 		sql:        e.sql,
 		funcLookup: e.funcLookup,
 		field:      e.field,

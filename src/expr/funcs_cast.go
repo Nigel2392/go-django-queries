@@ -93,10 +93,10 @@ func castTypeFunc(sqlText string, arity int) func(d driver.Driver, col any, valu
 
 func registerCastTypeFunc(d driver.Driver, arity int, castType CastType, sqlText string) {
 	if d == nil {
-		castLookups.register(castType, castTypeFunc(sqlText, arity))
+		RegisterCastType(castType, castTypeFunc(sqlText, arity))
 		return
 	}
-	castLookups.register(castType, castTypeFunc(sqlText, arity), d)
+	RegisterCastType(castType, castTypeFunc(sqlText, arity), d)
 }
 
 func Cast(typ CastType, col any, value ...any) Expression {

@@ -1375,7 +1375,7 @@ var manyToManyTests = []ManyToManyTest{
 		Name: "TestManyToMany_RelOneToManyQuerySet",
 		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) (int, int, int, int, int) {
 			var row, err = queries.Objects(&User{}).
-				Select("*", "ModelManyToManySet.*").
+				Select("*", "ModelManyToManySet.Title").
 				Filter("ID__in", users[0].ID).
 				OrderBy("ID").
 				Get()
@@ -1387,7 +1387,12 @@ var manyToManyTests = []ManyToManyTest{
 			t.Logf("User 1: %+v", user)
 			t.Logf("User 1 ManyToManySet: %+v %+v", user.ModelManyToManySet.Parent, user.ModelManyToManySet.Objects())
 
-			if len(user.ModelManyToManySet.Objects()) != 3 {
+			for _, obj := range user.ModelManyToManySet.Objects() {
+				t.Logf("obj: %+v", obj)
+			}
+
+			if len(user.ModelManyToManySet.Objects()) != 2 {
+				t.Fatalf("Expected 2 items in ManyToManySet, got %d", len(user.ModelManyToManySet.Objects()))
 			}
 
 			chk, err := queries.GetQuerySet(&ModelManyToMany{}).

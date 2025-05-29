@@ -1589,7 +1589,8 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 	}
 
 	var possibleDuplicates = make([]*scannableField, 0)
-	var multiRelations = make([]*scannableField, 0)
+	var seen = make(map[string]struct{}, 0)
+	var hasMultiRelations bool
 	var scannables = getScannableFields(
 		qs.internals.Fields, internal.NewObjectFromIface(qs.model),
 	)
@@ -1605,11 +1606,14 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 			scannable.relType == attrs.RelOneToMany ||
 			scannable.relType == attrs.RelOneToOne) &&
 			// check if primary and not through object
-			scannable.field.IsPrimary() &&
 			!scannable.isThrough {
 
 			if scannable.relType != attrs.RelOneToOne {
-				multiRelations = append(multiRelations, scannable)
+				hasMultiRelations = true
+			}
+
+			if _, ok := seen[scannable.chainKey]; ok {
+				continue
 			}
 
 			possibleDuplicates = append(possibleDuplicates, scannable)
@@ -1624,7 +1628,7 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 		}
 	}
 
-	if len(multiRelations) > 0 && anyOfRowScannable == nil {
+	if hasMultiRelations && anyOfRowScannable == nil {
 		panic(fmt.Errorf(
 			"QuerySet: no root row selected to build relations for %T",
 			qs.model,
@@ -1691,7 +1695,7 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 		// required in case the root object has a through relation bound to it
 		if anyOfRowScannable != nil {
 			uniqueValue, err = GetUniqueKey(scannables[anyOfRowScannable.idx].field)
-			if err != nil && errors.Is(err, query_errors.ErrNoUniqueKey) && len(multiRelations) == 0 {
+			if err != nil && errors.Is(err, query_errors.ErrNoUniqueKey) && !hasMultiRelations {
 				uniqueValue = resultIndex + 1
 			} else if err != nil {
 				return nil, errors.Wrapf(

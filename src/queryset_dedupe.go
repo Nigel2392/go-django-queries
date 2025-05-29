@@ -269,7 +269,7 @@ func buildChainParts(actualField *scannableField) []chainPart {
 	var stack = make([]chainPart, 0)
 	for cur := actualField; cur != nil; cur = cur.srcField {
 		var (
-			inst    = cur.field.Instance()
+			inst    = cur.object
 			defs    = inst.FieldDefs()
 			primary = defs.Primary()
 		)
@@ -282,12 +282,18 @@ func buildChainParts(actualField *scannableField) []chainPart {
 			var err error
 			pk, err = GetUniqueKey(defs)
 			if err != nil && !errors.Is(err, query_errors.ErrNoUniqueKey) {
-				panic(fmt.Sprintf("error getting unique key for field %s: %v", cur.field.Name(), err))
+				panic(fmt.Sprintf("error getting unique key for field %s: %v", cur.chainKey, err))
 			}
 		}
 
 		if pk == nil && primaryVal != nil {
 			pk = primaryVal
+		}
+
+		if (cur.relType == attrs.RelManyToMany || cur.relType == attrs.RelOneToMany) && fields.IsZero(pk) {
+			panic(fmt.Sprintf(
+				"cannot build chain part for field %s with zero primary key in ManyToMany or OneToMany relation", cur.chainKey,
+			))
 		}
 
 		stack = append(stack, chainPart{

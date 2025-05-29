@@ -368,6 +368,9 @@ func (t *ModelManyToMany) FieldDefs() attrs.Definitions {
 		}),
 		attrs.NewField(t, "Title", &attrs.FieldConfig{
 			Column: "title",
+			Attributes: map[string]any{
+				attrs.AttrUniqueKey: true,
+			},
 		}),
 		fields.NewManyToManyField[*queries.RelM2M[*ModelManyToMany_Target, *ModelManyToMany_Through]](t, &t.Target, "Target", "TargetReverse", "id", attrs.Relate(
 			&ModelManyToMany_Target{},

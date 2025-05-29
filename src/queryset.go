@@ -1697,7 +1697,7 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 			uniqueValue, err = GetUniqueKey(scannables[anyOfRowScannable.idx].field)
 			if err != nil && errors.Is(err, query_errors.ErrNoUniqueKey) && !hasMultiRelations {
 				uniqueValue = resultIndex + 1
-			} else if err != nil {
+			} else if err != nil && !errors.Is(err, query_errors.ErrNoUniqueKey) {
 				return nil, errors.Wrapf(
 					err,
 					"failed to get unique key for %T",
@@ -1706,7 +1706,10 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 			}
 
 			throughObj = scannables[anyOfRowScannable.idx].through
-		} else {
+		}
+
+		// fake unique value for the root object is OK
+		if uniqueValue == nil {
 			uniqueValue = resultIndex + 1
 		}
 

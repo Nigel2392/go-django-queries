@@ -1242,7 +1242,7 @@ var manyToManyTests = []ManyToManyTest{
 		Name: "TestManyToMany_RelManyToManyQuerySet",
 		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) (int, int, int, int, int) {
 			var row, err = queries.GetQuerySet(&ModelManyToMany{}).
-				Select("*", "Target.*", "Target.TargetReverse.*").
+				Select("*", "Target.Name", "Target.Age", "Target.TargetReverse.Title").
 				Filter("ID", m2m_sources[0].ID).
 				First()
 			if err != nil {
@@ -1375,7 +1375,7 @@ var manyToManyTests = []ManyToManyTest{
 		Name: "TestManyToMany_RelOneToManyQuerySet",
 		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) (int, int, int, int, int) {
 			var row, err = queries.Objects(&User{}).
-				Select("*", "ModelManyToManySet.Title").
+				Select("ID", "Name", "ModelManyToManySet.Title").
 				Filter("ID__in", users[0].ID).
 				OrderBy("ID").
 				Get()
@@ -1437,7 +1437,7 @@ var manyToManyTests = []ManyToManyTest{
 				t.Logf("Row [1] Target item from queryset: %+v", item.Object)
 
 				if item.Object.(*ModelManyToMany).User.ID != user.ID {
-					t.Fatalf("Expected ManyToManySet item User.ID to be %d, got %d", user.ID, item.Object.(*ModelManyToMany).User.ID)
+					t.Fatalf("Expected ManyToManySet item User.Name to be %v, got %v", user.Name, item.Object.(*ModelManyToMany).User.Name)
 				}
 			}
 			return 0, 0, 0, 0, 0

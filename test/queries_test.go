@@ -438,6 +438,16 @@ type ModelManyToMany_Target struct {
 	Age  int
 }
 
+var _ queries.UniqueTogetherDefiner = (*ModelManyToMany_Target)(nil)
+
+func (t *ModelManyToMany_Target) UniqueTogether() [][]string {
+	// This method is used to define unique constraints on the ModelManyToMany_Target model.
+	// In this case, we are defining a unique constraint on the Name field.
+	return [][]string{
+		{"Name"},
+	}
+}
+
 // func (t *ModelManyToMany_Target) String() string {
 // 	return fmt.Sprintf("ModelManyToMany_Target(ID=%d, Model=%v)", t.ID, t.Model)
 // }

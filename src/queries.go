@@ -290,6 +290,13 @@ type ForUseInQueries interface {
 	ForUseInQueries() bool
 }
 
+// A model can adhere to this interface to indicate fields which are
+// unique together.
+type UniqueTogetherDefiner interface {
+	attrs.Definer
+	UniqueTogether() [][]string
+}
+
 // A model can adhere to this interface to indicate that the queries package
 // should use the queryset returned by `GetQuerySet()` to execute the query.
 //

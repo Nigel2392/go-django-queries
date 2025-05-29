@@ -224,6 +224,7 @@ func getUniqueFields(modelMeta attrs.ModelMeta) [][]string {
 		modelDefs    = modelMeta.Definitions()
 		uniqueFields [][]string
 	)
+
 	var uniqueTogetherObj, ok = modelMeta.Storage(MetaUniqueTogetherKey)
 	if ok {
 		var fields = make([][]string, 0, 1)
@@ -247,6 +248,7 @@ func getUniqueFields(modelMeta attrs.ModelMeta) [][]string {
 			}
 		}
 	}
+
 	for _, field := range modelDefs.Fields() {
 		var attributes = field.Attrs()
 		var isUnique, _ = internal.GetFromAttrs[bool](attributes, attrs.AttrUniqueKey)
@@ -254,6 +256,7 @@ func getUniqueFields(modelMeta attrs.ModelMeta) [][]string {
 			uniqueFields = append(uniqueFields, []string{field.Name()})
 		}
 	}
+
 	return uniqueFields
 }
 
@@ -404,6 +407,15 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.Definer], d 
 		modelDefs = modelMeta.Definitions()
 		primary   = modelDefs.Primary()
 	)
+
+	if def, ok := modelMeta.Model().(UniqueTogetherDefiner); ok {
+		var uqFields = def.UniqueTogether()
+		if len(uqFields) > 0 {
+			attrs.StoreOnMeta(
+				modelMeta.Model(), MetaUniqueTogetherKey, uqFields,
+			)
+		}
+	}
 
 	// See [GenerateObjectsWhereClause] for the implementation details
 	// when a primary key is defined.

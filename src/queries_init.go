@@ -3,7 +3,6 @@ package queries
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/Nigel2392/go-django-queries/internal"
 	"github.com/Nigel2392/go-django-queries/src/expr"
@@ -130,96 +129,15 @@ var _, _ = attrs.OnBeforeModelRegister.Listen(func(s signals.Signal[attrs.Define
 	return nil
 })
 
-const __generate_where_filters_key = "queries.__GENERATE_WHERE_CLAUSE_FOR_OBJECTS"
-
-func GenerateObjectsWhereClause[T attrs.Definer](objects ...T) ([]expr.LogicalExpression, error) {
-
-	if len(objects) == 0 {
-		return []expr.LogicalExpression{}, nil
-	}
-
-	var (
-		modelMeta  = attrs.GetModelMeta(objects[0])
-		primaryDef = modelMeta.Definitions().Primary()
-	)
-
-	if primaryDef == nil {
-		// If the model has no primary key defined, we need to generate a where clause
-		//
-		// There has to be a function registered which can generate a proper where clause
-		// for selections, this can be based on multiple fields of the object.
-		var q, has = modelMeta.Storage(__generate_where_filters_key)
-		if !has {
-			return nil, fmt.Errorf("model %T has no primary key defined and no function registered to generate a where clauuse", objects[0])
-		}
-
-		var or = make([]expr.Expression, 0, len(objects))
-		switch q := q.(type) {
-		case func([]attrs.Definer) ([]expr.LogicalExpression, error):
-			var definers = make([]attrs.Definer, len(objects))
-			for i, object := range objects {
-				definers[i] = object
-			}
-
-			var exprs, err = q(definers)
-			if err != nil {
-				return nil, fmt.Errorf("error generating where clause for objects %T: %w", objects[0], err)
-			}
-
-			for _, expr := range exprs {
-				or = append(or, expr)
-			}
-
-		case func(attrs.Definer) ([]expr.LogicalExpression, error):
-			for _, object := range objects {
-				var exprs, err = q(object)
-				if err != nil {
-					return nil, fmt.Errorf("error generating where clause for object %T: %w", object, err)
-				}
-				for _, expr := range exprs {
-					or = append(or, expr)
-				}
-			}
-
-		case func(attrs.Definer) (expr.LogicalExpression, error):
-			for _, object := range objects {
-				var expr, err = q(object)
-				if err != nil {
-					return nil, fmt.Errorf("error generating where clause for object %T: %w", object, err)
-				}
-				or = append(or, expr)
-			}
-
-		default:
-			return nil, fmt.Errorf("model %T has no primary key defined, cannot delete", objects[0])
-		}
-
-		return []expr.LogicalExpression{expr.Or(or...).(expr.LogicalExpression)}, nil
-	} else {
-		var primaryName = primaryDef.Name()
-
-		if len(objects) == 1 {
-			var obj = objects[0]
-			var defs = obj.FieldDefs()
-			var prim = defs.Primary()
-
-			return expr.Express(primaryName, prim.GetValue()), nil
-		}
-
-		var ids = make([]any, 0, len(objects))
-		for _, object := range objects {
-			var def = object.FieldDefs()
-			var primary = def.Primary()
-			ids = append(ids, primary.GetValue())
-		}
-
-		return []expr.LogicalExpression{expr.Q(
-			fmt.Sprintf("%s__in", primaryName), ids,
-		)}, nil
-	}
-}
-
-func getUniqueFields(modelMeta attrs.ModelMeta) [][]string {
+// Return the unique fields and unique together fields
+// for a model meta. This is used to generate a where clause
+// for a model without a primary key defined.
+//
+// it is also used to generate a unique key for a model object
+// when the model does not have a primary key defined.
+//
+// See [GetUniqueKey] and [GenerateObjectsWhereClause] for more details.
+func getMetaUniqueFields(modelMeta attrs.ModelMeta) [][]string {
 	var (
 		modelDefs    = modelMeta.Definitions()
 		uniqueFields [][]string
@@ -236,17 +154,7 @@ func getUniqueFields(modelMeta attrs.ModelMeta) [][]string {
 		default:
 			panic(fmt.Sprintf("unexpected type for ModelMeta.Storage(%q): %T, expected []string or [][]string", MetaUniqueTogetherKey, uqFields))
 		}
-		uniqueFields = make([][]string, len(fields), len(fields))
-		for i, fieldNames := range fields {
-			uniqueFields[i] = make([]string, 0, len(fieldNames))
-			for _, fieldName := range fieldNames {
-				if fieldDef, ok := modelDefs.Field(fieldName); ok {
-					uniqueFields[i] = append(uniqueFields[i], fieldDef.Name())
-				} else {
-					panic(fmt.Sprintf("field %q not found in model %T", fieldName, modelMeta.Model()))
-				}
-			}
-		}
+		uniqueFields = append(uniqueFields, fields...)
 	}
 
 	for _, field := range modelDefs.Fields() {
@@ -258,140 +166,6 @@ func getUniqueFields(modelMeta attrs.ModelMeta) [][]string {
 	}
 
 	return uniqueFields
-}
-
-type keyPart struct {
-	name  string
-	value any
-}
-
-// Use the model meta to get the unique key for an object.
-//
-// If the model has a primary key defined, it will return the primary key value.
-//
-// If the model does not have a primary key defined, it will return the unique fields
-// or unique together fields as a string of [fieldName]:[fieldValue]:[fieldName]:[fieldValue] pairs.
-func GetUniqueKey(modelObject any) (any, error) {
-
-	var (
-		obj     attrs.Definer
-		objDefs attrs.Definitions
-	)
-	switch o := modelObject.(type) {
-	case attrs.Definer:
-		obj = o
-		objDefs = o.FieldDefs()
-	case attrs.Definitions:
-		obj = o.Instance()
-		objDefs = o
-	case attrs.Field:
-		obj = o.Instance()
-		if o.IsPrimary() {
-			var val, err = o.Value()
-			if err != nil {
-				return nil, fmt.Errorf(
-					"error getting primary key value for field %q in object %T: %w",
-					o.Name(), obj, err,
-				)
-			}
-
-			if !fields.IsZero(val) {
-				return val, nil
-			}
-
-			goto createKey
-		}
-
-		objDefs = obj.FieldDefs()
-
-	default:
-		return nil, fmt.Errorf(
-			"unexpected type for model object %T, expected attrs.Definer or attrs.Definitions",
-			modelObject,
-		)
-	}
-
-createKey:
-	var (
-		modelMeta    = attrs.GetModelMeta(obj)
-		primaryField = objDefs.Primary()
-		primaryVal   any
-		err          error
-	)
-
-	if primaryField != nil {
-		primaryVal, err = primaryField.Value()
-		if err != nil {
-			return nil, fmt.Errorf(
-				"error getting primary key value for object %T: %w",
-				obj, err,
-			)
-		}
-
-		if !fields.IsZero(primaryVal) {
-			return primaryVal, nil
-		}
-	}
-
-	var uniqueFields = getUniqueFields(modelMeta)
-	if len(uniqueFields) == 0 {
-		return nil, fmt.Errorf(
-			"model %T (%v) has no unique fields or unique together fields, cannot generate unique key: %w",
-			obj, primaryVal, query_errors.ErrNoUniqueKey,
-		)
-	}
-
-uniqueFieldsLoop:
-	for _, fieldNames := range uniqueFields {
-		var uniqueKeyParts = make([]keyPart, 0, len(uniqueFields)*2)
-		for _, fieldName := range fieldNames {
-			var field, ok = objDefs.Field(fieldName)
-			if !ok {
-				panic(fmt.Sprintf("field %q not found in model %T", fieldName, obj))
-			}
-
-			var val, err = field.Value()
-			if err != nil {
-				return nil, fmt.Errorf(
-					"error getting value for field %q in model %T: %w",
-					fieldName, obj, err,
-				)
-			}
-
-			if val == nil || fields.IsZero(val) {
-				continue uniqueFieldsLoop
-			}
-
-			uniqueKeyParts = append(uniqueKeyParts, keyPart{
-				name:  fieldName,
-				value: val,
-			})
-		}
-
-		if len(uniqueKeyParts) == 0 {
-			continue uniqueFieldsLoop
-		}
-
-		if len(uniqueKeyParts) == 1 {
-			// If there is only one unique field, return its value directly
-			return uniqueKeyParts[0].value, nil
-		}
-
-		var sb strings.Builder
-		for i, part := range uniqueKeyParts {
-			if i > 0 {
-				sb.WriteString(":")
-			}
-			sb.WriteString(part.name)
-			sb.WriteString(":")
-			fmt.Fprintf(&sb, "%v", part.value)
-		}
-	}
-
-	return nil, fmt.Errorf(
-		"model %T has does not have enough unique fields or unique together fields set to generate a unique key: %w",
-		obj, query_errors.ErrNoUniqueKey,
-	)
 }
 
 // Registers a function to generate a where clause for a model
@@ -408,6 +182,7 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.Definer], d 
 		primary   = modelDefs.Primary()
 	)
 
+	// Store the unique together fields on the model meta
 	if def, ok := modelMeta.Model().(UniqueTogetherDefiner); ok {
 		var uqFields = def.UniqueTogether()
 		if len(uqFields) > 0 {
@@ -423,7 +198,7 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.Definer], d 
 		return nil
 	}
 
-	var uniqueFields = getUniqueFields(modelMeta)
+	var uniqueFields = getMetaUniqueFields(modelMeta)
 	if len(uniqueFields) == 0 {
 		return fmt.Errorf(
 			"model %T has no unique fields or unique together fields, cannot generate where clause: %w",
@@ -431,51 +206,71 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.Definer], d 
 		)
 	}
 
-	attrs.StoreOnMeta(d, __generate_where_filters_key, func(objects []attrs.Definer) ([]expr.LogicalExpression, error) {
-		var (
-			expressions = make([]expr.Expression, 0, len(uniqueFields))
-			defs        = objects[0].FieldDefs()
-		)
+	// Create a generator function to generate a where clause
+	//
+	// It will use unique fields or unique together fields
+	// to generate a where clause for the model.
+	attrs.StoreOnMeta(d, __GENERATE_WHERE_CLAUSE_FOR_OBJECTS, func(objects []attrs.Definer) ([]expr.LogicalExpression, error) {
+		var orExprs = make([]expr.Expression, 0, len(uniqueFields))
+		for _, object := range objects {
+			var (
+				defs    = object.FieldDefs()
+				objExpr expr.LogicalExpression
+			)
+		uniqueFieldsLoop:
+			for _, fieldNames := range uniqueFields {
 
-	uniqueFieldsLoop:
-		for _, fieldNames := range uniqueFields {
-			var and = make([]expr.Expression, 0, len(fieldNames))
-			for _, fieldName := range fieldNames {
-				var field, ok = defs.Field(fieldName)
-				if !ok {
-					panic(fmt.Sprintf("field %q not found in model %T", fieldName, d))
+				// List of and expressions for unique together fields
+				// this also works for single unique fields
+				var and = make([]expr.Expression, 0, len(fieldNames))
+				for _, fieldName := range fieldNames {
+					var field, ok = defs.Field(fieldName)
+					if !ok {
+						panic(fmt.Sprintf("field %q not found in model %T", fieldName, d))
+					}
+
+					var val, err = field.Value()
+					if err != nil {
+						return nil, fmt.Errorf(
+							"error getting value for field %q in model %T: %w",
+							fieldName, d, err,
+						)
+					}
+
+					// If the value is nil or zero, we cannot use this field
+					// to generate a where clause,
+					//
+					// we assume zero values are never unique, even
+					// when the field is marked as unique together.
+					if val == nil || fields.IsZero(val) {
+						continue uniqueFieldsLoop
+					}
+
+					and = append(and, expr.Q(fieldName, val))
 				}
 
-				var val, err = field.Value()
-				if err != nil {
-					return nil, fmt.Errorf(
-						"error getting value for field %q in model %T: %w",
-						fieldName, d, err,
-					)
-				}
-
-				if val == nil || fields.IsZero(val) {
+				if len(and) == 0 {
 					continue uniqueFieldsLoop
 				}
 
-				and = append(and, expr.Q(fieldName, val))
+				// set the object expression and break the loop
+				objExpr = expr.And(and...).(expr.LogicalExpression)
+				break uniqueFieldsLoop
 			}
 
-			if len(and) == 0 {
-				continue uniqueFieldsLoop
+			// If we have no unique fields, we cannot generate a where clause
+			if objExpr == nil {
+				return nil, fmt.Errorf(
+					"model %T has does not have enough unique fields or unique together fields set to generate a where clause: %w",
+					d, query_errors.ErrNoWhereClause,
+				)
 			}
 
-			expressions = append(expressions, expr.And(and...).(expr.LogicalExpression))
+			// Add the object expression to the list of or expressions
+			orExprs = append(orExprs, objExpr)
 		}
 
-		if len(expressions) == 0 {
-			return nil, fmt.Errorf(
-				"model %T has does not have enough unique fields or unique together fields set to generate a where clause: %w",
-				d, query_errors.ErrNoWhereClause,
-			)
-		}
-
-		return []expr.LogicalExpression{expr.Or(expressions...).(expr.LogicalExpression)}, nil
+		return []expr.LogicalExpression{expr.Or(orExprs...).(expr.LogicalExpression)}, nil
 	})
 	return nil
 })
@@ -511,11 +306,26 @@ var _, _ = attrs.OnThroughModelRegister.Listen(func(s signals.Signal[attrs.Throu
 	// See [GenerateObjectsWhereClause] for the implementation details
 	// when a primary key is defined.
 	if throughDefs.Primary() == nil {
-		attrs.StoreOnMeta(throughModel, __generate_where_filters_key, func(objects []attrs.Definer) ([]expr.LogicalExpression, error) {
+
+		// Gennerate a where clause for the through model
+		// that matches the source and target fields.
+		//
+		// these fields are autimatically assumed to be unique together,
+		// so we can use them to generate a where clause for the through model.
+		//
+		// this is used when deleting through objects for many-to-many or one-to-one relations
+		// where the through model does not have a primary key defined.
+		attrs.StoreOnMeta(throughModel, __GENERATE_WHERE_CLAUSE_FOR_OBJECTS, func(objects []attrs.Definer) ([]expr.LogicalExpression, error) {
 
 			// groups of source object ids to target ids
+			//
+			// this is used to generate a where clause
+			// that matches the source and target fields of the through model.
+			//
+			// i.e:
+			//   source_id = 1 AND target_id IN (2, 3, 4)
+			//   source_id = 4 AND target_id = 5
 			var groups = orderedmap.NewOrderedMap[any, []any]()
-
 			for _, object := range objects {
 				var (
 					err                      error
@@ -527,6 +337,7 @@ var _, _ = attrs.OnThroughModelRegister.Listen(func(s signals.Signal[attrs.Throu
 					instDefs = object.FieldDefs()
 				)
 
+				// Get the values from the actual model instance
 				if sourceField, ok = instDefs.Field(sourceFieldStr); !ok {
 					panic("source field not found in through model meta")
 				}
@@ -562,6 +373,8 @@ var _, _ = attrs.OnThroughModelRegister.Listen(func(s signals.Signal[attrs.Throu
 				groups.Set(sourceVal, group)
 			}
 
+			// Generate the where clause expressions
+			// based on the grouped source and target values.
 			var expressions = make([]expr.LogicalExpression, 0, groups.Len())
 			for head := groups.Front(); head != nil; head = head.Next() {
 				var (
@@ -575,16 +388,20 @@ var _, _ = attrs.OnThroughModelRegister.Listen(func(s signals.Signal[attrs.Throu
 
 				var sourceExpr = expr.Q(d.ThroughInfo.SourceField(), source)
 				if len(targets) == 1 {
-					expressions = append(expressions, expr.Express(
-						sourceExpr,
-						expr.Q(d.ThroughInfo.TargetField(), targets[0]),
-					)...)
+					var targetExpr = expr.Q(d.ThroughInfo.TargetField(), targets[0])
+					expressions = append(
+						expressions,
+						expr.Express(sourceExpr, targetExpr)...,
+					)
 					continue
 				}
 
 				var targetExprs = make([]expr.Expression, 0, len(targets))
 				for _, target := range targets {
-					targetExprs = append(targetExprs, expr.Q(d.ThroughInfo.TargetField(), target))
+					targetExprs = append(
+						targetExprs,
+						expr.Q(d.ThroughInfo.TargetField(), target),
+					)
 				}
 
 				expressions = append(expressions, sourceExpr.And(

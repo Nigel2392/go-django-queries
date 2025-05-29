@@ -36,6 +36,13 @@ type DataModelField[T any] struct {
 	fieldRef attrs.Field
 }
 
+func indirect(t reflect.Type) reflect.Type {
+	if t.Kind() == reflect.Ptr {
+		return indirect(t.Elem())
+	}
+	return t
+}
+
 func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref ...attrs.Field) *DataModelField[T] {
 	if forModel == nil || dst == nil {
 		panic("NewDataModelField: model is nil")
@@ -45,12 +52,48 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref 
 		panic("NewDataModelField: name is empty")
 	}
 
-	var Type = reflect.TypeOf((*T)(nil)).Elem()
+	var (
+		Type = reflect.TypeOf((*T)(nil)).Elem()
+
+		dstT = reflect.TypeOf(dst)
+		dstV = reflect.ValueOf(dst)
+	)
+
+	if _, ok := dst.(queries.ModelDataStore); ok {
+		goto addField
+	}
+
+	if dstT.Kind() == reflect.Pointer && dstT.Elem().Kind() == reflect.Struct {
+		var field, ok = dstT.Elem().FieldByName(name)
+		if ok {
+			if !field.Type.AssignableTo(Type) && !field.Type.ConvertibleTo(Type) {
+				panic(fmt.Errorf("NewDataModelField: %s != %s (%T.%s)", indirect(Type).Name(), indirect(field.Type).Name(), forModel, name))
+			}
+
+			var fieldVal = dstV.Elem().FieldByName(name)
+			if !fieldVal.IsValid() {
+				if !fieldVal.CanSet() {
+					panic(fmt.Errorf("NewDataModelField: field %T.%s is not settable", forModel, name))
+				}
+				if fieldVal.CanAddr() {
+					fieldVal.Addr().Set(reflect.New(Type.Elem()))
+				} else {
+					fieldVal.Set(reflect.New(Type.Elem()).Elem())
+				}
+			}
+
+			if fieldVal.CanAddr() {
+				dst = fieldVal.Addr().Interface()
+			} else {
+				dst = fieldVal.Interface()
+			}
+
+			goto addField
+		}
+	}
+
 	if _, ok := dst.(queries.DataModel); !ok {
-		var (
-			dstT = reflect.TypeOf(dst)
-			dstV = reflect.ValueOf(dst)
-		)
+
 		if dstT.Kind() != reflect.Ptr {
 			panic("NewDataModelField: resultType is not a pointer")
 		}
@@ -61,11 +104,11 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref 
 
 		if Type.Kind() != reflect.Interface {
 			if dstT.Elem() != Type {
-				panic(fmt.Errorf("NewDataModelField: resultType \"%T\" is not a pointer to T: %T (%T.%s)", Type.Name(), dst, forModel, name))
+				panic(fmt.Errorf("NewDataModelField: resultType \"%s\" is not a pointer to T: %T (%T.%s)", indirect(Type).Name(), dst, forModel, name))
 			}
 		} else {
 			if !dstT.Elem().Implements(Type) {
-				panic(fmt.Errorf("NewDataModelField: resultType \"%T\" does not implement T: %T (%T.%s)", Type.Name(), dst, forModel, name))
+				panic(fmt.Errorf("NewDataModelField: resultType \"%s\" does not implement T: %T (%T.%s)", indirect(Type).Name(), dst, forModel, name))
 			}
 		}
 
@@ -74,6 +117,7 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref 
 		}
 	}
 
+addField:
 	var fRef attrs.Field
 	if len(ref) > 0 {
 		fRef = ref[0]
@@ -102,12 +146,20 @@ func (f *DataModelField[T]) getQueryValue() (any, bool) {
 		return m.ModelDataStore().GetValue(f.name)
 	}
 
+	// rVal is always a pointer.
+	// If T is a pointer, it is a pointer to a pointer.
 	var rVal = reflect.ValueOf(f.DataModel)
 	if !rVal.IsValid() {
 		return nil, false
 	}
 
-	return rVal.Elem().Interface(), true
+	rVal = rVal.Elem()
+
+	if !rVal.IsValid() || !rVal.CanInterface() {
+		return nil, false
+	}
+
+	return rVal.Interface(), true
 }
 
 func (f *DataModelField[T]) setQueryValue(v any) error {
@@ -182,20 +234,23 @@ func (e *DataModelField[T]) GetValue() interface{} {
 		panic("model is nil")
 	}
 
-	var val, ok = e.getQueryValue()
-	if !ok || val == nil {
-		return *new(T)
+	var val, _ = e.getQueryValue()
+	if e.resultType.Kind() == reflect.Pointer && (e.resultType.Comparable() && any(val) == any(*new(T)) || val == nil) {
+		val = reflect.New(e.resultType.Elem()).Interface()
+		assert.Err(e.setQueryValue(val))
 	}
 
-	switch {
-	case e.fieldRef != nil:
-		assert.Err(attrs.BindValueToModel(
-			e.Model, e.fieldRef, val,
-		))
-	default:
-		assert.Err(attrs.BindValueToModel(
-			e.Model, e, val,
-		))
+	if val != nil {
+		switch {
+		case e.fieldRef != nil:
+			assert.Err(attrs.BindValueToModel(
+				e.Model, e.fieldRef, val,
+			))
+		default:
+			assert.Err(attrs.BindValueToModel(
+				e.Model, e, val,
+			))
+		}
 	}
 
 	valTyped, ok := val.(T)
@@ -256,9 +311,15 @@ func (e *DataModelField[T]) SetValue(v interface{}, _ bool) error {
 		rT = rV.Type()
 	}
 
-	assert.Err(attrs.BindValueToModel(
-		e.Model, e, rV,
-	))
+	if e.fieldRef != nil {
+		assert.Err(attrs.BindValueToModel(
+			e.Model, e.fieldRef, rV,
+		))
+	} else {
+		assert.Err(attrs.BindValueToModel(
+			e.Model, e, rV,
+		))
+	}
 
 	if rT != e.resultType {
 

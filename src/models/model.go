@@ -23,6 +23,18 @@ type Model struct {
 	data      queries.ModelDataStore
 }
 
+type modelDefiner = interface {
+	Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinitions
+}
+
+func Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinitions {
+	var model, err = ExtractModel(def)
+	if err != nil {
+		panic("failed to extract model: " + err.Error())
+	}
+	return model.Define(def, f...)
+}
+
 func (m *Model) Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinitions {
 	attrs.RegisterModel(def)
 
@@ -85,16 +97,16 @@ func (m *Model) Define(def attrs.Definer, f ...attrs.Field) *attrs.ObjectDefinit
 			switch typ {
 			case attrs.RelOneToOne: // OneToOne
 				if head.Value.Through() == nil {
-					field = fields.NewOneToOneReverseField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
+					field = fields.NewOneToOneReverseField[attrs.Definer](def, def, key, key, fromModelField.ColumnName(), value)
 				} else {
-					field = fields.NewOneToOneReverseField[queries.Relation](def, m, key, key, fromModelField.ColumnName(), value)
+					field = fields.NewOneToOneReverseField[queries.Relation](def, def, key, key, fromModelField.ColumnName(), value)
 				}
 			case attrs.RelManyToOne: // ManyToOne, ForeignKey
-				field = fields.NewForeignKeyField[attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
+				field = fields.NewForeignKeyField[attrs.Definer](def, def, key, key, fromModelField.ColumnName(), value)
 			case attrs.RelOneToMany: // OneToMany, ForeignKeyReverse
-				field = fields.NewForeignKeyReverseField[[]attrs.Definer](def, m, key, key, fromModelField.ColumnName(), value)
+				field = fields.NewForeignKeyReverseField[*queries.RelRevFK[attrs.Definer]](def, def, key, key, fromModelField.ColumnName(), value)
 			case attrs.RelManyToMany: // ManyToMany
-				field = fields.NewManyToManyField[[]queries.Relation](def, m, key, key, fromModelField.ColumnName(), value)
+				field = fields.NewManyToManyField[*queries.RelM2M[attrs.Definer, attrs.Definer]](def, def, key, key, fromModelField.ColumnName(), value)
 			default:
 				panic("unknown relation type: " + typ.String())
 			}
@@ -160,7 +172,7 @@ func (m *Model) RelatedField(name string) (attrs.Field, bool) {
 
 func (m *Model) ModelDataStore() queries.ModelDataStore {
 	if m.data == nil {
-		m.data = make(mapDataStore)
+		m.data = make(MapDataStore)
 	}
 	return m.data
 }

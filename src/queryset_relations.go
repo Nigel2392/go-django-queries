@@ -60,12 +60,18 @@ type relatedQuerySet[T attrs.Definer, T2 any] struct {
 
 // NewrelatedQuerySet creates a new relatedQuerySet for the given model type.
 func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation, source *ParentInfo) *relatedQuerySet[T, T2] {
+	if rel == nil {
+		panic("Relation is nil, cannot create relatedQuerySet")
+	}
+
 	var (
 		condition *JoinCondition
 
-		qs           = GetQuerySet(internal.NewDefiner[T]())
-		throughModel = rel.Through()
-		front, back  = qs.compiler.Quote()
+		newTargetObj     = internal.NewObjectFromIface(rel.Model())
+		newTargetObjDefs = newTargetObj.FieldDefs()
+		qs               = GetQuerySet(newTargetObj.(T))
+		throughModel     = rel.Through()
+		front, back      = qs.compiler.Quote()
 	)
 
 	var targetFieldInfo = &FieldInfo{
@@ -74,7 +80,7 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 			Name: qs.queryInfo.TableName,
 		},
 		Fields: ForSelectAllFields[attrs.Field](
-			qs.queryInfo.Fields,
+			newTargetObjDefs,
 		),
 	}
 
@@ -133,6 +139,17 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 		}
 
 		qs.internals.addJoin(join)
+	} else {
+		var targetField = rel.Field()
+		if targetField == nil {
+			targetField = newTargetObjDefs.Primary()
+		}
+
+		qs.internals.Where = append(qs.internals.Where, expr.Expr(
+			targetField.Name(),
+			"exact",
+			source.Object.FieldDefs().Primary().GetValue(),
+		))
 	}
 
 	qs.internals.Fields = append(
@@ -296,6 +313,20 @@ func (t *relatedQuerySet[T, T2]) All() (Rows[T], error) {
 		panic("QuerySet is nil, cannot call All()")
 	}
 	return t.qs.All()
+}
+
+type RelManyToOneQuerySet[T attrs.Definer] struct {
+	backRef                                       MultiRelationValue
+	*relatedQuerySet[T, *RelManyToOneQuerySet[T]] // Embedding the relatedQuerySet to inherit its methods
+}
+
+func ManyToOneQuerySet[T attrs.Definer](backRef MultiRelationValue) *RelManyToOneQuerySet[T] {
+	var parentInfo = backRef.ParentInfo()
+	var mQs = &RelManyToOneQuerySet[T]{
+		backRef: backRef,
+	}
+	mQs.relatedQuerySet = newRelatedQuerySet[T](mQs, parentInfo.Field.Rel(), parentInfo)
+	return mQs
 }
 
 type RelManyToManyQuerySet[T attrs.Definer] struct {

@@ -142,9 +142,10 @@ func (m *Profile) FieldDefs() attrs.Definitions {
 
 type User struct {
 	models.Model
-	ID      int
-	Name    string
-	Profile *Profile
+	ID                 int
+	Name               string
+	Profile            *Profile
+	ModelManyToManySet *queries.RelRevFK[attrs.Definer]
 }
 
 func (m *User) FieldDefs() attrs.Definitions {
@@ -540,7 +541,7 @@ func init() {
 	django.App(django.Configure(settings))
 }
 
-func createObjects[T attrs.Definer](t *testing.T, objects ...T) (created []T, delete func() error) {
+func createObjects[T attrs.Definer](t *testing.T, objects ...T) (created []T, delete func(alreadyDeleted int) error) {
 	//var err error
 	//created, err = queries.GetQuerySet[T](objects[0]).BulkCreate(objects)
 	//if err != nil {
@@ -555,42 +556,19 @@ func createObjects[T attrs.Definer](t *testing.T, objects ...T) (created []T, de
 		created = append(created, obj)
 	}
 
-	return created, func() error {
-		var (
-			anyIDs      = make([]any, len(objects))
-			primaryName string
-		)
-
-		var defs = attrs.GetModelMeta(objects[0])
-		if defs.Definitions().Primary() == nil {
-			return fmt.Errorf("model %T has no primary key defined", objects[0])
-		}
-
-		for i, obj := range created {
-			var (
-				defs         = obj.FieldDefs()
-				primaryField = defs.Primary()
-			)
-
-			if primaryName == "" {
-				primaryName = primaryField.Name()
-			}
-
-			anyIDs[i] = primaryField.GetValue()
-		}
-
+	return created, func(alreadyDeleted int) error {
 		var newObj = internal.NewDefiner[T]()
-		var deleted, err = queries.GetQuerySet[T](newObj).
-			Filter(fmt.Sprintf("%s__in", primaryName), anyIDs...).
-			Delete()
+		var deleted, err = queries.GetQuerySet[attrs.Definer](newObj).Delete(
+			attrs.DefinerList(created)...,
+		)
 
 		if err != nil {
 			t.Fatalf("Failed to delete objects: %v", err)
 			return err
 		}
 
-		if int(deleted) != len(objects) {
-			t.Fatalf("Expected %d objects to be deleted, got %d", len(objects), deleted)
+		if int(deleted) != len(created)-alreadyDeleted {
+			t.Fatalf("Expected %d objects to be deleted, got %d", len(created), deleted)
 			return nil
 		}
 
@@ -2772,3 +2750,55 @@ func TestGetOrCreateInTransaction(t *testing.T) {
 		t.Fatalf("Failed to run transaction: %v", err)
 	}
 }
+
+//
+//	func TestFakeModel(t *testing.T) {
+//
+//		var m = models.FakeModel(&models.FakeModelObject{
+//			Data:      make(models.MapDataStore),
+//			TableName: "images",
+//			FieldFuncs: []models.NewFieldFunc{
+//				func(mds queries.ModelDataStore, d1 attrs.Definer, d2 attrs.Definitions) attrs.Field {
+//					var (
+//						iface    = 0
+//						ifacePtr = &iface
+//					)
+//					mds.SetValue("ID", ifacePtr)
+//					return fields.NewDataModelField[int](
+//						d1, ifacePtr, "ID",
+//					)
+//				},
+//				func(mds queries.ModelDataStore, d1 attrs.Definer, d2 attrs.Definitions) attrs.Field {
+//					var (
+//						iface    = ""
+//						ifacePtr = &iface
+//					)
+//					mds.SetValue("Path", ifacePtr)
+//					return fields.NewDataModelField[string](
+//						d1, ifacePtr, "Path",
+//					)
+//				},
+//			},
+//		})
+//
+//		var newObj = m.InitNew()
+//		var defs = newObj.FieldDefs()
+//		defs.Set("Path", "/path/to/fake/image.jpg")
+//		var err = queries.CreateObject(newObj)
+//		if err != nil {
+//			t.Fatalf("Failed to create fake model: %v", err)
+//		}
+//
+//		dbModel, err := queries.GetQuerySet(&Image{}).
+//			Select("ID", "Path").
+//			Filter("Path", "/path/to/fake/image.jpg").
+//			Get()
+//		if err != nil {
+//			t.Fatalf("Failed to get fake model: %v", err)
+//		}
+//
+//		if dbModel.Object.ID != defs.Get("ID").(int) {
+//			t.Fatalf("Expected ID %d, got %d", defs.Get("ID").(int), dbModel.Object.ID)
+//		}
+//	}
+//

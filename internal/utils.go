@@ -91,11 +91,20 @@ func NewDefiner[T attrs.Definer]() T {
 	return NewObjectFromIface(*new(T)).(T)
 }
 
+type CanInitNew interface {
+	InitNew() attrs.Definer
+}
+
 func NewObjectFromIface(obj attrs.Definer) attrs.Definer {
+	if canInitNew, ok := obj.(CanInitNew); ok {
+		return canInitNew.InitNew()
+	}
+
 	var objTyp = reflect.TypeOf(obj)
 	if objTyp.Kind() != reflect.Ptr {
 		panic("newObjectFromIface: objTyp is not a pointer")
 	}
+
 	return reflect.New(objTyp.Elem()).Interface().(attrs.Definer)
 }
 

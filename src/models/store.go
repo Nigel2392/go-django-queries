@@ -5,9 +5,9 @@ import (
 	"strings"
 )
 
-type mapDataStore map[string]interface{}
+type MapDataStore map[string]interface{}
 
-func (m mapDataStore) String() string {
+func (m MapDataStore) String() string {
 	var sb strings.Builder
 	sb.WriteString("[")
 	var i = 0
@@ -22,24 +22,24 @@ func (m mapDataStore) String() string {
 	return sb.String()
 }
 
-func (m mapDataStore) HasValue(key string) bool {
+func (m MapDataStore) HasValue(key string) bool {
 	_, ok := m[key]
 	return ok
 }
 
-func (m mapDataStore) SetValue(key string, value any) error {
+func (m MapDataStore) SetValue(key string, value any) error {
 	m[key] = value
 	return nil
 }
 
-func (m mapDataStore) GetValue(key string) (any, bool) {
+func (m MapDataStore) GetValue(key string) (any, bool) {
 	if v, ok := m[key]; ok {
 		return v, true
 	}
 	return nil, false
 }
 
-func (m mapDataStore) DeleteValue(key string) error {
+func (m MapDataStore) DeleteValue(key string) error {
 	delete(m, key)
 	return nil
 }

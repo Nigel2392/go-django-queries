@@ -11,6 +11,8 @@ var (
 	_ canPrimaryKey             = (*baseRelation)(nil)
 	_ Relation                  = (*baseRelation)(nil)
 	_ Relation                  = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
+	_ RelationValue             = (*RelFK[attrs.Definer])(nil)
+	_ MultiRelationValue        = (*RelRevFK[attrs.Definer])(nil)
 	_ ThroughRelationValue      = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
 	_ MultiThroughRelationValue = (*RelM2M[attrs.Definer, attrs.Definer])(nil)
 )
@@ -25,9 +27,6 @@ type baseRelation struct {
 }
 
 func (r *baseRelation) PrimaryKey() any {
-	if r == nil {
-		return nil
-	}
 	return r.pk
 }
 
@@ -37,6 +36,122 @@ func (r *baseRelation) Model() attrs.Definer {
 
 func (r *baseRelation) Through() attrs.Definer {
 	return r.through
+}
+
+type RelFK[ModelType attrs.Definer] struct {
+	Parent *ParentInfo // The parent model instance
+	Object ModelType
+}
+
+func (rl *RelFK[T]) ParentInfo() *ParentInfo {
+	return rl.Parent
+}
+
+func (rl *RelFK[T]) BindToModel(parent attrs.Definer, parentField attrs.Field) error {
+	rl.Parent = &ParentInfo{
+		Object: parent,
+		Field:  parentField,
+	}
+	return nil
+}
+
+func (rl *RelFK[T]) Model() attrs.Definer {
+	if rl == nil {
+		return nil
+	}
+	return rl.Object
+}
+
+// SetValue sets the related object on the relation.
+func (rl *RelFK[T]) SetValue(instance attrs.Definer) {
+	rl.Object = instance.(T)
+}
+
+// GetValue returns the related object on the relation.
+func (rl *RelFK[T]) GetValue() attrs.Definer {
+	if rl == nil {
+		return nil
+	}
+	return rl.Object
+}
+
+type RelRevFK[ModelType attrs.Definer] struct {
+	Parent    *ParentInfo                            // The parent model instance
+	Relations *RelManyToOneQuerySet[ModelType]       // The query set for this relation
+	relations *orderedmap.OrderedMap[any, ModelType] // The related objects
+}
+
+func (rl *RelRevFK[T]) ParentInfo() *ParentInfo {
+	return rl.Parent
+}
+
+func (rl *RelRevFK[T]) BindToModel(parent attrs.Definer, parentField attrs.Field) error {
+	rl.Parent = &ParentInfo{
+		Object: parent,
+		Field:  parentField,
+	}
+	if rl.relations == nil {
+		rl.relations = orderedmap.NewOrderedMap[any, T]()
+	}
+	if rl.Relations == nil {
+		rl.Relations = ManyToOneQuerySet[T](rl)
+	}
+	return nil
+}
+
+// SetValues sets the related objects on the relation.
+func (rl *RelRevFK[T]) SetValues(objects []attrs.Definer) {
+	if rl.relations == nil {
+		rl.relations = orderedmap.NewOrderedMap[any, T]()
+	}
+
+	for _, obj := range objects {
+		if obj == nil {
+			continue
+		}
+
+		var pkValue any
+		if canPk, ok := obj.(canPrimaryKey); ok {
+			pkValue = canPk.PrimaryKey()
+		}
+
+		if pkValue == nil {
+			var defs = obj.FieldDefs()
+			var pkField = defs.Primary()
+			pkValue = pkField.GetValue()
+		}
+
+		if pkValue == nil {
+			panic(fmt.Sprintf("cannot set related object %T with nil primary key", obj))
+		}
+
+		rl.relations.Set(pkValue, obj.(T))
+	}
+}
+
+// GetValues returns the related objects on the relation.
+func (rl *RelRevFK[T]) GetValues() []attrs.Definer {
+	if rl == nil || rl.relations == nil {
+		return nil
+	}
+
+	var relatedObjects = make([]attrs.Definer, 0, rl.relations.Len())
+	for relHead := rl.relations.Front(); relHead != nil; relHead = relHead.Next() {
+		relatedObjects = append(relatedObjects, relHead.Value)
+	}
+	return relatedObjects
+}
+
+// Objects returns the related objects as a slice of ModelType.
+func (rl *RelRevFK[T]) Objects() []T {
+	if rl == nil || rl.relations == nil {
+		return nil
+	}
+	var relatedObjects = make([]T, 0, rl.relations.Len())
+	for relHead := rl.relations.Front(); relHead != nil; relHead = relHead.Next() {
+		relatedObjects = append(relatedObjects, relHead.Value)
+	}
+	return relatedObjects
 }
 
 // A value which can be used on models to represent a One-to-One relation
@@ -51,16 +166,10 @@ type RelO2O[ModelType, ThroughModelType attrs.Definer] struct {
 }
 
 func (rl *RelO2O[T1, T2]) ParentInfo() *ParentInfo {
-	if rl == nil {
-		return nil
-	}
 	return rl.Parent
 }
 
 func (rl *RelO2O[T1, T2]) BindToModel(parent attrs.Definer, parentField attrs.Field) error {
-	if rl == nil {
-		return nil
-	}
 	rl.Parent = &ParentInfo{
 		Object: parent,
 		Field:  parentField,
@@ -69,10 +178,16 @@ func (rl *RelO2O[T1, T2]) BindToModel(parent attrs.Definer, parentField attrs.Fi
 }
 
 func (rl *RelO2O[T1, T2]) Model() attrs.Definer {
+	if rl == nil {
+		return nil
+	}
 	return rl.Object
 }
 
 func (rl *RelO2O[T1, T2]) Through() attrs.Definer {
+	if rl == nil {
+		return nil
+	}
 	return rl.ThroughObject
 }
 
@@ -106,16 +221,10 @@ type RelM2M[ModelType, ThroughModelType attrs.Definer] struct {
 }
 
 func (rl *RelM2M[T1, T2]) ParentInfo() *ParentInfo {
-	if rl == nil {
-		return nil
-	}
 	return rl.Parent
 }
 
 func (rl *RelM2M[T1, T2]) BindToModel(parent attrs.Definer, parentField attrs.Field) error {
-	if rl == nil {
-		return nil
-	}
 	rl.Parent = &ParentInfo{
 		Object: parent,
 		Field:  parentField,
@@ -127,6 +236,10 @@ func (rl *RelM2M[T1, T2]) BindToModel(parent attrs.Definer, parentField attrs.Fi
 }
 
 func (rl *RelM2M[T1, T2]) SetValues(rel []Relation) {
+	if rl == nil {
+		panic("cannot set values on nil RelM2M")
+	}
+
 	if len(rel) == 0 {
 		rl.relations = orderedmap.NewOrderedMap[any, RelO2O[T1, T2]]()
 		// rl.relations = make([]RelO2O[T1, T2], 0)

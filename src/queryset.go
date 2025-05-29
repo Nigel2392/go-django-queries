@@ -2470,7 +2470,53 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 // Delete is used to delete an object from the database.
 //
 // It returns a CountQuery that can be executed to get the result, which is the number of rows affected.
-func (qs *QuerySet[T]) Delete() (int64, error) {
+func (qs *QuerySet[T]) Delete(objects ...T) (int64, error) {
+
+	if len(objects) > 0 {
+		var (
+			defs       = attrs.GetModelMeta(objects[0])
+			where      = make([]expr.LogicalExpression, 0, len(objects))
+			primaryDef = defs.Definitions().Primary()
+		)
+
+		if primaryDef == nil {
+			var q, has = defs.Storage(__generate_delete_query_key)
+			if !has {
+				return 0, fmt.Errorf("model %T has no primary key defined", objects[0])
+			}
+
+			var or = make([]expr.Expression, 0, len(objects))
+			for _, object := range objects {
+				switch q := q.(type) {
+				case func(attrs.Definer) []expr.LogicalExpression:
+					var exprs = q(object)
+					for _, expr := range exprs {
+						or = append(or, expr)
+					}
+				case func(attrs.Definer) expr.LogicalExpression:
+					or = append(or, q(object))
+				default:
+					return 0, fmt.Errorf("model %T has no primary key defined, cannot delete", objects[0])
+				}
+			}
+
+			where = append(where, expr.Or(or...).(expr.LogicalExpression))
+		} else {
+			var primaryName = primaryDef.Name()
+			var ids = make([]any, 0, len(objects))
+			for _, object := range objects {
+				var def = object.FieldDefs()
+				var primary = def.Primary()
+				ids = append(ids, primary.GetValue())
+			}
+			where = append(where, expr.Q(
+				fmt.Sprintf("%s__in", primaryName), ids,
+			))
+		}
+
+		qs.internals.Where = append(qs.internals.Where, where...)
+	}
+
 	var resultQuery = qs.compiler.BuildDeleteQuery(
 		context.Background(),
 		ChangeObjectsType[T, attrs.Definer](qs),

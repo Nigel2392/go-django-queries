@@ -120,13 +120,27 @@ func ForSelectAllFields[T any](fields any) []T {
 	}
 }
 
-// New initializes a model's field definitions.
+// New initializes a model's field definitions and binds
+// the model's values to the model.
 //
-// It also sets up relations and other necessary fields.
+// The model has to be saved to the database before it can be used,
+// otherwise it will panic.
 func New[T attrs.Definer](model T) T {
 	var defs = model.FieldDefs()
 	if defs == nil {
 		panic(fmt.Errorf("model %T has no field definitions", model))
+	}
+
+	var primary = defs.Primary()
+	if primary == nil {
+		panic(fmt.Errorf("model %T has no primary field defined, cannot initialize", model))
+	}
+
+	if primary.GetValue() == nil {
+		panic(fmt.Errorf(
+			"model %T has no primary key set, the model has to be saved before it can be used",
+			model,
+		))
 	}
 
 	var objFields = defs.Fields()
@@ -151,7 +165,7 @@ func New[T attrs.Definer](model T) T {
 			model, field, value,
 		))
 
-		if shouldSet && value != nil {
+		if shouldSet {
 			// If the field has a default value, set it.
 			// This is useful for fields that are not set yet.
 			field.SetValue(value, true)
@@ -188,6 +202,32 @@ type ParentInfo struct {
 type canPrimaryKey interface {
 	// PrimaryKey returns the primary key of the relation.
 	PrimaryKey() any
+}
+
+// A model field's value can adhere to this interface to indicate that the
+// field's relation value can be set or retrieved.
+//
+// This is used for OneToOne relations without a through table,
+// if a through table is specified, the field's value should be of type [ThroughRelationValue]
+//
+// A default implementation is provided with the [RelO2O] type.
+type RelationValue interface {
+	attrs.Binder
+	ParentInfo() *ParentInfo
+	GetValue() (obj attrs.Definer)
+	SetValue(instance attrs.Definer)
+}
+
+// A model field's value can adhere to this interface to indicate that the
+// field's relation values can be set or retrieved.
+//
+// This is used for OneToMany relations without a through table,
+// if a through table is specified, the field's value should be of type [MultiThroughRelationValue]
+type MultiRelationValue interface {
+	attrs.Binder
+	ParentInfo() *ParentInfo
+	GetValues() []attrs.Definer
+	SetValues(instances []attrs.Definer)
 }
 
 // A model field's value can adhere to this interface to indicate that the

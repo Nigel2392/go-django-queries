@@ -77,6 +77,41 @@ func Express(key interface{}, vals ...interface{}) []LogicalExpression {
 			expr.children = append(expr.children, v)
 		}
 		return []LogicalExpression{expr}
+	case []Expression:
+		var expr = &ExprGroup{children: make([]Expression, 0, len(vals)+1), op: OpAnd}
+		expr.children = append(expr.children, v...)
+		for _, val := range vals {
+			var v, ok = val.(Expression)
+			if !ok {
+				panic(fmt.Errorf("value %v is not an Expression", val))
+			}
+			expr.children = append(expr.children, v)
+		}
+		return []LogicalExpression{expr}
+	case LogicalExpression:
+		var expr = &ExprGroup{children: make([]Expression, 0, len(vals)+1), op: OpAnd}
+		expr.children = append(expr.children, v)
+		for _, val := range vals {
+			var v, ok = val.(Expression)
+			if !ok {
+				panic(fmt.Errorf("value %v is not an Expression", val))
+			}
+			expr.children = append(expr.children, v)
+		}
+		return []LogicalExpression{expr}
+	case []LogicalExpression:
+		var expr = &ExprGroup{children: make([]Expression, 0, len(vals)+len(v)), op: OpAnd}
+		for _, e := range v {
+			expr.children = append(expr.children, e)
+		}
+		for _, val := range vals {
+			var v, ok = val.(Expression)
+			if !ok {
+				panic(fmt.Errorf("value %v is not an Expression", val))
+			}
+			expr.children = append(expr.children, v)
+		}
+		return []LogicalExpression{expr}
 	case map[string]interface{}:
 		var expr = make([]LogicalExpression, 0, len(v))
 		for k, val := range v {

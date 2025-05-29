@@ -68,7 +68,16 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 			relatedObject = relatedObjects[0].Model()
 		}
 
-		field.SetValue(relatedObject, true)
+		switch {
+		case fieldType.Implements(reflect.TypeOf((*RelationValue)(nil)).Elem()):
+			// If the field is a RelationValue, we can set the related object directly
+			var rel = fieldValue.(RelationValue)
+			rel.SetValue(relatedObject)
+		case fieldType.Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
+			// If the field is a Definer, we can set the related object directly
+			// This is useful for fields that are not RelationValue but still need to be set
+			field.SetValue(relatedObject, true)
+		}
 
 	case attrs.RelOneToMany:
 		// handle reverse foreign keys
@@ -87,6 +96,11 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 		case fieldType == reflect.TypeOf(related):
 			// If the field is a slice of Definer, we can set the related objects directly
 			field.SetValue(related, true)
+
+		case fieldType.Implements(reflect.TypeOf((*MultiRelationValue)(nil)).Elem()):
+			// If the field is a RelationValue, we can set the related objects directly
+			var rel = fieldValue.(MultiRelationValue)
+			rel.SetValues(related)
 
 		case fieldType.Kind() == reflect.Slice:
 			// If the field is a slice, we can set the related objects directly after
@@ -115,6 +129,10 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 		}
 
 		switch {
+		case fieldType.Implements(reflect.TypeOf((*RelationValue)(nil)).Elem()):
+			rel := fieldValue.(RelationValue)
+			rel.SetValue(relatedObject.Model())
+
 		case fieldType.Implements(reflect.TypeOf((*ThroughRelationValue)(nil)).Elem()):
 			// If the field is a SettableThroughRelation, we can set the related object directly
 			var rel = fieldValue.(ThroughRelationValue)
@@ -146,6 +164,15 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 			// If the field is a SettableMultiRelation, we can set the related objects directly
 			var rel = fieldValue.(MultiThroughRelationValue)
 			rel.SetValues(relatedObjects)
+
+		case fieldType.Implements(reflect.TypeOf((*MultiRelationValue)(nil)).Elem()):
+			// If the field is a SettableMultiRelation, we can set the related objects directly
+			var rel = fieldValue.(MultiRelationValue)
+			var definerList = make([]attrs.Definer, len(relatedObjects))
+			for i, relatedObj := range relatedObjects {
+				definerList[i] = relatedObj.Model()
+			}
+			rel.SetValues(definerList)
 
 		case fieldType.Kind() == reflect.Slice && fieldType.Elem().Implements(reflect.TypeOf((*Relation)(nil)).Elem()):
 			// If the field is a slice, we can set the related objects directly
@@ -188,6 +215,16 @@ type walkInfo struct {
 //  	return path
 //  }
 
+func isNil(v reflect.Value) bool {
+	if !v.IsValid() || v.Kind() == reflect.Pointer && v.IsNil() {
+		return true
+	}
+	if v.Kind() == reflect.Ptr {
+		return isNil(v.Elem())
+	}
+	return false
+}
+
 // walkFields traverses the fields of an object based on a chain of field names.
 //
 // It yields each field found at the last depth of the chain, allowing for
@@ -218,9 +255,17 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth int,
 		return nil // Found the field at the last depth
 	}
 
+	var fieldType = field.Type()
 	var value = field.GetValue()
-	if value == nil {
-		return query_errors.ErrNilPointer
+	var rVal = reflect.ValueOf(value)
+
+	if isNil(rVal) && fieldType == nil {
+		return fmt.Errorf("field %s in object %T is nil: %w", fieldName, obj, query_errors.ErrNilPointer)
+	}
+
+	if isNil(rVal) && fieldType != nil && fieldType.Implements(reflect.TypeOf((*attrs.Binder)(nil)).Elem()) {
+		value = newSettableRelation[attrs.Binder](fieldType)
+		field.SetValue(value, true)
 	}
 
 	var rTyp = reflect.TypeOf(value)
@@ -234,6 +279,39 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth int,
 			}
 			return fmt.Errorf("%s: %w", fieldName, err)
 		}
+
+	case rTyp.Implements(reflect.TypeOf((*RelationValue)(nil)).Elem()):
+		// If the field is a RelationValue, we can walk its fields
+		var relValue = value.(RelationValue)
+		var model = relValue.GetValue()
+		if model == nil {
+			return nil
+		}
+		if err := walkFieldValues(model.FieldDefs(), chain, idx, depth+1, yield); err != nil {
+			if errors.Is(err, query_errors.ErrNilPointer) {
+				return nil // Skip nil pointers
+			}
+			return fmt.Errorf("%s: %w", fieldName, err)
+		}
+
+	case rTyp.Implements(reflect.TypeOf((*MultiRelationValue)(nil)).Elem()):
+		// If the field is a MultiRelationValue, we can walk its fields
+		var multiRelValue = value.(MultiRelationValue)
+		var relatedObjects = multiRelValue.GetValues()
+		if len(relatedObjects) == 0 {
+			return nil // Skip empty relations
+		}
+
+		for _, rel := range relatedObjects {
+			var modelDefs = rel.FieldDefs()
+			if err := walkFieldValues(modelDefs, chain, idx, depth+1, yield); err != nil {
+				if errors.Is(err, query_errors.ErrNilPointer) {
+					continue // Skip nil relations
+				}
+				return fmt.Errorf("%s: %w", fieldName, err)
+			}
+		}
+
 	case rTyp.Implements(reflect.TypeOf((*ThroughRelationValue)(nil)).Elem()):
 		var value = value.(ThroughRelationValue)
 		var model, _ = value.GetValue()
@@ -246,6 +324,7 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth int,
 			}
 			return fmt.Errorf("%s: %w", fieldName, err)
 		}
+
 	case rTyp.Implements(reflect.TypeOf((*MultiThroughRelationValue)(nil)).Elem()):
 		var value = value.(MultiThroughRelationValue)
 		var relatedObjects = value.GetValues()
@@ -261,6 +340,7 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth int,
 				return fmt.Errorf("%s: %w", fieldName, err)
 			}
 		}
+
 	case rTyp.Kind() == reflect.Slice && rTyp.Elem().Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
 		// If the field is a slice of Definer, we can walk its fields
 		var slice = reflect.ValueOf(value)
@@ -276,6 +356,7 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth int,
 				return fmt.Errorf("%s[%d]: %w", fieldName, i, err)
 			}
 		}
+
 	case rTyp.Kind() == reflect.Slice && rTyp.Elem().Implements(reflect.TypeOf((*Relation)(nil)).Elem()):
 		// If the field is a slice of Relation, we can walk its fields
 		var slice = reflect.ValueOf(value)
@@ -295,6 +376,7 @@ func walkFieldValues(obj attrs.Definitions, chain []string, idx *int, depth int,
 				return fmt.Errorf("%s[%d]: %w", fieldName, i, err)
 			}
 		}
+
 	default:
 		return fmt.Errorf("expected field %s in object %T to be a Definer, slice of Definer, or slice of Relation, got %s", fieldName, obj.Instance(), rTyp)
 	}

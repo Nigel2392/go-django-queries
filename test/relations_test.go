@@ -782,13 +782,13 @@ func TestOneToOneWithThroughDoubleNested(t *testing.T) {
 
 type ManyToManyTest struct {
 	Name string
-	Test func(t *testing.T, profiles []*Profile, userIDs []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through)
+	Test func(t *testing.T, profiles []*Profile, userIDs []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) (int, int, int, int, int)
 }
 
 var manyToManyTests = []ManyToManyTest{
 	{
 		Name: "TestManyToOne_Reverse",
-		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
+		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) (int, int, int, int, int) {
 			var rows, err = queries.Objects[*User](&User{}).
 				Select("*", "ModelManyToManySet.*", "ModelManyToManySet.User.*", "ModelManyToManySet.User.Profile.*").
 				Filter("ID__in", users[0].ID, users[1].ID).
@@ -798,18 +798,11 @@ var manyToManyTests = []ManyToManyTest{
 				t.Fatalf("Failed to get objects: %v", err)
 			}
 
-			var (
-				user1      = rows[0].Object
-				m2mSet, ok = user1.ModelDataStore().GetValue("ModelManyToManySet")
-			)
-			if !ok {
-				t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", user1.Model, rows[0].QuerySet.LatestQuery().SQL())
-			}
-
+			var user1 = rows[0].Object
 			t.Logf("User 1: %+v", user1)
-			t.Logf("ModelManyToManySet 1:  %+v %p %T", m2mSet, m2mSet, m2mSet)
+			t.Logf("User 1 ManyToManySet: %+v %+v", user1.ModelManyToManySet.Parent, user1.ModelManyToManySet.Objects())
 
-			var set = m2mSet.([]attrs.Definer)
+			var set = user1.ModelManyToManySet.Objects()
 			if len(set) != 2 {
 				t.Errorf("Expected 2 items in set, got %d", len(set))
 				for _, obj := range set {
@@ -856,7 +849,7 @@ var manyToManyTests = []ManyToManyTest{
 			}
 
 			var user2 = rows[1].Object
-			m2mSet, ok = user2.ModelDataStore().GetValue("ModelManyToManySet")
+			var m2mSet, ok = user2.ModelDataStore().GetValue("ModelManyToManySet")
 			if !ok {
 				t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", user2.Model, rows[1].QuerySet.LatestQuery().SQL())
 			}
@@ -874,7 +867,7 @@ var manyToManyTests = []ManyToManyTest{
 
 			if target3.ID != m2m_sources[2].ID {
 				t.Fatalf("Expected ModelManyToMany3.ID to be %d, got %d", m2m_sources[2].ID, target3.ID)
-				return
+				return 0, 0, 0, 0, 0
 			}
 
 			if target3.Title != "TestManyToMany3" {
@@ -893,11 +886,12 @@ var manyToManyTests = []ManyToManyTest{
 			t.Logf("ModelManyToManySet 2:  %+v %p %T", m2mSet, m2mSet, m2mSet)
 
 			t.Logf("________________________________________________________")
+			return 0, 0, 0, 0, 0
 		},
 	},
 	{
 		Name: "Test_Reverse_ManyToOne_Reverse",
-		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
+		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) (int, int, int, int, int) {
 			var rows, err = queries.Objects[*Profile](&Profile{}).
 				Select("*", "User.*", "User.ModelManyToManySet.*", "User.ModelManyToManySet.User.*").
 				Filter("ID__in", profiles[0].ID, profiles[1].ID).
@@ -997,7 +991,7 @@ var manyToManyTests = []ManyToManyTest{
 
 			if target3.ID != m2m_sources[2].ID {
 				t.Fatalf("Expected ModelManyToMany3.ID to be %d, got %d", m2m_sources[2].ID, target3.ID)
-				return
+				return 0, 0, 0, 0, 0
 			}
 
 			if target3.Title != "TestManyToMany3" {
@@ -1016,11 +1010,12 @@ var manyToManyTests = []ManyToManyTest{
 			t.Logf("ModelManyToManySet 2:  %+v %p %T", m2mSet, m2mSet, m2mSet)
 
 			t.Logf("________________________________________________________")
+			return 0, 0, 0, 0, 0
 		},
 	},
 	{
 		Name: "TestManyToMany_Forward",
-		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
+		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) (int, int, int, int, int) {
 			var rows, err = queries.Objects(&ModelManyToMany{}).
 				Select("*", "Target.*").
 				Filter("ID__in", m2m_sources[0].ID, m2m_sources[1].ID, m2m_sources[2].ID).
@@ -1090,11 +1085,12 @@ var manyToManyTests = []ManyToManyTest{
 			if len(t3Set) != 3 {
 				t.Fatalf("Expected 3 items in target3, got %d", len(t3Set))
 			}
+			return 0, 0, 0, 0, 0
 		},
 	},
 	{
 		Name: "TestManyToMany_Forward_1",
-		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
+		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) (int, int, int, int, int) {
 			var rows, err = queries.GetQuerySet(&ModelManyToMany{}).
 				Select("*", "Target.*", "Target.TargetReverse.*").
 				Filter("ID__in", m2m_sources[0].ID, m2m_sources[1].ID, m2m_sources[2].ID).
@@ -1163,6 +1159,10 @@ var manyToManyTests = []ManyToManyTest{
 				var idx = 0
 				if actual.Parent == nil || actual.Parent.Object == nil {
 					t.Fatalf("Expected actual.Parent.Object to be set: %+v\n\t%s", row.Object.Model, row.QuerySet.LatestQuery().SQL())
+				}
+
+				if len(actual.Objects()) != len(expected) {
+					t.Fatalf("Expected %d items in actual.Objects(), got %d: %+v\n\t%s", len(expected), len(actual.Objects()), row.Object.Model, row.QuerySet.LatestQuery().SQL())
 				}
 
 				for i, item := range actual.Objects() {
@@ -1235,12 +1235,12 @@ var manyToManyTests = []ManyToManyTest{
 			checkRow(t, rows[0], target1, targets_check_0, expectedReverseMap)
 			checkRow(t, rows[1], target2, targets_check_1, expectedReverseMap)
 			checkRow(t, rows[2], target3, targets_check_2, expectedReverseMap)
-
+			return 0, 0, 0, 0, 0
 		},
 	},
 	{
 		Name: "TestManyToMany_RelManyToManyQuerySet",
-		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
+		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) (int, int, int, int, int) {
 			var row, err = queries.GetQuerySet(&ModelManyToMany{}).
 				Select("*", "Target.*", "Target.TargetReverse.*").
 				Filter("ID", m2m_sources[0].ID).
@@ -1275,7 +1275,9 @@ var manyToManyTests = []ManyToManyTest{
 				t.Fatalf("Failed to get Target objects for row 0: %v", err)
 			}
 
-			t.Logf("QuerySet Arguments: %+v", row.QuerySet.LatestQuery().Args())
+			if len(a) != 5 {
+				t.Fatalf("Expected 5 Target objects, got %d", len(a))
+			}
 
 			var targetObjects = make([]*ModelManyToMany_Target, 0, len(a))
 			for _, item := range a {
@@ -1295,7 +1297,7 @@ var manyToManyTests = []ManyToManyTest{
 			}
 
 			if int(removed) != 2 {
-				t.Fatalf("Expected to remove %d targets, got %d", len(targetObjects), removed)
+				t.Fatalf("Expected to remove %d targets, got %d", 2, removed)
 			}
 
 			a, err = row.Object.Target.Relations.All()
@@ -1312,13 +1314,14 @@ var manyToManyTests = []ManyToManyTest{
 				t.Logf("Row [2] Target item from queryset: %+v", through.SourceModel)
 				t.Logf("Row [3] Target item from queryset: %+v", through.TargetModel)
 			}
+			return 0, 0, 0, 2, 0
 		},
 	},
 	{
-		Name: "TestManyToMany_RelManyToManyQuerySet_New",
-		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) {
+		Name: "TestManyToMany_RelManyToManyQuerySet_AddTarget",
+		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) (int, int, int, int, int) {
 			var obj = &ModelManyToMany{
-				Title: "TestManyToMany_New",
+				Title: "TestManyToMany_AddTarget",
 				User:  &User{ID: int(users[0].ID)},
 			}
 			if err := queries.CreateObject(obj); err != nil {
@@ -1331,7 +1334,7 @@ var manyToManyTests = []ManyToManyTest{
 			t.Logf("Adding targets to new ModelManyToMany object %v", obj.Target)
 
 			var created, err = obj.Target.Relations.AddTarget(&ModelManyToMany_Target{
-				Name: "TestManyToMany_Target_New_1",
+				Name: "TestManyToMany_Target_AddTarget_1",
 				Age:  40,
 			})
 			if err != nil {
@@ -1341,9 +1344,21 @@ var manyToManyTests = []ManyToManyTest{
 				t.Fatalf("Expected Target object to be created, but it already exists")
 			}
 
+			if len(obj.Target.Objects()) != 1 {
+				t.Fatalf("Expected 1 Target object, got %d", len(obj.Target.Objects()))
+			}
+
 			a, err := obj.Target.Relations.All()
 			if err != nil {
 				t.Fatalf("Failed to get Target objects for row: %v", err)
+			}
+
+			if len(a) != 1 {
+				t.Fatalf("Expected 1 Target object, got %d", len(a))
+			}
+
+			if len(obj.Target.Objects()) != 1 {
+				t.Fatalf("Expected 1 Target object in ModelManyToMany.Target, got %d", len(obj.Target.Objects()))
 			}
 
 			for _, item := range a {
@@ -1353,7 +1368,74 @@ var manyToManyTests = []ManyToManyTest{
 				t.Logf("Row [2] Target item from queryset: %+v", through.SourceModel)
 				t.Logf("Row [3] Target item from queryset: %+v", through.TargetModel)
 			}
+			return 0, 0, 0, 0, 0
+		},
+	},
+	{
+		Name: "TestManyToMany_RelOneToManyQuerySet",
+		Test: func(t *testing.T, profiles []*Profile, users []*User, m2m_sources []*ModelManyToMany, m2m_targets []*ModelManyToMany_Target, m2m_throughs []*ModelManyToMany_Through) (int, int, int, int, int) {
+			var row, err = queries.Objects(&User{}).
+				Select("*", "ModelManyToManySet.*").
+				Filter("ID__in", users[0].ID).
+				OrderBy("ID").
+				Get()
+			if err != nil {
+				t.Fatalf("Failed to get objects: %v", err)
+			}
 
+			var user = row.Object
+			t.Logf("User 1: %+v", user)
+			t.Logf("User 1 ManyToManySet: %+v %+v", user.ModelManyToManySet.Parent, user.ModelManyToManySet.Objects())
+
+			if len(user.ModelManyToManySet.Objects()) != 3 {
+			}
+
+			chk, err := queries.GetQuerySet(&ModelManyToMany{}).
+				Select("*").Filter("User", user.ID).
+				All()
+			if err != nil {
+				t.Fatalf("Failed to get ManyToManySet relations: %v", err)
+			}
+
+			if len(chk) != 2 {
+				t.Errorf("Expected 2 items in set, got %d", len(chk))
+				for _, obj := range chk {
+					t.Logf("obj: %+v", obj)
+				}
+				t.FailNow()
+			}
+
+			var objs = user.ModelManyToManySet.Objects()
+			if len(chk) != len(objs) {
+				t.Errorf("Expected %d items in set, got %d", len(chk), len(objs))
+				for _, obj := range objs {
+					t.Logf("obj: %+v", obj)
+				}
+				t.FailNow()
+			}
+
+			a, err := user.ModelManyToManySet.Relations.OrderBy("ID").All()
+			if err != nil {
+				t.Fatalf("Failed to get ManyToManySet relations: %v", err)
+			}
+
+			if len(chk) != len(a) {
+				t.Errorf("Expected %d items in set, got %d", len(chk), len(a))
+				for _, obj := range a {
+					t.Logf("obj: %+v", obj)
+				}
+				t.FailNow()
+			}
+
+			for _, item := range a {
+				t.Logf("___________________________________________")
+				t.Logf("Row [1] Target item from queryset: %+v", item.Object)
+
+				if item.Object.(*ModelManyToMany).User.ID != user.ID {
+					t.Fatalf("Expected ManyToManySet item User.ID to be %d, got %d", user.ID, item.Object.(*ModelManyToMany).User.ID)
+				}
+			}
+			return 0, 0, 0, 0, 0
 		},
 	},
 }
@@ -1382,145 +1464,146 @@ func TestManyToMany(t *testing.T) {
 	// 	m2m_targets[2] -> [m2m_sources[1], m2m_sources[2], m2m_sources[3]]
 	// 	m2m_targets[3] -> [m2m_sources[2], m2m_sources[3]]
 
-	var profiles, _ = createObjects[*Profile](t,
-		&Profile{
-			Name: "TestManyToManyProfile1",
-		},
-		&Profile{
-			Name: "TestManyToManyProfile2",
-		},
-	)
-
-	var users, _ = createObjects[*User](t,
-		&User{
-			Name:    "TestManyToManyUser1",
-			Profile: profiles[0],
-		},
-		&User{
-			Name:    "TestManyToManyUser2",
-			Profile: profiles[1],
-		},
-	)
-
-	var m2m_sources, _ = createObjects[*ModelManyToMany](t,
-		&ModelManyToMany{
-			Title: "TestManyToMany1",
-			User:  &User{ID: int(users[0].ID)},
-		},
-		&ModelManyToMany{
-			Title: "TestManyToMany2",
-			User:  &User{ID: int(users[0].ID)},
-		},
-		&ModelManyToMany{
-			Title: "TestManyToMany3",
-			User:  &User{ID: int(users[1].ID)},
-		},
-	)
-
-	var m2m_targets, _ = createObjects[*ModelManyToMany_Target](t,
-		&ModelManyToMany_Target{
-			Name: "TestManyToMany_Target1",
-			Age:  25,
-		},
-		&ModelManyToMany_Target{
-			Name: "TestManyToMany_Target2",
-			Age:  25,
-		},
-		&ModelManyToMany_Target{
-			Name: "TestManyToMany_Target3",
-			Age:  25,
-		},
-		&ModelManyToMany_Target{
-			Name: "TestManyToMany_Target4",
-			Age:  30,
-		},
-	)
-
-	var m2m_throughs, _ = createObjects[*ModelManyToMany_Through](t,
-		&ModelManyToMany_Through{
-			SourceModel: &ModelManyToMany{
-				ID: m2m_sources[0].ID,
-			},
-			TargetModel: &ModelManyToMany_Target{
-				ID: m2m_targets[0].ID,
-			},
-		},
-		&ModelManyToMany_Through{
-			SourceModel: &ModelManyToMany{
-				ID: m2m_sources[0].ID,
-			},
-			TargetModel: &ModelManyToMany_Target{
-				ID: m2m_targets[1].ID,
-			},
-		},
-		&ModelManyToMany_Through{
-			SourceModel: &ModelManyToMany{
-				ID: m2m_sources[0].ID,
-			},
-			TargetModel: &ModelManyToMany_Target{
-				ID: m2m_targets[2].ID,
-			},
-		},
-		&ModelManyToMany_Through{
-			SourceModel: &ModelManyToMany{
-				ID: m2m_sources[1].ID,
-			},
-			TargetModel: &ModelManyToMany_Target{
-				ID: m2m_targets[1].ID,
-			},
-		},
-		&ModelManyToMany_Through{
-			SourceModel: &ModelManyToMany{
-				ID: m2m_sources[1].ID,
-			},
-			TargetModel: &ModelManyToMany_Target{
-				ID: m2m_targets[2].ID,
-			},
-		},
-		&ModelManyToMany_Through{
-			SourceModel: &ModelManyToMany{
-				ID: m2m_sources[1].ID,
-			},
-			TargetModel: &ModelManyToMany_Target{
-				ID: m2m_targets[3].ID,
-			},
-		},
-		&ModelManyToMany_Through{
-			SourceModel: &ModelManyToMany{
-				ID: m2m_sources[2].ID,
-			},
-			TargetModel: &ModelManyToMany_Target{
-				ID: m2m_targets[1].ID,
-			},
-		},
-		&ModelManyToMany_Through{
-			SourceModel: &ModelManyToMany{
-				ID: m2m_sources[2].ID,
-			},
-			TargetModel: &ModelManyToMany_Target{
-				ID: m2m_targets[2].ID,
-			},
-		},
-		&ModelManyToMany_Through{
-			SourceModel: &ModelManyToMany{
-				ID: m2m_sources[2].ID,
-			},
-			TargetModel: &ModelManyToMany_Target{
-				ID: m2m_targets[3].ID,
-			},
-		})
+	// var deletions = make([]func() error, 0, len(manyToManyTests)*5)
 
 	for _, test := range manyToManyTests {
 		t.Run(test.Name, func(t *testing.T) {
-			test.Test(t, profiles, users, m2m_sources, m2m_targets, m2m_throughs)
+			var profiles, profile_delete = createObjects[*Profile](t,
+				&Profile{
+					Name: "TestManyToManyProfile1",
+				},
+				&Profile{
+					Name: "TestManyToManyProfile2",
+				},
+			)
+
+			var users, user_delete = createObjects[*User](t,
+				&User{
+					Name:    "TestManyToManyUser1",
+					Profile: profiles[0],
+				},
+				&User{
+					Name:    "TestManyToManyUser2",
+					Profile: profiles[1],
+				},
+			)
+
+			var m2m_sources, m2m_source_delete = createObjects[*ModelManyToMany](t,
+				&ModelManyToMany{
+					Title: "TestManyToMany1",
+					User:  &User{ID: int(users[0].ID)},
+				},
+				&ModelManyToMany{
+					Title: "TestManyToMany2",
+					User:  &User{ID: int(users[0].ID)},
+				},
+				&ModelManyToMany{
+					Title: "TestManyToMany3",
+					User:  &User{ID: int(users[1].ID)},
+				},
+			)
+
+			var m2m_targets, m2m_target_delete = createObjects[*ModelManyToMany_Target](t,
+				&ModelManyToMany_Target{
+					Name: "TestManyToMany_Target1",
+					Age:  25,
+				},
+				&ModelManyToMany_Target{
+					Name: "TestManyToMany_Target2",
+					Age:  25,
+				},
+				&ModelManyToMany_Target{
+					Name: "TestManyToMany_Target3",
+					Age:  25,
+				},
+				&ModelManyToMany_Target{
+					Name: "TestManyToMany_Target4",
+					Age:  30,
+				},
+			)
+
+			var m2m_throughs, m2m_through_delete = createObjects[*ModelManyToMany_Through](t,
+				&ModelManyToMany_Through{
+					SourceModel: &ModelManyToMany{
+						ID: m2m_sources[0].ID,
+					},
+					TargetModel: &ModelManyToMany_Target{
+						ID: m2m_targets[0].ID,
+					},
+				},
+				&ModelManyToMany_Through{
+					SourceModel: &ModelManyToMany{
+						ID: m2m_sources[0].ID,
+					},
+					TargetModel: &ModelManyToMany_Target{
+						ID: m2m_targets[1].ID,
+					},
+				},
+				&ModelManyToMany_Through{
+					SourceModel: &ModelManyToMany{
+						ID: m2m_sources[0].ID,
+					},
+					TargetModel: &ModelManyToMany_Target{
+						ID: m2m_targets[2].ID,
+					},
+				},
+				&ModelManyToMany_Through{
+					SourceModel: &ModelManyToMany{
+						ID: m2m_sources[1].ID,
+					},
+					TargetModel: &ModelManyToMany_Target{
+						ID: m2m_targets[1].ID,
+					},
+				},
+				&ModelManyToMany_Through{
+					SourceModel: &ModelManyToMany{
+						ID: m2m_sources[1].ID,
+					},
+					TargetModel: &ModelManyToMany_Target{
+						ID: m2m_targets[2].ID,
+					},
+				},
+				&ModelManyToMany_Through{
+					SourceModel: &ModelManyToMany{
+						ID: m2m_sources[1].ID,
+					},
+					TargetModel: &ModelManyToMany_Target{
+						ID: m2m_targets[3].ID,
+					},
+				},
+				&ModelManyToMany_Through{
+					SourceModel: &ModelManyToMany{
+						ID: m2m_sources[2].ID,
+					},
+					TargetModel: &ModelManyToMany_Target{
+						ID: m2m_targets[1].ID,
+					},
+				},
+				&ModelManyToMany_Through{
+					SourceModel: &ModelManyToMany{
+						ID: m2m_sources[2].ID,
+					},
+					TargetModel: &ModelManyToMany_Target{
+						ID: m2m_targets[2].ID,
+					},
+				},
+				&ModelManyToMany_Through{
+					SourceModel: &ModelManyToMany{
+						ID: m2m_sources[2].ID,
+					},
+					TargetModel: &ModelManyToMany_Target{
+						ID: m2m_targets[3].ID,
+					},
+				})
+
+			var p, u, msrc, mthru, mtgt = test.Test(t, profiles, users, m2m_sources, m2m_targets, m2m_throughs)
+			profile_delete(p)
+			m2m_target_delete(mtgt)
+			m2m_source_delete(msrc)
+			m2m_through_delete(mthru)
+			user_delete(u)
 		})
 	}
-
-	//profile_delete()
-	//m2m_target_delete()
-	//m2m_source_delete()
-	//m2m_through_delete()
-	//user_delete()
 }
 
 func TestPluckRows(t *testing.T) {
@@ -1571,6 +1654,8 @@ func TestPluckManyToManyRows(t *testing.T) {
 		values = append(values, value)
 	}
 
+	t.Logf("Values: %v", values)
+
 	var idx = 0
 	for _, row := range rows {
 		for _, target := range row.Object.Target.Objects() {
@@ -1579,12 +1664,12 @@ func TestPluckManyToManyRows(t *testing.T) {
 				t.Fatalf("Expected Target.TargetReverse to be set: %+v\n\t%s", target.Object.Model, row.QuerySet.LatestQuery().SQL())
 			}
 
-			revList, ok := rev.([]queries.Relation)
+			revList, ok := rev.(*queries.RelM2M[attrs.Definer, attrs.Definer])
 			if !ok {
-				t.Fatalf("Expected Target.TargetReverse to be a list: %+v\n\t%s", target.Object.Model, row.QuerySet.LatestQuery().SQL())
+				t.Fatalf("Expected Target.TargetReverse to be a list: %+v %T\n\t%s", target.Object.Model, rev, row.QuerySet.LatestQuery().SQL())
 			}
 
-			for _, revItem := range revList {
+			for _, revItem := range revList.Objects() {
 
 				revTarget := revItem.Model().(*ModelManyToMany)
 				if revTarget.ID != values[idx] {

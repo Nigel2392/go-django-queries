@@ -9,6 +9,45 @@ import (
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
+// LogicalOp represents the logical operator to use in a query.
+//
+// It is used to compare two values in a logical expression.
+// The logical operators are used in the WHERE clause of a SQL query,
+// or inside of queryset join conditions.
+type LogicalOp string
+
+const (
+	LogicalOpEQ  LogicalOp = "="
+	LogicalOpNE  LogicalOp = "!="
+	LogicalOpGT  LogicalOp = ">"
+	LogicalOpLT  LogicalOp = "<"
+	LogicalOpGTE LogicalOp = ">="
+	LogicalOpLTE LogicalOp = "<="
+
+	LogicalOpADD LogicalOp = "+"
+	LogicalOpSUB LogicalOp = "-"
+	LogicalOpMUL LogicalOp = "*"
+	LogicalOpDIV LogicalOp = "/"
+	LogicalOpMOD LogicalOp = "%"
+
+	LogicalOpBITAND LogicalOp = "&"
+	LogicalOpBITOR  LogicalOp = "|"
+	LogicalOpBITXOR LogicalOp = "^"
+	LogicalOpBITLSH LogicalOp = "<<"
+	LogicalOpBITRSH LogicalOp = ">>"
+	LogicalOpBITNOT LogicalOp = "~"
+)
+
+// ExprOp represents the expression operator to use in a query.
+//
+// It is used to combine multiple expressions in a logical expression.
+type ExprOp string
+
+const (
+	OpAnd ExprOp = "AND"
+	OpOr  ExprOp = "OR"
+)
+
 type ExpressionInfo struct {
 	Driver      driver.Driver
 	Model       attrs.Definer
@@ -76,20 +115,6 @@ func (c *TableColumn) Validate() error {
 	return nil
 }
 
-// LogicalOp represents the logical operator to use in a query.
-//
-// It is used to compare two fields in a join condition.
-type LogicalOp string
-
-const (
-	LogicalOpEQ  LogicalOp = "="
-	LogicalOpNE  LogicalOp = "!="
-	LogicalOpGT  LogicalOp = ">"
-	LogicalOpLT  LogicalOp = "<"
-	LogicalOpGTE LogicalOp = ">="
-	LogicalOpLTE LogicalOp = "<="
-)
-
 type Expression interface {
 	SQL(sb *strings.Builder) []any
 	Clone() Expression
@@ -107,4 +132,29 @@ type LogicalExpression interface {
 type NamedExpression interface {
 	Expression
 	FieldName() string
+}
+
+var logicalOps = map[string]LogicalOp{
+	// Equality comparison operators
+	"=":  LogicalOpEQ,
+	"!=": LogicalOpNE,
+	">":  LogicalOpGT,
+	"<":  LogicalOpLT,
+	">=": LogicalOpGTE,
+	"<=": LogicalOpLTE,
+
+	// Arithmetic operators
+	"+": LogicalOpADD,
+	"-": LogicalOpSUB,
+	"*": LogicalOpMUL,
+	"/": LogicalOpDIV,
+	"%": LogicalOpMOD,
+
+	// Bitwise operators
+	"&":  LogicalOpBITAND,
+	"|":  LogicalOpBITOR,
+	"^":  LogicalOpBITXOR,
+	"<<": LogicalOpBITLSH,
+	">>": LogicalOpBITRSH,
+	"~":  LogicalOpBITNOT,
 }

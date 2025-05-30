@@ -92,22 +92,37 @@ func (e *multipleExpr) Resolve(inf *ExpressionInfo) Expression {
 func Multiple(expr ...any) NamedExpression {
 	var inner = make([]Expression, 0, len(expr))
 	var fieldName string
+
+exprLoop:
 	for i, e := range expr {
 
 		if n, ok := e.(NamedExpression); ok && (i == 0 || i > 0 && fieldName == "") {
 			fieldName = n.FieldName()
 		}
 
-		if s, ok := e.(string); ok && (i == 0 || i > 0 && fieldName == "") {
-			fieldName = s
-			continue
+		if opStr, ok := e.(string); ok {
+			op, ok := logicalOps[opStr]
+			if ok {
+				inner = append(inner, StringExpr(op))
+				continue exprLoop
+			}
+
+			if i == 0 && fieldName == "" {
+				fieldName = opStr
+				continue exprLoop
+			}
 		}
 
 		switch v := e.(type) {
 		case Expression:
 			inner = append(inner, v)
-		case string:
+		case LogicalOp:
 			inner = append(inner, StringExpr(v))
+		case string:
+			if !strings.HasPrefix(v, "![") && !strings.HasSuffix(v, "]") {
+				v = fmt.Sprintf("![%s]", v)
+			}
+			inner = append(inner, F(v))
 		default:
 			panic("unsupported type")
 		}

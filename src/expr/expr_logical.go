@@ -7,13 +7,6 @@ import (
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
-type ExprOp string
-
-const (
-	OpAnd ExprOp = "AND"
-	OpOr  ExprOp = "OR"
-)
-
 func Q(fieldLookup string, value ...any) *ExprNode {
 	var split = strings.Split(fieldLookup, "__")
 	var field string

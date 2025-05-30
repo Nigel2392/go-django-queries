@@ -44,11 +44,6 @@ type (
 	//
 	// It is used to specify how to join two tables in a query.
 	JoinType string
-
-	// LogicalOp represents the logical operator to use in a query.
-	//
-	// It is used to compare two fields in a join condition.
-	LogicalOp string
 )
 
 const (
@@ -57,13 +52,6 @@ const (
 	TypeJoinInner JoinType = "INNER JOIN"
 	TypeJoinFull  JoinType = "FULL JOIN"
 	TypeJoinCross JoinType = "CROSS JOIN"
-
-	LogicalOpEQ  LogicalOp = "="
-	LogicalOpNE  LogicalOp = "!="
-	LogicalOpGT  LogicalOp = ">"
-	LogicalOpLT  LogicalOp = "<"
-	LogicalOpGTE LogicalOp = ">="
-	LogicalOpLTE LogicalOp = "<="
 )
 
 // A table represents a database table.
@@ -79,18 +67,47 @@ type Table struct {
 //
 // It is used to specify how to order the results of a query.
 type OrderBy struct {
-	Table Table
-	Field string
-	Alias string
-	Desc  bool
+	Column expr.TableColumn // The field to order by
+	Desc   bool
 }
 
-type JoinCondition struct {
-	ConditionA string         // The first condition to join on
-	ConditionB string         // The second condition to join on
-	Operator   LogicalOp      // The operator to use to join the two conditions
-	Args       []any          // Additional arguments to use in the join condition
-	Next       *JoinCondition // The next join condition, if any
+type JoinDefCondition struct {
+	ConditionA expr.TableColumn  // The first condition to join on
+	ConditionB expr.TableColumn  // The second condition to join on
+	Operator   expr.LogicalOp    // The operator to use to join the two conditions
+	Next       *JoinDefCondition // The next join condition, if any
+}
+
+func (j *JoinDefCondition) String() string {
+	var sb = strings.Builder{}
+	var curr = j
+	for curr != nil {
+		if curr.ConditionA.TableOrAlias != "" {
+			sb.WriteString(curr.ConditionA.TableOrAlias)
+		}
+		if curr.ConditionA.FieldColumn != nil {
+			sb.WriteString(".")
+			sb.WriteString(curr.ConditionA.FieldColumn.ColumnName())
+		}
+		if curr.ConditionA.FieldAlias != "" {
+			sb.WriteString(".")
+			sb.WriteString(curr.ConditionA.FieldAlias)
+		}
+		if curr.ConditionB.TableOrAlias != "" {
+			sb.WriteString(curr.ConditionB.TableOrAlias)
+		}
+		if curr.ConditionB.FieldAlias != "" {
+			sb.WriteString(".")
+			sb.WriteString(curr.ConditionB.FieldAlias)
+		}
+		if curr.ConditionB.FieldColumn != nil {
+			sb.WriteString(".")
+			sb.WriteString(curr.ConditionB.FieldColumn.ColumnName())
+		}
+		curr = curr.Next
+
+	}
+	return sb.String()
 }
 
 // JoinDef represents a join definition in a query.
@@ -100,9 +117,9 @@ type JoinCondition struct {
 // See [JoinType] for different types of joins.
 // See [LogicalOp] for different logical operators.
 type JoinDef struct {
-	Table         Table
-	TypeJoin      JoinType
-	JoinCondition *JoinCondition
+	Table            Table
+	TypeJoin         JoinType
+	JoinDefCondition *JoinDefCondition
 }
 
 // FieldInfo represents information about a field in a query.
@@ -210,48 +227,37 @@ func (f *FieldInfo) WriteField(sb *strings.Builder, inf *expr.ExpressionInfo, fi
 	} else {
 		tableAlias = f.Table.Alias
 	}
-
+	var col = &expr.TableColumn{}
 	if ve, ok := field.(VirtualField); ok && inf.Model != nil {
-		var sql, a = ve.SQL(inf)
-		if sql == "" {
+		var rawSql, a = ve.SQL(inf)
+		if rawSql == "" {
 			return nil, true, false
 		}
 
-		sb.WriteString(sql)
+		col.RawSQL = rawSql
 
 		if fieldAlias != "" && !forUpdate {
-			sb.WriteString(" AS ")
-			sb.WriteString(inf.Quote)
-			sb.WriteString(inf.AliasGen.GetFieldAlias(
+			col.FieldAlias = inf.AliasGen.GetFieldAlias(
 				tableAlias, fieldAlias,
-			))
-			sb.WriteString(inf.Quote)
+			)
 		}
 
+		var fmtSql, extra = inf.FormatField(col)
+		sb.WriteString(fmtSql)
 		args = append(args, a...)
+		args = append(args, extra...)
 		return args, true, true
 	}
 
 	if !forUpdate {
-		sb.WriteString(inf.Quote)
-
-		if f.Table.Alias == "" {
-			sb.WriteString(f.Table.Name)
-		} else {
-			sb.WriteString(f.Table.Alias)
-		}
-
-		sb.WriteString(inf.Quote)
-		sb.WriteString(".")
+		col.TableOrAlias = tableAlias
 	}
 
-	sb.WriteString(inf.Quote)
-	sb.WriteString(field.ColumnName())
-	sb.WriteString(inf.Quote)
+	col.FieldColumn = field
+	col.ForUpdate = forUpdate
 
-	if forUpdate {
-		sb.WriteString(" = ?")
-	}
+	var fmtSql, _ = inf.FormatField(col)
+	sb.WriteString(fmtSql)
 
 	return []any{}, false, true
 }
@@ -285,12 +291,7 @@ func (i *QuerySetInternals) addJoin(join JoinDef) {
 		i.joinsMap = make(map[string]bool)
 	}
 
-	var key = fmt.Sprintf(
-		"%s.%s",
-		join.JoinCondition.ConditionA,
-		join.JoinCondition.ConditionB,
-	)
-
+	var key = join.JoinDefCondition.String()
 	if _, exists := i.joinsMap[key]; !exists {
 		i.joinsMap[key] = true
 		i.Joins = append(i.Joins, join)
@@ -720,13 +721,21 @@ func (qs *QuerySet[T]) GoString() string {
 				sb.WriteString(join.Table.Alias)
 			}
 			sb.WriteString(" ON ")
-			var cond = join.JoinCondition
+			var cond = join.JoinDefCondition
 			for cond != nil {
-				sb.WriteString(cond.ConditionA)
+
+				var colA, _ = qs.compiler.FormatColumn(
+					&cond.ConditionA,
+				)
+				var colB, _ = qs.compiler.FormatColumn(
+					&cond.ConditionB,
+				)
+
+				sb.WriteString(colA)
 				sb.WriteString(" ")
 				sb.WriteString(string(cond.Operator))
 				sb.WriteString(" ")
-				sb.WriteString(cond.ConditionB)
+				sb.WriteString(colB)
 
 				cond = cond.Next
 
@@ -883,7 +892,6 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 		relField    = foreignKey.Field()
 		targetDefs  = target.FieldDefs()
 		targetTable = targetDefs.TableName()
-		front, back = qs.compiler.Quote()
 		condA_Alias = parentDefs.TableName()
 		condB_Alias = targetTable
 	)
@@ -899,16 +907,14 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 		condB_Alias = aliases[len(aliases)-1]
 	}
 
-	var condA = fmt.Sprintf(
-		"%s%s%s.%s%s%s",
-		front, condA_Alias, back,
-		front, parentField.ColumnName(), back,
-	)
-	var condB = fmt.Sprintf(
-		"%s%s%s.%s%s%s",
-		front, condB_Alias, back,
-		front, relField.ColumnName(), back,
-	)
+	var condA = expr.TableColumn{
+		TableOrAlias: condA_Alias,
+		FieldColumn:  parentField,
+	}
+	var condB = expr.TableColumn{
+		TableOrAlias: condB_Alias,
+		FieldColumn:  relField,
+	}
 
 	var includedFields []attrs.Field
 	if all {
@@ -936,23 +942,26 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 		Chain:  chain,
 	}
 
-	var key = fmt.Sprintf("%s.%s", condA, condB)
+	var joinCond = &JoinDefCondition{
+		ConditionA: condA,
+		Operator:   expr.LogicalOpEQ,
+		ConditionB: condB,
+	}
+
+	var key = joinCond.String()
 	if _, ok := joinM[key]; ok {
 		return []*FieldInfo{info}, nil
 	}
 
 	joinM[key] = true
+
 	var join = JoinDef{
 		TypeJoin: TypeJoinLeft,
 		Table: Table{
 			Name:  targetTable,
 			Alias: aliases[len(aliases)-1],
 		},
-		JoinCondition: &JoinCondition{
-			ConditionA: condA,
-			Operator:   LogicalOpEQ,
-			ConditionB: condB,
-		},
+		JoinDefCondition: joinCond,
 	}
 
 	return []*FieldInfo{info}, []JoinDef{join}
@@ -974,8 +983,6 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 		targetDefs  = target.FieldDefs()
 		targetTable = targetDefs.TableName()
 		// targetField = getTargetField()
-
-		front, back = qs.compiler.Quote()
 	)
 
 	throughSourceField, ok := throughDefs.Field(through.SourceField())
@@ -1010,18 +1017,16 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 			Name:  throughTable,
 			Alias: aliasThrough,
 		},
-		JoinCondition: &JoinCondition{
-			ConditionA: fmt.Sprintf(
-				"%s%s%s.%s%s%s",
-				front, parentAlias, back,
-				front, parentField.ColumnName(), back,
-			),
-			Operator: LogicalOpEQ,
-			ConditionB: fmt.Sprintf(
-				"%s%s%s.%s%s%s",
-				front, aliasThrough, back,
-				front, throughSourceField.ColumnName(), back,
-			),
+		JoinDefCondition: &JoinDefCondition{
+			Operator: expr.LogicalOpEQ,
+			ConditionA: expr.TableColumn{
+				TableOrAlias: parentAlias,
+				FieldColumn:  parentField,
+			},
+			ConditionB: expr.TableColumn{
+				TableOrAlias: aliasThrough,
+				FieldColumn:  throughSourceField,
+			},
 		},
 	}
 
@@ -1032,30 +1037,32 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 			Name:  targetTable,
 			Alias: alias,
 		},
-		JoinCondition: &JoinCondition{
-			ConditionA: fmt.Sprintf(
-				"%s%s%s.%s%s%s",
-				front, aliasThrough, back,
-				front, throughTargetField.ColumnName(), back,
-			),
-			Operator: LogicalOpEQ,
-			ConditionB: fmt.Sprintf(
-				"%s%s%s.%s%s%s",
-				front, alias, back,
-				front, targetField.ColumnName(), back,
-			),
+		JoinDefCondition: &JoinDefCondition{
+			Operator: expr.LogicalOpEQ,
+			ConditionA: expr.TableColumn{
+				TableOrAlias: aliasThrough,
+				FieldColumn:  throughTargetField,
+			},
+			ConditionB: expr.TableColumn{
+				TableOrAlias: alias,
+				FieldColumn:  targetField,
+			},
 		},
 	}
 
 	// Prevent duplicate joins
-	var joins = make([]JoinDef, 0, 2)
-	if _, ok := joinM[join1.JoinCondition.ConditionA+"."+join1.JoinCondition.ConditionB]; !ok {
+	var (
+		joins = make([]JoinDef, 0, 2)
+		key1  = join1.JoinDefCondition.String()
+		key2  = join2.JoinDefCondition.String()
+	)
+	if _, ok := joinM[key1]; !ok {
 		joins = append(joins, join1)
-		joinM[join1.JoinCondition.ConditionA+"."+join1.JoinCondition.ConditionB] = true
+		joinM[key1] = true
 	}
-	if _, ok := joinM[join2.JoinCondition.ConditionA+"."+join2.JoinCondition.ConditionB]; !ok {
+	if _, ok := joinM[key2]; !ok {
 		joins = append(joins, join2)
-		joinM[join2.JoinCondition.ConditionA+"."+join2.JoinCondition.ConditionB] = true
+		joinM[key2] = true
 	}
 
 	var includedFields = []attrs.Field{field}
@@ -1206,8 +1213,10 @@ fieldsLoop:
 		// this must be in line with alias generation in internal.WalkFields!!!
 		if (rel != nil) && allFields {
 			chain = append(chain, field.Name())
-			var meta = attrs.GetModelMeta(rel.Model())
-			var defs = meta.Definitions()
+			var (
+				meta = attrs.GetModelMeta(rel.Model())
+				defs = meta.Definitions()
+			)
 			aliases = append(aliases, qs.AliasGen.GetTableAlias(
 				defs.TableName(), selectedField,
 			))
@@ -1345,14 +1354,18 @@ func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
 			)
 		}
 
+		if alias != "" {
+			tableAlias = ""
+			field = nil
+		}
+
 		nqs.internals.OrderBy = append(nqs.internals.OrderBy, OrderBy{
-			Table: Table{
-				Name:  defs.TableName(),
-				Alias: tableAlias,
+			Column: expr.TableColumn{
+				TableOrAlias: tableAlias,
+				FieldColumn:  field,
+				FieldAlias:   alias,
 			},
-			Field: field.ColumnName(),
-			Alias: alias,
-			Desc:  desc,
+			Desc: desc,
 		})
 	}
 
@@ -1366,10 +1379,8 @@ func (qs *QuerySet[T]) Reverse() *QuerySet[T] {
 	var ordBy = make([]OrderBy, 0, len(qs.internals.OrderBy))
 	for _, ord := range qs.internals.OrderBy {
 		ordBy = append(ordBy, OrderBy{
-			Table: ord.Table,
-			Field: ord.Field,
-			Alias: ord.Alias,
-			Desc:  !ord.Desc,
+			Column: ord.Column,
+			Desc:   !ord.Desc,
 		})
 	}
 	var nqs = qs.Clone()
@@ -1796,9 +1807,14 @@ func (qs *QuerySet[T]) Aggregate(annotations map[string]expr.Expression) (map[st
 		return map[string]any{}, nil
 	}
 
-	var scannables = getScannableFields(qs.internals.Fields, internal.NewObjectFromIface(qs.model))
-	var row = results[0]
-	var out = make(map[string]any)
+	var (
+		row        = results[0]
+		out        = make(map[string]any)
+		scannables = getScannableFields(
+			qs.internals.Fields,
+			internal.NewObjectFromIface(qs.model),
+		)
+	)
 
 	for i, field := range scannables {
 		if vf, ok := field.field.(AliasField); ok {

@@ -356,6 +356,11 @@ type QueryCompiler interface {
 	// For example, MySQL uses backticks (`) and PostgreSQL uses double quotes (").
 	Quote() (front string, back string)
 
+	// FormatColumn formats the given field column to be used in a query.
+	// It should return the column name with the quotes applied.
+	// Expressions should use this method to format the column name.
+	FormatColumn(tableColumn *expr.TableColumn) (string, []any)
+
 	// SupportsReturning returns the type of returning supported by the database.
 	// It can be one of the following:
 	//

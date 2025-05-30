@@ -188,7 +188,7 @@ func WalkFields(
 	chain = make([]string, 0, len(parts)-1)
 	aliases = make([]string, 0, len(parts)-1)
 
-	defs := current.FieldDefs()
+	var defs = current.FieldDefs()
 	for i, part := range parts {
 		f, ok := defs.Field(part)
 		if !ok {

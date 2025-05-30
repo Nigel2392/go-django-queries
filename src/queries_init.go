@@ -254,7 +254,7 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.Definer], d 
 				}
 
 				// set the object expression and break the loop
-				objExpr = expr.And(and...).(expr.LogicalExpression)
+				objExpr = expr.And(and...)
 				break uniqueFieldsLoop
 			}
 
@@ -270,7 +270,7 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.Definer], d 
 			orExprs = append(orExprs, objExpr)
 		}
 
-		return []expr.LogicalExpression{expr.Or(orExprs...).(expr.LogicalExpression)}, nil
+		return []expr.LogicalExpression{expr.Or(orExprs...)}, nil
 	})
 	return nil
 })
@@ -394,14 +394,6 @@ var _, _ = attrs.OnThroughModelRegister.Listen(func(s signals.Signal[attrs.Throu
 						expr.Express(sourceExpr, targetExpr)...,
 					)
 					continue
-				}
-
-				var targetExprs = make([]expr.Expression, 0, len(targets))
-				for _, target := range targets {
-					targetExprs = append(
-						targetExprs,
-						expr.Q(d.ThroughInfo.TargetField(), target),
-					)
 				}
 
 				expressions = append(expressions, sourceExpr.And(

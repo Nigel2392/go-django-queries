@@ -1592,8 +1592,8 @@ func TestUpdateWithExpressions(t *testing.T) {
 		ExplicitSave().
 		Update(
 			&Todo{},
-			expr.U("![Title] = UPPER(![Title])"),
-			expr.U("![Done] = (![ID] % ?[1] == ?[2] OR ![ID] % ?[1] == ?[3] OR ?[4])", 2, 0, 1, true),
+			expr.F("![Title] = UPPER(![Title])"),
+			expr.F("![Done] = (![ID] % ?[1] == ?[2] OR ![ID] % ?[1] == ?[3] OR ?[4])", 2, 0, 1, true),
 		)
 	if err != nil {
 		t.Fatalf("Failed to update todo: %v", err)
@@ -2196,7 +2196,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 			Filter("Title__icontains", "test").
 			Filter("Done", false)
 
-		query.Update(&Todo{}, expr.U("![Title] = UPPER(![Title])"))
+		query.Update(&Todo{}, expr.F("![Title] = UPPER(![Title])"))
 
 		var latest = query.LatestQuery()
 		if latest == nil {
@@ -2588,6 +2588,53 @@ func TestBulkCreate(t *testing.T) {
 	}
 }
 
+func TestUpdateWithCast(t *testing.T) {
+	var todo = &Todo{
+		Title:       "9",
+		Description: "4",
+	}
+
+	if err := queries.CreateObject(todo); err != nil {
+		t.Fatalf("Failed to create object: %v", err)
+	}
+
+	var updatedCnt, err = queries.Objects(todo).
+		Select("Title").
+		Filter("ID", todo.ID).
+		Update(
+			todo,
+			expr.Multiple(
+				expr.CastInt("Title"), "+", expr.CastInt("Description"),
+			),
+		)
+	if err != nil {
+		t.Fatalf("Failed to execute query: %v", err)
+	}
+
+	if updatedCnt != 1 {
+		t.Fatalf("Expected 1 row to be updated, got %d", updatedCnt)
+	}
+
+	row, err := queries.Objects(todo).
+		Select("ID", "Title", "Description").
+		Filter("ID", todo.ID).
+		Get()
+	if err != nil {
+		t.Fatalf("Failed to execute query: %v", err)
+	}
+
+	if row.Object.Title != "13" {
+		t.Errorf("Expected Title = '13', got '%s'", row.Object.Title)
+	}
+
+	_, err = queries.Objects(todo).
+		Filter("ID", todo.ID).
+		Delete()
+	if err != nil {
+		t.Fatalf("Failed to delete object: %v", err)
+	}
+}
+
 func TestBulkUpdate(t *testing.T) {
 	var todos, err = queries.GetQuerySet(&Todo{}).BulkCreate([]*Todo{
 		{Title: "BulkUpdate1", Description: "Description BulkUpdate", Done: false},
@@ -2615,7 +2662,10 @@ func TestBulkUpdate(t *testing.T) {
 	t.Logf("Todos to update 3: %s, %+v", todos[2].FieldDefs().Get("Title"), todos[2])
 	t.Logf("Todos to update 4: %s, %+v", todos[3].FieldDefs().Get("Title"), todos[3])
 
-	_, err = queries.GetQuerySet(&Todo{}).BulkUpdate(toUpdate)
+	_, err = queries.GetQuerySet(&Todo{}).BulkUpdate(
+		toUpdate,
+		expr.F("![Description] = UPPER(![Description])"),
+	)
 
 	if err != nil {
 		t.Fatalf("Failed to bulk update todos: %v", err)
@@ -2656,8 +2706,8 @@ func TestBulkUpdate(t *testing.T) {
 			t.Fatalf("Expected todo title %q, got %q", todo.Title, dbTodo.Title)
 		}
 
-		if todo.Description != dbTodo.Description {
-			t.Fatalf("Expected todo description %q, got %q", todo.Description, dbTodo.Description)
+		if strings.ToUpper(todo.Description) != dbTodo.Description {
+			t.Fatalf("Expected todo description %q, got %q", strings.ToUpper(todo.Description), dbTodo.Description)
 		}
 
 		if todo.Done != dbTodo.Done {

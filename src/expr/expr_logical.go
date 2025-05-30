@@ -7,11 +7,11 @@ import (
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
-type LogicalOp string
+type ExprOp string
 
 const (
-	OpAnd LogicalOp = "AND"
-	OpOr  LogicalOp = "OR"
+	OpAnd ExprOp = "AND"
+	OpOr  ExprOp = "OR"
 )
 
 func Q(fieldLookup string, value ...any) *ExprNode {
@@ -28,11 +28,11 @@ func Q(fieldLookup string, value ...any) *ExprNode {
 	return Expr(field, lookup, value...)
 }
 
-func And(exprs ...Expression) Expression {
+func And(exprs ...Expression) *ExprGroup {
 	return &ExprGroup{children: exprs, op: OpAnd}
 }
 
-func Or(exprs ...Expression) Expression {
+func Or(exprs ...Expression) *ExprGroup {
 	return &ExprGroup{children: exprs, op: OpOr}
 }
 
@@ -70,11 +70,10 @@ func (e *ExprNode) Resolve(inf *ExpressionInfo) Expression {
 
 	var (
 		col = ResolveExpressionField(
-			inf, nE.field, false,
+			inf, nE.field,
 		)
 		err error
 	)
-	// nE.args = ResolveExpressionArgs(d, m, nE.args, quote)
 	nE.sql, nE.args, err = typeLookups.lookup(
 		inf.Driver, col, nE.lookup, slices.Clone(nE.args),
 	)
@@ -129,7 +128,7 @@ func (e *ExprNode) Clone() Expression {
 // ExprGroup
 type ExprGroup struct {
 	children []Expression
-	op       LogicalOp
+	op       ExprOp
 	not      bool
 }
 

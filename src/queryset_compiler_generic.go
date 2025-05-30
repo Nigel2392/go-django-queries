@@ -61,6 +61,67 @@ func (g *genericQueryBuilder) Quote() (string, string) {
 	return g.quote, g.quote
 }
 
+func (g *genericQueryBuilder) FormatColumn(col *expr.TableColumn) (string, []any) {
+	var (
+		sb   = new(strings.Builder)
+		args = make([]any, 0, 1)
+	)
+
+	var err = col.Validate()
+	if err != nil {
+		panic(fmt.Errorf("cannot format column: %w", err))
+	}
+
+	if col.TableOrAlias != "" {
+		sb.WriteString(g.quote)
+		sb.WriteString(col.TableOrAlias)
+		sb.WriteString(g.quote)
+		sb.WriteString(".")
+	}
+
+	var aliasWritten bool
+	switch {
+	case col.FieldColumn != nil:
+		sb.WriteString(g.quote)
+		sb.WriteString(col.FieldColumn.ColumnName())
+		sb.WriteString(g.quote)
+
+	case col.RawSQL != "":
+		sb.WriteString(col.RawSQL)
+		if col.Value != nil {
+			args = append(args, col.Value)
+		}
+
+	case col.Value != nil:
+		sb.WriteString("?")
+		args = append(args, col.Value)
+
+	case col.FieldAlias != "":
+		aliasWritten = true
+		sb.WriteString(g.quote)
+		sb.WriteString(col.FieldAlias)
+		sb.WriteString(g.quote)
+
+	default:
+		panic(fmt.Errorf("cannot format column, no field, value or raw SQL provided: %v", col))
+	}
+
+	if col.FieldAlias != "" && !aliasWritten {
+		sb.WriteString(" AS ")
+		sb.WriteString(g.quote)
+		sb.WriteString(col.FieldAlias)
+		sb.WriteString(g.quote)
+	}
+
+	// Values are not used in the column definition.
+	// We don't append them here.
+	if col.ForUpdate {
+		sb.WriteString(" = ?")
+	}
+
+	return sb.String(), args
+}
+
 func (g *genericQueryBuilder) StartTransaction(ctx context.Context) (Transaction, error) {
 	if g.InTransaction() {
 		return nil, query_errors.ErrTransactionStarted
@@ -128,10 +189,11 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 		args  []any
 		model = qs.Model()
 		inf   = &expr.ExpressionInfo{
-			Driver:   g.driver,
-			Model:    qs.Model(),
-			AliasGen: qs.AliasGen,
-			Quote:    g.quote,
+			Driver:      g.driver,
+			Model:       qs.Model(),
+			AliasGen:    qs.AliasGen,
+			FormatField: g.FormatColumn,
+			ForUpdate:   false,
 		}
 	)
 
@@ -224,10 +286,11 @@ func (g *genericQueryBuilder) BuildCountQuery(
 	offset int,
 ) CompiledQuery[int64] {
 	var inf = &expr.ExpressionInfo{
-		Driver:   g.driver,
-		Model:    qs.Model(),
-		AliasGen: qs.AliasGen,
-		Quote:    g.quote,
+		Driver:      g.driver,
+		Model:       qs.Model(),
+		AliasGen:    qs.AliasGen,
+		FormatField: g.FormatColumn,
+		ForUpdate:   false,
 	}
 	var model = qs.Model()
 	var query = new(strings.Builder)
@@ -457,10 +520,11 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 	objects []UpdateInfo, // multiple objects can be updated at once
 ) CompiledQuery[int64] {
 	var inf = &expr.ExpressionInfo{
-		Driver:   g.driver,
-		Model:    qs.Model(),
-		AliasGen: qs.AliasGen,
-		Quote:    g.quote,
+		Driver:      g.driver,
+		Model:       qs.Model(),
+		AliasGen:    qs.AliasGen,
+		FormatField: g.FormatColumn,
+		ForUpdate:   true,
 	}
 
 	var (
@@ -471,6 +535,9 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 	)
 
 	for _, info := range objects {
+		// Set ForUpdate to true to ensure
+		// correct column formatting when writing fields.
+		inf.ForUpdate = true
 
 		if written {
 			query.WriteString("; ")
@@ -507,6 +574,10 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 			}
 		}
 
+		// Set ForUpdate to false to avoid
+		// incorrect column formatting in joins and where clauses.
+		inf.ForUpdate = false
+
 		args = append(
 			args,
 			g.writeJoins(query, info.Joins)...,
@@ -540,10 +611,11 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 	groupBy []FieldInfo,
 ) CompiledQuery[int64] {
 	var inf = &expr.ExpressionInfo{
-		Driver:   g.driver,
-		Model:    qs.Model(),
-		AliasGen: qs.AliasGen,
-		Quote:    g.quote,
+		Driver:      g.driver,
+		Model:       qs.Model(),
+		AliasGen:    qs.AliasGen,
+		FormatField: g.FormatColumn,
+		ForUpdate:   false,
 	}
 	var model = qs.Model()
 	var query = new(strings.Builder)
@@ -606,15 +678,20 @@ func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) [
 		}
 
 		sb.WriteString(" ON ")
-		var condition = join.JoinCondition
+		var condition = join.JoinDefCondition
 		for condition != nil {
-			sb.WriteString(condition.ConditionA)
+
+			var col, argsCol = g.FormatColumn(&condition.ConditionA)
+			sb.WriteString(col)
+			args = append(args, argsCol...)
+
 			sb.WriteString(" ")
 			sb.WriteString(string(condition.Operator))
 			sb.WriteString(" ")
-			sb.WriteString(condition.ConditionB)
 
-			args = append(args, condition.Args...)
+			col, argsCol = g.FormatColumn(&condition.ConditionB)
+			sb.WriteString(col)
+			args = append(args, argsCol...)
 
 			if condition.Next != nil {
 				sb.WriteString(" AND ")
@@ -675,23 +752,15 @@ func (g *genericQueryBuilder) writeOrderBy(sb *strings.Builder, orderBy []OrderB
 				sb.WriteString(", ")
 			}
 
-			if field.Alias != "" {
-				sb.WriteString(g.quote)
-				sb.WriteString(field.Alias)
-				sb.WriteString(g.quote)
-			} else {
-				sb.WriteString(g.quote)
-				if field.Table.Alias == "" {
-					sb.WriteString(field.Table.Name)
-				} else {
-					sb.WriteString(field.Table.Alias)
-				}
-				sb.WriteString(g.quote)
-				sb.WriteString(".")
-				sb.WriteString(g.quote)
-				sb.WriteString(field.Field)
-				sb.WriteString(g.quote)
+			if field.Column.TableOrAlias != "" && field.Column.FieldColumn != nil && field.Column.FieldAlias != "" {
+				panic(fmt.Errorf(
+					"cannot use table/alias, field column and field alias together in order by: %v",
+					field.Column,
+				))
 			}
+
+			var sql, _ = g.FormatColumn(&field.Column)
+			sb.WriteString(sql)
 
 			if field.Desc {
 				sb.WriteString(" DESC")
@@ -730,6 +799,5 @@ func buildWhereClause(b *strings.Builder, inf *expr.ExpressionInfo, exprs []expr
 		}
 		args = append(args, a...)
 	}
-
 	return args
 }

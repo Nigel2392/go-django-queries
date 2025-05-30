@@ -88,17 +88,6 @@ func Express(key interface{}, vals ...interface{}) []LogicalExpression {
 			expr.children = append(expr.children, v)
 		}
 		return []LogicalExpression{expr}
-	case LogicalExpression:
-		var expr = &ExprGroup{children: make([]Expression, 0, len(vals)+1), op: OpAnd}
-		expr.children = append(expr.children, v)
-		for _, val := range vals {
-			var v, ok = val.(Expression)
-			if !ok {
-				panic(fmt.Errorf("value %v is not an Expression", val))
-			}
-			expr.children = append(expr.children, v)
-		}
-		return []LogicalExpression{expr}
 	case []LogicalExpression:
 		var expr = &ExprGroup{children: make([]Expression, 0, len(vals)+len(v)), op: OpAnd}
 		for _, e := range v {
@@ -147,13 +136,14 @@ func ResolveExpressionArgs(inf *ExpressionInfo, arguments []any) []any {
 	return args
 }
 
-func ResolveExpressionField(inf *ExpressionInfo, field string, forUpdate bool) string {
+func ResolveExpressionField(inf *ExpressionInfo, field string) string {
 	var current, _, f, chain, aliases, isRelated, err = internal.WalkFields(inf.Model, field, inf.AliasGen)
 	if err != nil {
 		panic(err)
 	}
 
-	if (!forUpdate) || (isRelated || len(chain) > 0) {
+	var col = &TableColumn{}
+	if (!inf.ForUpdate) || (isRelated || len(chain) > 0) {
 		var aliasStr string
 		if len(aliases) > 0 {
 			aliasStr = aliases[len(aliases)-1]
@@ -161,28 +151,22 @@ func ResolveExpressionField(inf *ExpressionInfo, field string, forUpdate bool) s
 			aliasStr = current.FieldDefs().TableName()
 		}
 
-		var col string
 		if vF, ok := f.(interface{ Alias() string }); ok {
-			col = fmt.Sprintf(
-				"%s%s%s",
-				inf.Quote,
-				inf.AliasGen.GetFieldAlias(aliasStr, vF.Alias()),
-				inf.Quote,
+			col.FieldAlias = inf.AliasGen.GetFieldAlias(
+				aliasStr, vF.Alias(),
 			)
 		} else {
-			col = fmt.Sprintf(
-				"%s%s%s.%s%s%s",
-				inf.Quote, aliasStr, inf.Quote,
-				inf.Quote, f.ColumnName(), inf.Quote,
-			)
+			col.TableOrAlias = aliasStr
+			col.FieldColumn = f
 		}
-		return col
+
+		var sql, _ = inf.FormatField(col)
+		return sql
 	}
 
-	return fmt.Sprintf(
-		"%s%s%s",
-		inf.Quote, f.ColumnName(), inf.Quote,
-	)
+	col.FieldColumn = f
+	var sql, _ = inf.FormatField(col)
+	return sql
 }
 
 func normalizeArgs(op string, value []any) []any {

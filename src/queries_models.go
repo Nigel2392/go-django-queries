@@ -92,7 +92,7 @@ func GenerateObjectsWhereClause[T attrs.Definer](objects ...T) ([]expr.LogicalEx
 			return nil, fmt.Errorf("model %T has no primary key defined, cannot delete", objects[0])
 		}
 
-		return []expr.LogicalExpression{expr.Or(or...).(expr.LogicalExpression)}, nil
+		return []expr.LogicalExpression{expr.Or(or...)}, nil
 	} else {
 		var primaryName = primaryDef.Name()
 

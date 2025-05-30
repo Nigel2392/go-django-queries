@@ -13,7 +13,6 @@ type function[LookupType comparable] struct {
 	field      string
 	args       []any
 	used       bool
-	forUpdate  bool
 	inner      []Expression
 }
 
@@ -77,7 +76,6 @@ func (e *function[T]) Clone() Expression {
 		field:      e.field,
 		args:       slices.Clone(e.args),
 		used:       e.used,
-		forUpdate:  e.forUpdate,
 		inner:      inner,
 	}
 }
@@ -108,12 +106,8 @@ func (e *function[T]) Resolve(inf *ExpressionInfo) Expression {
 	}
 
 	if nE.field != "" {
-		nE.field = ResolveExpressionField(inf, nE.field, e.forUpdate)
+		nE.field = ResolveExpressionField(inf, nE.field)
 	}
-
-	//if len(nE.args) > 0 {
-	//	nE.args = ResolveExpressionArgs(d, m, nE.args, quote)
-	//}
 
 	return nE
 }

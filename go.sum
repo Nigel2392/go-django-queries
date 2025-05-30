@@ -1,13 +1,5 @@
 filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
-github.com/Nigel2392/go-django v1.7.1-0.20250521210612-48e95a012bfb h1:d4TIRQADQ4gZnYccVdsnLiQF6bqW66ZW/aNYU3Hjq2c=
-github.com/Nigel2392/go-django v1.7.1-0.20250521210612-48e95a012bfb/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
-github.com/Nigel2392/go-django v1.7.1-0.20250528181320-f484b36c3664 h1:VFbiNrcmk4/LvyS8okSu5Nf5/FWygum2K1ysEYmVkKc=
-github.com/Nigel2392/go-django v1.7.1-0.20250528181320-f484b36c3664/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
-github.com/Nigel2392/go-django v1.7.1-0.20250528182555-ff68ba22a4d7 h1:S/6AWsVNa8iwxbVYbr7XZu69VGsGQsXpqVhfAjiyPxY=
-github.com/Nigel2392/go-django v1.7.1-0.20250528182555-ff68ba22a4d7/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
-github.com/Nigel2392/go-django v1.7.1-0.20250528183138-69424a1322ad h1:50B5A6C2gYQ79IIq6fokeCAfodQ3yzKy6/F+PbU6rEQ=
-github.com/Nigel2392/go-django v1.7.1-0.20250528183138-69424a1322ad/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
 github.com/Nigel2392/go-django v1.7.1-0.20250529132858-e551c095ee71 h1:zzZFw2v+aCe59ib+L/3s3Smb9jjwZsRCvaeWQTdnaW8=
 github.com/Nigel2392/go-django v1.7.1-0.20250529132858-e551c095ee71/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
 github.com/Nigel2392/go-signals v1.0.8 h1:A7WchnawfSVk9FyMer5YtKUyDs5fIdKePnoumD56vgc=

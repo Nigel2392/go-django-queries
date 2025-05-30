@@ -50,12 +50,12 @@ func newThroughProxy(throughDefinition attrs.Through) *throughProxy {
 }
 
 type relatedQuerySet[T attrs.Definer, T2 any] struct {
-	embedder      T2
-	source        *ParentInfo
-	joinCondition *JoinCondition
-	rel           attrs.Relation
-	originalQs    QuerySet[T]
-	qs            *QuerySet[T]
+	embedder         T2
+	source           *ParentInfo
+	JoinDefCondition *JoinDefCondition
+	rel              attrs.Relation
+	originalQs       QuerySet[T]
+	qs               *QuerySet[T]
 }
 
 // NewrelatedQuerySet creates a new relatedQuerySet for the given model type.
@@ -65,13 +65,12 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 	}
 
 	var (
-		condition *JoinCondition
+		condition *JoinDefCondition
 
 		newTargetObj     = internal.NewObjectFromIface(rel.Model())
 		newTargetObjDefs = newTargetObj.FieldDefs()
 		qs               = GetQuerySet(newTargetObj.(T))
 		throughModel     = rel.Through()
-		front, back      = qs.compiler.Quote()
 	)
 
 	var targetFieldInfo = &FieldInfo{
@@ -99,30 +98,31 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 			Fields: ForSelectAllFields[attrs.Field](throughObject.defs),
 		}
 
-		condition = &JoinCondition{
-			Operator: LogicalOpEQ,
-			ConditionA: fmt.Sprintf(
-				"%s%s%s.%s%s%s",
-				front, targetFieldInfo.Table.Name, back,
-				front, source.Field.ColumnName(), back,
-			),
-			ConditionB: fmt.Sprintf(
-				"%s%s%s.%s%s%s",
-				front, targetFieldInfo.Through.Table.Alias, back,
-				front, throughObject.targetField.ColumnName(), back,
-			),
+		condition = &JoinDefCondition{
+			Operator: expr.LogicalOpEQ,
+			ConditionA: expr.TableColumn{
+				TableOrAlias: targetFieldInfo.Table.Name,
+				FieldColumn:  source.Field,
+			},
+			ConditionB: expr.TableColumn{
+				TableOrAlias: targetFieldInfo.Through.Table.Alias,
+				FieldColumn:  throughObject.targetField,
+			},
 		}
 
-		condition.Next = &JoinCondition{
-			Operator: LogicalOpEQ,
-			ConditionA: fmt.Sprintf(
-				"%s%s%s.%s%s%s",
-				front, targetFieldInfo.Through.Table.Alias, back,
-				front, throughObject.sourceField.ColumnName(), back,
-			),
-			ConditionB: "?",
-			Args: []any{
-				source.Object.FieldDefs().Primary().GetValue(),
+		condition.Next = &JoinDefCondition{
+			Operator: expr.LogicalOpEQ,
+			ConditionA: expr.TableColumn{
+				TableOrAlias: targetFieldInfo.Through.Table.Alias,
+				FieldColumn:  throughObject.sourceField,
+			},
+			ConditionB: expr.TableColumn{
+				TableOrAlias: "",
+				FieldColumn:  nil,
+				Value: source.Object.
+					FieldDefs().
+					Primary().
+					GetValue(),
 			},
 		}
 
@@ -135,7 +135,7 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 					qs.queryInfo.TableName,
 				),
 			},
-			JoinCondition: condition,
+			JoinDefCondition: condition,
 		}
 
 		qs.internals.addJoin(join)
@@ -157,12 +157,12 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 	)
 
 	return &relatedQuerySet[T, T2]{
-		embedder:      embedder,
-		rel:           rel,
-		source:        source,
-		originalQs:    *qs,
-		joinCondition: condition,
-		qs:            qs,
+		embedder:         embedder,
+		rel:              rel,
+		source:           source,
+		originalQs:       *qs,
+		JoinDefCondition: condition,
+		qs:               qs,
 	}
 }
 
@@ -273,7 +273,7 @@ func (t *relatedQuerySet[T, T2]) createThroughObjects(targets []T) (rels []Relat
 		relations = append(relations, rel)
 	}
 
-	throughModels, err = GetQuerySet(throughObj).BulkCreate(throughModels)
+	_, err = GetQuerySet(throughObj).BulkCreate(throughModels)
 	if err != nil {
 		return nil, created, err
 	}

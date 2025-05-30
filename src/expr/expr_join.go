@@ -6,14 +6,14 @@ import (
 	"strings"
 )
 
-type multipleExpr struct {
+type chainExpr struct {
 	field     string
 	used      bool
 	forUpdate bool
 	inner     []Expression
 }
 
-func (e *multipleExpr) FieldName() string {
+func (e *chainExpr) FieldName() string {
 	if e.field != "" {
 		return e.field
 	}
@@ -30,9 +30,9 @@ func (e *multipleExpr) FieldName() string {
 	return ""
 }
 
-func (e *multipleExpr) SQL(sb *strings.Builder) []any {
+func (e *chainExpr) SQL(sb *strings.Builder) []any {
 	if len(e.inner) == 0 {
-		panic(fmt.Errorf("SQL multipleExpr has no inner expressions"))
+		panic(fmt.Errorf("SQL chainExpr has no inner expressions"))
 	}
 
 	if e.field != "" {
@@ -51,13 +51,13 @@ func (e *multipleExpr) SQL(sb *strings.Builder) []any {
 	return args
 }
 
-func (e *multipleExpr) Clone() Expression {
+func (e *chainExpr) Clone() Expression {
 	var inner = slices.Clone(e.inner)
 	for i := range inner {
 		inner[i] = inner[i].Clone()
 	}
 
-	return &multipleExpr{
+	return &chainExpr{
 		field:     e.field,
 		used:      e.used,
 		forUpdate: e.forUpdate,
@@ -65,19 +65,19 @@ func (e *multipleExpr) Clone() Expression {
 	}
 }
 
-func (e *multipleExpr) Resolve(inf *ExpressionInfo) Expression {
+func (e *chainExpr) Resolve(inf *ExpressionInfo) Expression {
 	if inf.Model == nil || e.used {
 		return e
 	}
 
-	var nE = e.Clone().(*multipleExpr)
+	var nE = e.Clone().(*chainExpr)
 
 	nE.used = true
 	nE.forUpdate = inf.ForUpdate
 	nE.field = ResolveExpressionField(inf, nE.field)
 
 	if nE.field == "" {
-		panic(fmt.Errorf("multipleExpr requires a field name"))
+		panic(fmt.Errorf("chainExpr requires a field name"))
 	}
 
 	if len(nE.inner) > 0 {
@@ -89,7 +89,7 @@ func (e *multipleExpr) Resolve(inf *ExpressionInfo) Expression {
 	return nE
 }
 
-func Multiple(expr ...any) NamedExpression {
+func Chain(expr ...any) NamedExpression {
 	var inner = make([]Expression, 0, len(expr))
 	var fieldName string
 
@@ -129,10 +129,10 @@ exprLoop:
 	}
 
 	if len(inner) == 0 {
-		panic(fmt.Errorf("multipleExpr requires at least one inner expression"))
+		panic(fmt.Errorf("chainExpr requires at least one inner expression"))
 	}
 
-	return &multipleExpr{
+	return &chainExpr{
 		field: fieldName,
 		inner: inner,
 	}

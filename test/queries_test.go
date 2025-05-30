@@ -2603,8 +2603,10 @@ func TestUpdateWithCast(t *testing.T) {
 		Filter("ID", todo.ID).
 		Update(
 			todo,
-			expr.Multiple(
-				expr.CastInt("Title"), "+", expr.CastInt("Description"),
+			expr.Chain(
+				expr.CastInt("Title"),
+				expr.LogicalOpADD,
+				expr.CastInt("Description"),
 			),
 		)
 	if err != nil {

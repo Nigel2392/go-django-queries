@@ -96,7 +96,7 @@ type ForUseInQueriesField interface {
 // If the field is a ForUseInQueriesField, it returns the result of `ForSelectAll()`.
 //
 // Otherwise, it returns true.
-func ForSelectAll(f attrs.Field) bool {
+func ForSelectAll(f attrs.FieldDefinition) bool {
 	if f == nil {
 		return false
 	}
@@ -116,11 +116,22 @@ func ForSelectAllFields[T any](fields any) []T {
 			}
 		}
 		return result
+	case []attrs.FieldDefinition:
+		var result = make([]T, 0, len(fieldsValue))
+		for _, f := range fieldsValue {
+			if ForSelectAll(f) {
+				result = append(result, f.(T))
+			}
+		}
+		return result
 	case attrs.Definer:
 		var defs = fieldsValue.FieldDefs()
 		var fields = defs.Fields()
 		return ForSelectAllFields[T](fields)
 	case attrs.Definitions:
+		var fields = fieldsValue.Fields()
+		return ForSelectAllFields[T](fields)
+	case attrs.StaticDefinitions:
 		var fields = fieldsValue.Fields()
 		return ForSelectAllFields[T](fields)
 	default:
@@ -328,7 +339,7 @@ type CompiledExistsQuery CompiledQuery[bool]
 type CompiledValuesListQuery CompiledQuery[[][]any]
 
 type UpdateInfo struct {
-	FieldInfo
+	FieldInfo[attrs.Field]
 	Where  []expr.LogicalExpression
 	Joins  []JoinDef
 	Values []any
@@ -388,41 +399,29 @@ type QueryCompiler interface {
 	BuildSelectQuery(
 		ctx context.Context,
 		qs *QuerySet[attrs.Definer],
-		fields []*FieldInfo,
-		where []expr.LogicalExpression,
-		having []expr.LogicalExpression,
-		joins []JoinDef,
-		groupBy []FieldInfo,
-		orderBy []OrderBy,
-		limit int,
-		offset int,
-		forUpdate bool,
-		distinct bool,
+		internals *QuerySetInternals,
 	) CompiledQuery[[][]interface{}]
 
 	// BuildCountQuery builds a count query with the given parameters.
 	BuildCountQuery(
 		ctx context.Context,
 		qs *QuerySet[attrs.Definer],
-		where []expr.LogicalExpression,
-		joins []JoinDef,
-		groupBy []FieldInfo,
-		limit int,
-		offset int,
+		internals *QuerySetInternals,
 	) CompiledQuery[int64]
 
 	// BuildCreateQuery builds a create query with the given parameters.
 	BuildCreateQuery(
 		ctx context.Context,
 		qs *QuerySet[attrs.Definer],
-		primary attrs.Field,
-		objects []*FieldInfo,
+		internals *QuerySetInternals,
+		objects []*FieldInfo[attrs.Field],
 		values []any,
 	) CompiledQuery[[][]interface{}]
 
 	BuildUpdateQuery(
 		ctx context.Context,
 		qs *GenericQuerySet,
+		internals *QuerySetInternals,
 		objects []UpdateInfo,
 	) CompiledQuery[int64]
 
@@ -430,9 +429,7 @@ type QueryCompiler interface {
 	BuildDeleteQuery(
 		ctx context.Context,
 		qs *QuerySet[attrs.Definer],
-		where []expr.LogicalExpression,
-		joins []JoinDef,
-		groupBy []FieldInfo,
+		internals *QuerySetInternals,
 	) CompiledQuery[int64]
 }
 

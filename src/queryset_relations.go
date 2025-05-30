@@ -73,12 +73,12 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 		throughModel     = rel.Through()
 	)
 
-	var targetFieldInfo = &FieldInfo{
+	var targetFieldInfo = &FieldInfo[attrs.FieldDefinition]{
 		Model: qs.model,
 		Table: Table{
-			Name: qs.queryInfo.TableName,
+			Name: qs.internals.Model.TableName,
 		},
-		Fields: ForSelectAllFields[attrs.Field](
+		Fields: ForSelectAllFields[attrs.FieldDefinition](
 			newTargetObjDefs,
 		),
 	}
@@ -86,16 +86,16 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 	if throughModel != nil {
 		var throughObject = newThroughProxy(throughModel)
 
-		targetFieldInfo.Through = &FieldInfo{
+		targetFieldInfo.Through = &FieldInfo[attrs.FieldDefinition]{
 			Model: throughObject.object,
 			Table: Table{
 				Name: throughObject.defs.TableName(),
 				Alias: fmt.Sprintf(
 					"%s_through",
-					qs.queryInfo.TableName,
+					qs.internals.Model.TableName,
 				),
 			},
-			Fields: ForSelectAllFields[attrs.Field](throughObject.defs),
+			Fields: ForSelectAllFields[attrs.FieldDefinition](throughObject.defs),
 		}
 
 		condition = &JoinDefCondition{
@@ -132,7 +132,7 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 				Name: throughObject.defs.TableName(),
 				Alias: fmt.Sprintf(
 					"%s_through",
-					qs.queryInfo.TableName,
+					qs.internals.Model.TableName,
 				),
 			},
 			JoinDefCondition: condition,
@@ -508,7 +508,7 @@ func (r *RelManyToManyQuerySet[T]) ClearTargets() (int64, error) {
 			SubqueryIn(
 				throughModel.targetField.Name(),
 				ChangeObjectsType[T, attrs.Definer](
-					r.qs.Select(r.qs.queryInfo.Primary.Name()),
+					r.qs.Select(r.qs.internals.Model.Primary.Name()),
 				),
 			),
 		)

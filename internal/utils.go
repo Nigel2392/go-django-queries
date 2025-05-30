@@ -239,26 +239,6 @@ type QueryInfo struct {
 	DB           *sql.DB
 	DBX          interface{ Rebind(string) string }
 	SqlxDriver   string
-	TableName    string
-	Definitions  attrs.Definitions
-	Primary      attrs.Field
-	Fields       []attrs.Field
-}
-
-func GetBaseQueryInfo(obj attrs.Definer) (*QueryInfo, error) {
-	var fieldDefs = obj.FieldDefs()
-	var primary = fieldDefs.Primary()
-	var tableName = fieldDefs.TableName()
-	if tableName == "" {
-		return nil, query_errors.ErrNoTableName
-	}
-
-	return &QueryInfo{
-		Definitions: fieldDefs,
-		TableName:   tableName,
-		Primary:     primary,
-		Fields:      fieldDefs.Fields(),
-	}, nil
 }
 
 func GetQueryInfo(obj attrs.Definer, dbKey string) (*QueryInfo, error) {
@@ -276,15 +256,12 @@ func GetQueryInfo(obj attrs.Definer, dbKey string) (*QueryInfo, error) {
 	}
 
 	var dbx = sqlx.NewDb(db, sqlxDriver)
-
-	var queryInfo, err = GetBaseQueryInfo(obj)
-	if err != nil {
-		return nil, err
+	var queryInfo = &QueryInfo{
+		DatabaseName: dbKey,
+		DB:           db,
+		DBX:          dbx,
+		SqlxDriver:   sqlxDriver,
 	}
 
-	queryInfo.DatabaseName = dbKey
-	queryInfo.DB = db
-	queryInfo.DBX = dbx
-	queryInfo.SqlxDriver = sqlxDriver
 	return queryInfo, nil
 }

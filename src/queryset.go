@@ -125,17 +125,17 @@ type JoinDef struct {
 // FieldInfo represents information about a field in a query.
 //
 // It is both used by the QuerySet and by the QueryCompiler.
-type FieldInfo struct {
-	SourceField attrs.Field
+type FieldInfo[FieldType attrs.FieldDefinition] struct {
+	SourceField FieldType
 	Model       attrs.Definer
 	RelType     attrs.RelationType
 	Table       Table
 	Chain       []string
-	Fields      []attrs.Field
-	Through     *FieldInfo
+	Fields      []FieldType
+	Through     *FieldInfo[FieldType]
 }
 
-func (f *FieldInfo) WriteFields(sb *strings.Builder, inf *expr.ExpressionInfo) []any {
+func (f *FieldInfo[T]) WriteFields(sb *strings.Builder, inf *expr.ExpressionInfo) []any {
 	var args = make([]any, 0, len(f.Fields))
 	var written bool
 
@@ -175,7 +175,7 @@ func (f *FieldInfo) WriteFields(sb *strings.Builder, inf *expr.ExpressionInfo) [
 	return args
 }
 
-func (f *FieldInfo) WriteUpdateFields(sb *strings.Builder, inf *expr.ExpressionInfo) []any {
+func (f *FieldInfo[T]) WriteUpdateFields(sb *strings.Builder, inf *expr.ExpressionInfo) []any {
 	var args = make([]any, 0, len(f.Fields))
 	var written bool
 
@@ -215,7 +215,7 @@ func (f *FieldInfo) WriteUpdateFields(sb *strings.Builder, inf *expr.ExpressionI
 	return args
 }
 
-func (f *FieldInfo) WriteField(sb *strings.Builder, inf *expr.ExpressionInfo, field attrs.Field, forUpdate bool) (args []any, isSQL, written bool) {
+func (f *FieldInfo[T]) WriteField(sb *strings.Builder, inf *expr.ExpressionInfo, field attrs.FieldDefinition, forUpdate bool) (args []any, isSQL, written bool) {
 	var fieldAlias string
 	if ve, ok := field.(AliasField); ok && !forUpdate {
 		fieldAlias = ve.Alias()
@@ -262,13 +262,21 @@ func (f *FieldInfo) WriteField(sb *strings.Builder, inf *expr.ExpressionInfo, fi
 	return []any{}, false, true
 }
 
+type modelInfo struct {
+	Meta      attrs.ModelMeta
+	Primary   attrs.FieldDefinition
+	Fields    []attrs.FieldDefinition
+	TableName string
+}
+
 type QuerySetInternals struct {
+	Model       modelInfo
 	Annotations map[string]*queryField[any]
-	Fields      []*FieldInfo
+	Fields      []*FieldInfo[attrs.FieldDefinition]
 	Where       []expr.LogicalExpression
 	Having      []expr.LogicalExpression
 	Joins       []JoinDef
-	GroupBy     []FieldInfo
+	GroupBy     []FieldInfo[attrs.FieldDefinition]
 	OrderBy     []OrderBy
 	Limit       int
 	Offset      int
@@ -283,7 +291,7 @@ type QuerySetInternals struct {
 	//
 	// this is not cloned to prevent
 	// a clone from changing the annotations
-	annotations *FieldInfo
+	annotations *FieldInfo[attrs.FieldDefinition]
 }
 
 func (i *QuerySetInternals) addJoin(join JoinDef) {
@@ -310,7 +318,6 @@ func (i *QuerySetInternals) addJoin(join JoinDef) {
 //
 // Queries are built internally with the help of the QueryCompiler interface, which is responsible for generating the SQL queries for the database.
 type QuerySet[T attrs.Definer] struct {
-	queryInfo    *internal.QueryInfo
 	internals    *QuerySetInternals
 	model        attrs.Definer
 	compiler     QueryCompiler
@@ -402,25 +409,32 @@ func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
 		defaultDb = database[0]
 	}
 
-	var queryInfo, err = internal.GetBaseQueryInfo(model)
-	if err != nil {
-		panic(fmt.Errorf("QuerySet: %w", err))
-	}
+	var (
+		meta        = attrs.GetModelMeta(model)
+		definitions = meta.Definitions()
+		primary     = definitions.Primary()
+		tableName   = definitions.TableName()
+	)
 
-	if queryInfo == nil {
-		panic("QuerySet: queryInfo is nil")
+	if tableName == "" {
+		panic(query_errors.ErrNoTableName)
 	}
 
 	var qs = &QuerySet[T]{
-		model:     model,
-		queryInfo: queryInfo,
-		AliasGen:  alias.NewGenerator(),
+		model:    model,
+		AliasGen: alias.NewGenerator(),
 		internals: &QuerySetInternals{
+			Model: modelInfo{
+				Meta:      meta,
+				Primary:   primary,
+				Fields:    definitions.Fields(),
+				TableName: tableName,
+			},
 			Annotations: make(map[string]*queryField[any]),
 			Where:       make([]expr.LogicalExpression, 0),
 			Having:      make([]expr.LogicalExpression, 0),
 			Joins:       make([]JoinDef, 0),
-			GroupBy:     make([]FieldInfo, 0),
+			GroupBy:     make([]FieldInfo[attrs.FieldDefinition], 0),
 			OrderBy:     make([]OrderBy, 0),
 			Limit:       MAX_DEFAULT_RESULTS,
 			Offset:      0,
@@ -454,7 +468,6 @@ func ChangeObjectsType[OldT, NewT attrs.Definer](qs *QuerySet[OldT]) *QuerySet[N
 
 	return &QuerySet[NewT]{
 		AliasGen:     qs.AliasGen,
-		queryInfo:    qs.queryInfo,
 		model:        qs.model,
 		compiler:     qs.compiler,
 		explicitSave: qs.explicitSave,
@@ -591,10 +604,10 @@ func (qs *QuerySet[T]) WithTransaction(tx Transaction) (Transaction, error) {
 func (qs *QuerySet[T]) Clone() *QuerySet[T] {
 
 	return &QuerySet[T]{
-		model:     qs.model,
-		queryInfo: qs.queryInfo,
-		AliasGen:  qs.AliasGen.Clone(),
+		model:    qs.model,
+		AliasGen: qs.AliasGen.Clone(),
 		internals: &QuerySetInternals{
+			Model:       qs.internals.Model,
 			Annotations: maps.Clone(qs.internals.Annotations),
 			Fields:      slices.Clone(qs.internals.Fields),
 			Where:       slices.Clone(qs.internals.Where),
@@ -756,18 +769,18 @@ func (qs *QuerySet[T]) GoString() string {
 // This function will make sure to map each provided field name to a model field.
 //
 // Relations are also respected, joins are automatically added to the query.
-func (qs *QuerySet[T]) unpackFields(fields ...any) (infos []FieldInfo, hasRelated bool) {
-	infos = make([]FieldInfo, 0, len(qs.internals.Fields))
-	var info = FieldInfo{
+func (qs *QuerySet[T]) unpackFields(fields ...any) (infos []FieldInfo[attrs.FieldDefinition], hasRelated bool) {
+	infos = make([]FieldInfo[attrs.FieldDefinition], 0, len(qs.internals.Fields))
+	var info = FieldInfo[attrs.FieldDefinition]{
 		Table: Table{
-			Name: qs.queryInfo.TableName,
+			Name: qs.internals.Model.TableName,
 		},
-		Fields: make([]attrs.Field, 0),
+		Fields: make([]attrs.FieldDefinition, 0),
 	}
 
 	if len(fields) == 0 || len(fields) == 1 && fields[0] == "*" {
-		fields = make([]any, 0, len(qs.queryInfo.Fields))
-		for _, field := range qs.queryInfo.Fields {
+		fields = make([]any, 0, len(qs.internals.Model.Fields))
+		for _, field := range qs.internals.Model.Fields {
 			fields = append(fields, field.Name())
 		}
 	}
@@ -794,11 +807,11 @@ func (qs *QuerySet[T]) unpackFields(fields ...any) (infos []FieldInfo, hasRelate
 		if err != nil {
 			field, ok := qs.internals.Annotations[selectedField]
 			if ok {
-				infos = append(infos, FieldInfo{
+				infos = append(infos, FieldInfo[attrs.FieldDefinition]{
 					Table: Table{
-						Name: qs.queryInfo.TableName,
+						Name: qs.internals.Model.TableName,
 					},
-					Fields: []attrs.Field{field},
+					Fields: []attrs.FieldDefinition{field},
 				})
 				continue
 			}
@@ -830,9 +843,10 @@ func (qs *QuerySet[T]) unpackFields(fields ...any) (infos []FieldInfo, hasRelate
 				relType = parentField.Rel().Type()
 			}
 
-			var relDefs = current.FieldDefs()
+			var relMeta = attrs.GetModelMeta(current)
+			var relDefs = relMeta.Definitions()
 			var tableName = relDefs.TableName()
-			infos = append(infos, FieldInfo{
+			infos = append(infos, FieldInfo[attrs.FieldDefinition]{
 				SourceField: field,
 				Model:       current,
 				RelType:     relType,
@@ -886,7 +900,7 @@ func (qs *QuerySet[T]) attrFields(obj attrs.Definer) (attrs.Definitions, []attrs
 	return defs, fields
 }
 
-func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]*FieldInfo, []JoinDef) {
+func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
 	var (
 		target      = foreignKey.Model()
 		relField    = foreignKey.Field()
@@ -916,21 +930,16 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 		FieldColumn:  relField,
 	}
 
-	var includedFields []attrs.Field
+	var includedFields []attrs.FieldDefinition
 	if all {
-		var fields = targetDefs.Fields()
-		includedFields = make([]attrs.Field, 0, len(fields))
-		for _, f := range fields {
-			if !ForSelectAll(f) {
-				continue
-			}
-			includedFields = append(includedFields, f)
-		}
+		includedFields = ForSelectAllFields[attrs.FieldDefinition](
+			targetDefs.Fields(),
+		)
 	} else {
-		includedFields = []attrs.Field{field}
+		includedFields = []attrs.FieldDefinition{field}
 	}
 
-	var info = &FieldInfo{
+	var info = &FieldInfo[attrs.FieldDefinition]{
 		RelType:     foreignKey.Type(),
 		SourceField: field,
 		Table: Table{
@@ -950,7 +959,7 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 
 	var key = joinCond.String()
 	if _, ok := joinM[key]; ok {
-		return []*FieldInfo{info}, nil
+		return []*FieldInfo[attrs.FieldDefinition]{info}, nil
 	}
 
 	joinM[key] = true
@@ -964,10 +973,10 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 		JoinDefCondition: joinCond,
 	}
 
-	return []*FieldInfo{info}, []JoinDef{join}
+	return []*FieldInfo[attrs.FieldDefinition]{info}, []JoinDef{join}
 }
 
-func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]*FieldInfo, []JoinDef) {
+func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
 	var through = manyToMany.Through()
 	if through == nil {
 		panic(fmt.Errorf("manyToMany relation %T.%s does not have a through table", manyToMany.Model(), field.Name()))
@@ -976,7 +985,8 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 	// through model info
 	var (
 		throughModel = through.Model()
-		throughDefs  = throughModel.FieldDefs()
+		throughMeta  = attrs.GetModelMeta(throughModel)
+		throughDefs  = throughMeta.Definitions()
 		throughTable = throughDefs.TableName()
 
 		target      = manyToMany.Model()
@@ -1065,17 +1075,16 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 		joinM[key2] = true
 	}
 
-	var includedFields = []attrs.Field{field}
+	var includedFields []attrs.FieldDefinition
 	if all {
-		includedFields = nil
-		for _, f := range targetDefs.Fields() {
-			if ForSelectAll(f) {
-				includedFields = append(includedFields, f)
-			}
-		}
+		includedFields = ForSelectAllFields[attrs.FieldDefinition](
+			targetDefs.Fields(),
+		)
+	} else {
+		includedFields = []attrs.FieldDefinition{field}
 	}
 
-	return []*FieldInfo{{
+	return []*FieldInfo[attrs.FieldDefinition]{{
 		RelType:     manyToMany.Type(),
 		SourceField: field,
 		Model:       target,
@@ -1085,7 +1094,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 		},
 		Fields: includedFields,
 		Chain:  chain,
-		Through: &FieldInfo{
+		Through: &FieldInfo[attrs.FieldDefinition]{
 			RelType:     manyToMany.Type(),
 			SourceField: field,
 			Model:       throughModel,
@@ -1099,7 +1108,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 
 }
 
-func (qs *QuerySet[T]) addJoinForO2O(oneToOne attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]*FieldInfo, []JoinDef) {
+func (qs *QuerySet[T]) addJoinForO2O(oneToOne attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, joinM map[string]bool) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
 	var through = oneToOne.Through()
 	if through == nil {
 		return qs.addJoinForFK(oneToOne, parentDefs, parentField, field, chain, aliases, all, joinM)
@@ -1127,7 +1136,7 @@ func (qs *QuerySet[T]) addJoinForO2O(oneToOne attrs.Relation, parentDefs attrs.D
 func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 	qs = qs.Clone()
 
-	qs.internals.Fields = make([]*FieldInfo, 0)
+	qs.internals.Fields = make([]*FieldInfo[attrs.FieldDefinition], 0)
 	if qs.internals.joinsMap == nil {
 		qs.internals.joinsMap = make(map[string]bool, len(qs.internals.Joins))
 	}
@@ -1149,7 +1158,7 @@ fieldsLoop:
 			if selectedField == "" {
 				panic(fmt.Errorf("Select: empty field name for %T", v))
 			}
-		case *FieldInfo:
+		case *FieldInfo[attrs.FieldDefinition]:
 			qs.internals.Fields = append(qs.internals.Fields, v)
 			continue fieldsLoop
 		default:
@@ -1168,12 +1177,12 @@ fieldsLoop:
 		}
 
 		if selectedField == "" && allFields {
-			qs.internals.Fields = append(qs.internals.Fields, &FieldInfo{
+			qs.internals.Fields = append(qs.internals.Fields, &FieldInfo[attrs.FieldDefinition]{
 				Model: qs.model,
 				Table: Table{
-					Name: qs.queryInfo.TableName,
+					Name: qs.internals.Model.TableName,
 				},
-				Fields: ForSelectAllFields[attrs.Field](qs.model),
+				Fields: ForSelectAllFields[attrs.FieldDefinition](qs.model),
 			})
 			continue fieldsLoop
 		}
@@ -1184,11 +1193,11 @@ fieldsLoop:
 		if err != nil {
 			field, ok := qs.internals.Annotations[selectedField]
 			if ok {
-				qs.internals.Fields = append(qs.internals.Fields, &FieldInfo{
+				qs.internals.Fields = append(qs.internals.Fields, &FieldInfo[attrs.FieldDefinition]{
 					Table: Table{
-						Name: qs.queryInfo.TableName,
+						Name: qs.internals.Model.TableName,
 					},
-					Fields: []attrs.Field{field},
+					Fields: []attrs.FieldDefinition{field},
 				})
 				continue fieldsLoop
 			}
@@ -1229,7 +1238,7 @@ fieldsLoop:
 		if len(chain) > 0 && isRelated {
 
 			var (
-				infos []*FieldInfo
+				infos []*FieldInfo[attrs.FieldDefinition]
 				join  []JoinDef
 			)
 
@@ -1264,12 +1273,12 @@ fieldsLoop:
 			continue fieldsLoop
 		}
 
-		qs.internals.Fields = append(qs.internals.Fields, &FieldInfo{
+		qs.internals.Fields = append(qs.internals.Fields, &FieldInfo[attrs.FieldDefinition]{
 			Model: current,
 			Table: Table{
 				Name: tableName,
 			},
-			Fields: []attrs.Field{field},
+			Fields: []attrs.FieldDefinition{field},
 			Chain:  chain,
 		})
 	}
@@ -1435,11 +1444,11 @@ func (qs *QuerySet[T]) ExplicitSave() *QuerySet[T] {
 func (qs *QuerySet[T]) annotate(alias string, expr expr.Expression) {
 	// If the has not been added to the annotations, we need to add it
 	if qs.internals.annotations == nil {
-		qs.internals.annotations = &FieldInfo{
+		qs.internals.annotations = &FieldInfo[attrs.FieldDefinition]{
 			Table: Table{
-				Name: qs.queryInfo.TableName,
+				Name: qs.internals.Model.TableName,
 			},
-			Fields: make([]attrs.Field, 0, len(qs.internals.Annotations)),
+			Fields: make([]attrs.FieldDefinition, 0, len(qs.internals.Annotations)),
 		}
 		qs.internals.Fields = append(
 			qs.internals.Fields, qs.internals.annotations,
@@ -1532,16 +1541,7 @@ func (qs *QuerySet[T]) queryAll(fields ...any) CompiledQuery[[][]interface{}] {
 	var query = qs.compiler.BuildSelectQuery(
 		context.Background(),
 		ChangeObjectsType[T, attrs.Definer](qs),
-		qs.internals.Fields,
-		qs.internals.Where,
-		qs.internals.Having,
-		qs.internals.Joins,
-		qs.internals.GroupBy,
-		qs.internals.OrderBy,
-		qs.internals.Limit,
-		qs.internals.Offset,
-		qs.internals.ForUpdate,
-		qs.internals.Distinct,
+		qs.internals,
 	)
 	qs.latestQuery = query
 
@@ -1549,19 +1549,16 @@ func (qs *QuerySet[T]) queryAll(fields ...any) CompiledQuery[[][]interface{}] {
 }
 
 func (qs *QuerySet[T]) queryAggregate() CompiledQuery[[][]interface{}] {
+	var dereferenced = *qs.internals
+	dereferenced.OrderBy = nil     // no order by for aggregates
+	dereferenced.Limit = 0         // no limit for aggregates
+	dereferenced.Offset = 0        // no offset for aggregates
+	dereferenced.ForUpdate = false // no for update for aggregates
+	dereferenced.Distinct = false  // no distinct for aggregates
 	var query = qs.compiler.BuildSelectQuery(
 		context.Background(),
 		ChangeObjectsType[T, attrs.Definer](qs),
-		qs.internals.Fields,
-		qs.internals.Where,
-		qs.internals.Having,
-		qs.internals.Joins,
-		qs.internals.GroupBy,
-		nil,   // no order
-		1,     // just one row
-		0,     // no offset
-		false, // not for update
-		false, // not distinct
+		&dereferenced,
 	)
 	qs.latestQuery = query
 	return query
@@ -1571,11 +1568,7 @@ func (qs *QuerySet[T]) queryCount() CompiledQuery[int64] {
 	var q = qs.compiler.BuildCountQuery(
 		context.Background(),
 		ChangeObjectsType[T, attrs.Definer](qs),
-		qs.internals.Where,
-		qs.internals.Joins,
-		qs.internals.GroupBy,
-		qs.internals.Limit,
-		qs.internals.Offset,
+		qs.internals,
 	)
 	qs.latestQuery = q
 	return q
@@ -1792,7 +1785,7 @@ func (qs *QuerySet[T]) Aggregate(annotations map[string]expr.Expression) (map[st
 		return qs.cached.(map[string]any), nil
 	}
 
-	qs.internals.Fields = make([]*FieldInfo, 0, len(annotations))
+	qs.internals.Fields = make([]*FieldInfo[attrs.FieldDefinition], 0, len(annotations))
 
 	for alias, expr := range annotations {
 		qs.annotate(alias, expr)
@@ -1989,14 +1982,14 @@ func (qs *QuerySet[T]) Last() (*Row[T], error) {
 // It returns a Query that can be executed to get the result,
 // which is a boolean indicating if any rows exist.
 func (qs *QuerySet[T]) Exists() (bool, error) {
+
+	var dereferenced = *qs.internals
+	dereferenced.Limit = 1  // limit to 1 row
+	dereferenced.Offset = 0 // no offset for exists
 	var resultQuery = qs.compiler.BuildCountQuery(
 		context.Background(),
 		ChangeObjectsType[T, attrs.Definer](qs),
-		qs.internals.Where,
-		qs.internals.Joins,
-		qs.internals.GroupBy,
-		1,
-		0,
+		&dereferenced,
 	)
 	qs.latestQuery = resultQuery
 
@@ -2114,7 +2107,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 	var (
 		values     = make([]any, 0, len(objects))
 		attrFields = make([][]attrs.Field, 0, len(objects))
-		infos      = make([]*FieldInfo, 0, len(objects))
+		infos      = make([]*FieldInfo[attrs.Field], 0, len(objects))
 		primary    attrs.Field
 	)
 
@@ -2131,7 +2124,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 		var defs = object.FieldDefs()
 		var fields = defs.Fields()
 		var infoFields = make([]attrs.Field, 0, len(fields))
-		var info = &FieldInfo{
+		var info = &FieldInfo[attrs.Field]{
 			Model: object,
 			Table: Table{
 				Name: defs.TableName(),
@@ -2182,7 +2175,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 	var resultQuery = qs.compiler.BuildCreateQuery(
 		context.Background(),
 		ChangeObjectsType[T, attrs.Definer](qs),
-		primary,
+		qs.internals,
 		infos,
 		values,
 	)
@@ -2279,7 +2272,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 
 		for i, row := range resultList {
 			var (
-				scannables = getScannableFields([]*FieldInfo{infos[i]}, row)
+				scannables = getScannableFields([]*FieldInfo[attrs.Field]{infos[i]}, row)
 				resLen     = len(results[i])
 				newDefs    = row.FieldDefs()
 				prim       = newDefs.Primary()
@@ -2409,7 +2402,7 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 
 		var defs, fields = qs.attrFields(obj)
 		var info = UpdateInfo{
-			FieldInfo: FieldInfo{
+			FieldInfo: FieldInfo[attrs.Field]{
 				Model: obj,
 				Table: Table{
 					Name: defs.TableName(),
@@ -2479,6 +2472,7 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 	var resultQuery = qs.compiler.BuildUpdateQuery(
 		context.Background(),
 		ChangeObjectsType[T, attrs.Definer](qs),
+		qs.internals,
 		infos,
 	)
 	qs.latestQuery = resultQuery
@@ -2522,9 +2516,7 @@ func (qs *QuerySet[T]) Delete(objects ...T) (int64, error) {
 	var resultQuery = qs.compiler.BuildDeleteQuery(
 		context.Background(),
 		ChangeObjectsType[T, attrs.Definer](qs),
-		qs.internals.Where,
-		qs.internals.Joins,
-		qs.internals.GroupBy,
+		qs.internals,
 	)
 	qs.latestQuery = resultQuery
 
@@ -2543,7 +2535,7 @@ type scannableField struct {
 	chainKey  string        // the chain up to this point, joined by "."
 }
 
-func getScannableFields(fields []*FieldInfo, root attrs.Definer) []*scannableField {
+func getScannableFields[T attrs.FieldDefinition](fields []*FieldInfo[T], root attrs.Definer) []*scannableField {
 	var listSize = 0
 	for _, info := range fields {
 		listSize += len(info.Fields)
@@ -2587,13 +2579,19 @@ func getScannableFields(fields []*FieldInfo, root attrs.Definer) []*scannableFie
 			}
 		}
 
-		if info.SourceField == nil {
+		// if isNil(reflect.ValueOf(info.SourceField)) {
+		if any(info.SourceField) == any(*(new(T))) {
 			defs := root.FieldDefs()
 			for _, f := range info.Fields {
-				if _, ok := f.(VirtualField); ok && info.Model == nil {
+				if virt, ok := any(f).(VirtualField); ok && info.Model == nil {
+					var attrField, ok = virt.(attrs.Field)
+					if !ok {
+						panic(fmt.Errorf("virtual field %q does not implement attrs.Field", f.Name()))
+					}
+
 					scannables = append(scannables, &scannableField{
 						idx:     idx,
-						field:   f,
+						field:   attrField,
 						relType: -1,
 					})
 					idx++

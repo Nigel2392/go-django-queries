@@ -116,21 +116,13 @@ func GetFromAttrs[T any](attrMap map[string]any, key string) (T, bool) {
 	return n, false
 }
 
-type CanInitNew interface {
-	InitNew() attrs.Definer
-}
-
 func NewObjectFromIface(obj attrs.Definer) attrs.Definer {
-	if canInitNew, ok := obj.(CanInitNew); ok {
-		return canInitNew.InitNew()
-	}
-
 	var objTyp = reflect.TypeOf(obj)
 	if objTyp.Kind() != reflect.Ptr {
 		panic("newObjectFromIface: objTyp is not a pointer")
 	}
-
-	return reflect.New(objTyp.Elem()).Interface().(attrs.Definer)
+	var newObj = reflect.New(objTyp.Elem()).Interface()
+	return attrs.NewObject[attrs.Definer](newObj)
 }
 
 func ListUnpack(list ...any) []any {
@@ -192,7 +184,7 @@ func WalkFields(
 	for i, part := range parts {
 		f, ok := defs.Field(part)
 		if !ok {
-			return nil, nil, nil, nil, nil, false, fmt.Errorf("field %q not found in %T", part, current)
+			return nil, nil, nil, nil, nil, false, fmt.Errorf("internal.WalkFields: field %q not found in %T", part, current)
 		}
 		field = f
 
@@ -202,7 +194,7 @@ func WalkFields(
 
 		var rel = f.Rel()
 		if rel == nil {
-			return nil, nil, nil, nil, nil, false, fmt.Errorf("field %q is not a relation", part)
+			return nil, nil, nil, nil, nil, false, fmt.Errorf("internal.WalkFields: field %q is not a relation", part)
 		}
 
 		parent = current
@@ -214,7 +206,7 @@ func WalkFields(
 		))
 
 		if current == nil {
-			return nil, nil, nil, nil, nil, false, fmt.Errorf("field %q has no related model", part)
+			return nil, nil, nil, nil, nil, false, fmt.Errorf("internal.WalkFields: field %q has no related model", part)
 		}
 
 		isRelated = true

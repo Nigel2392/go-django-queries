@@ -6,12 +6,14 @@ import (
 
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/fields"
-	"github.com/Nigel2392/go-django/src/core/assert"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/models"
 )
 
-var _ queries.DataModel = &Model{}
+var (
+	_ queries.DataModel                    = &Model{}
+	_ attrs.CanCreateObject[attrs.Definer] = &Model{}
+)
 
 type modelOptions struct {
 	// base model information, used to extract the model / proxy chain
@@ -63,15 +65,6 @@ func Setup[T attrs.Definer](model T) T {
 	}
 
 	return model
-}
-
-func Define[T1 attrs.Definer](def T1, f ...any) *attrs.ObjectDefinitions {
-	var baseModelInfo = getModelChain(def)
-	var model, err = extractFromInfo(baseModelInfo, def)
-	if err != nil {
-		panic("failed to extract model: " + err.Error())
-	}
-	return model.Define(def, f...)
 }
 
 func (m *Model) __Model() {}
@@ -153,10 +146,6 @@ func (m *Model) Setup(def attrs.Definer) error {
 		}
 	}
 
-	if m.internals != nil && m.internals.object != nil && m.internals.object.Pointer() == defValue.Pointer() {
-		return nil
-	}
-
 	m.internals = &modelOptions{
 		defs:   nil,
 		object: &defValue,
@@ -165,6 +154,34 @@ func (m *Model) Setup(def attrs.Definer) error {
 	}
 
 	return nil
+}
+
+func (m *Model) CreateObject(object attrs.Definer) attrs.Definer {
+	if !attrs.IsModelRegistered(object) {
+		return nil
+	}
+
+	var obj = reflect.ValueOf(object)
+	if !obj.IsValid() || obj.IsNil() {
+		return nil
+	}
+
+	var base = getModelChain(object)
+	if base == nil {
+		return nil
+	}
+
+	var newObj = reflect.New(obj.Type().Elem())
+	var modelVal = newObj.Elem().FieldByIndex(
+		base.base.Index,
+	)
+
+	var model = modelVal.Addr().Interface().(*Model)
+	if err := model.Setup(newObj.Interface().(attrs.Definer)); err != nil {
+		return nil
+	}
+
+	return newObj.Interface().(attrs.Definer)
 }
 
 func (m *Model) Define(def attrs.Definer, flds ...any) *attrs.ObjectDefinitions {
@@ -256,127 +273,6 @@ func (m *Model) Define(def attrs.Definer, flds ...any) *attrs.ObjectDefinitions 
 	}
 
 	return m.internals.defs
-}
-
-type ProxyChain struct {
-	Next        *ProxyChain
-	Model       *Model
-	Object      attrs.Definer
-	Definitions attrs.Definitions
-}
-
-func (UNUSED *Model) ProxyChain() *ProxyChain {
-	var (
-		currTyp = UNUSED.internals.base.proxy
-		currObj = reflect.New(UNUSED.internals.object.Type().Elem())
-	)
-	currObj.Elem().Set(UNUSED.internals.object.Elem())
-
-	var _static = reflect.ValueOf(UNUSED)
-	var self = currObj.Elem().FieldByIndex(
-		UNUSED.internals.base.base.Index,
-	)
-	self = self.Addr()
-	assert.False(
-		currObj.Pointer() == UNUSED.internals.object.Pointer(),
-		"model (%x) is equal to the current object %T's model, this should not happen (%x == %x)",
-		currObj.Pointer(), UNUSED.internals.object.Elem().Type().String(),
-		UNUSED.internals.object.Pointer(), currObj.Pointer(),
-	)
-	assert.False(
-		self.Pointer() == _static.Pointer(),
-		"model (%x) is equal to the current object %T's model, this should not happen (%x == %x)",
-		self.Pointer(), UNUSED.internals.object.Elem().Type().String(), _static.Pointer(), self.Pointer(),
-	)
-
-	var USED = self.Interface().(*Model)
-	USED.internals = nil
-	USED.data = nil
-	USED.proxy = nil
-
-	var object = currObj.Interface().(attrs.Definer)
-	if err := USED.Setup(object); err != nil {
-		panic(fmt.Sprintf(
-			"failed to setup model %T from object %T: %v",
-			object, UNUSED.internals.object.Elem().Type(), err,
-		))
-	}
-
-	fmt.Printf("Setting up model %T from object %T %T %T %x %x %v\n", USED, object, currObj.Interface(), UNUSED.internals.object.Interface(), UNUSED.internals.object.Pointer(), USED.internals.object.Pointer(), UNUSED.internals.object.Pointer() == currObj.Pointer())
-	var root = &ProxyChain{
-		Model:       USED,
-		Object:      object,
-		Definitions: object.FieldDefs(),
-	}
-
-	var chain = root
-	var i = 0
-	currObj = currObj.Elem()
-	for currTyp != nil {
-		if currTyp.rootField == nil {
-			panic(fmt.Sprintf(
-				"proxy field %d in model %T is nil, this should not happen",
-				i, USED,
-			))
-		}
-
-		var field = currObj.FieldByIndex(currTyp.rootField.Index)
-		if !field.IsValid() {
-			panic(fmt.Sprintf(
-				"proxy field %d in model %T is not valid, this should not happen",
-				i, USED,
-			))
-		}
-
-		var fieldCopy = reflect.New(currTyp.rootField.Type.Elem())
-		if !field.IsNil() {
-			fieldCopy.Elem().Set(field.Elem())
-		}
-
-		var objVal = fieldCopy
-		if fieldCopy.Kind() == reflect.Ptr {
-			fieldCopy = fieldCopy.Elem()
-		}
-
-		var modelVal = fieldCopy.FieldByIndex(currTyp.next.base.Index)
-		var model = modelVal.Addr().Interface().(*Model)
-		model.internals = nil
-		model.data = nil
-		model.proxy = nil
-
-		var obj = objVal.Interface().(attrs.Definer)
-		var fieldDefs = obj.FieldDefs()
-		if reflect.TypeOf(fieldDefs.Instance()) != objVal.Type() {
-			panic(fmt.Sprintf(
-				"proxy field %d in model %T has a different FieldDefs() instance type than the object %T",
-				i, USED, obj,
-			))
-		}
-
-		if err := model.Setup(obj); err != nil {
-			panic(fmt.Sprintf(
-				"failed to setup model %T from proxy field %d in model %T: %v",
-				obj, i, USED, err,
-			))
-		}
-
-		chain.Next = &ProxyChain{
-			Model:       model,
-			Object:      obj,
-			Definitions: fieldDefs,
-		}
-
-		if currTyp.next == nil {
-			break
-		}
-
-		currObj = fieldCopy
-		currTyp = currTyp.next.proxy
-		chain = chain.Next
-		i++
-	}
-
-	return root
 }
 
 func (m *Model) Object() attrs.Definer {

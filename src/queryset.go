@@ -382,6 +382,7 @@ func GetQuerySet[T attrs.Definer](model T) *QuerySet[T] {
 //
 // The model must implement the Definer interface.
 func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
+	model = attrs.NewObject[T](model)
 	var modelV = reflect.ValueOf(model)
 
 	if !modelV.IsValid() {

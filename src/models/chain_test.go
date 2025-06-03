@@ -25,7 +25,7 @@ type Page struct {
 }
 
 func (p *Page) FieldDefs() attrs.Definitions {
-	return models.Define(p,
+	return p.Model.Define(p,
 		attrs.Unbound("ID"),
 		attrs.Unbound("Title"),
 		attrs.Unbound("Description"),
@@ -40,7 +40,7 @@ type BlogPage struct {
 }
 
 func (b *BlogPage) FieldDefs() attrs.Definitions {
-	return models.Define[attrs.Definer](b,
+	return b.Model.Define(b,
 		models.EmbedProxyModel("Proxy"),
 		attrs.Unbound("Author"),
 		attrs.Unbound("Tags"),
@@ -54,7 +54,7 @@ type BlogPageCategory struct {
 }
 
 func (b *BlogPageCategory) FieldDefs() attrs.Definitions {
-	return models.Define[attrs.Definer](b,
+	return b.Model.Define(b,
 		models.EmbedProxyModel("BlogPage"),
 		attrs.Unbound("Category"),
 	)
@@ -77,15 +77,15 @@ func TestProxyModelChain(t *testing.T) {
 	}
 	var defs = bCat.FieldDefs()
 	_ = defs
-	var proxyRoot = bCat.ProxyChain()
+	var proxyRoot = models.NewProxyChain(bCat, true)
 	var proxy = proxyRoot
 	t.Logf("Proxy Model: %T", proxy)
 	for proxy != nil {
-		t.Logf("Model: %T, Object: %T %+v", proxy.Model, proxy.Object, proxy.Definitions.Instance())
-		if proxy.Next == nil {
+		t.Logf("Model: %T, Object: %T %+v", proxy.Model(), proxy.Object(), proxy.Object())
+		if proxy.Next() == nil {
 			break
 		}
-		proxy = proxy.Next
+		proxy = proxy.Next()
 	}
 	t.Log(bCat.BlogPage.Proxy)
 
@@ -96,24 +96,17 @@ func TestProxyModelChain(t *testing.T) {
 		t.Errorf("expected Author to be `John Smith`, got `%s`", bCat.BlogPage.Author)
 	}
 
-	var cpyDefs = proxyRoot.Definitions
+	var cpyDefs = proxyRoot.Object().FieldDefs()
 	cpyDefs.Set("Author", "Alice Johnson")
 
 	if bCat.BlogPage.Author != "John Smith" {
-		t.Errorf(
-			"expected Author to remain `John Smith`, got `%s` (%p %p %v == %p %p %v | %p %p %v == %p %p %v)",
-			bCat.BlogPage.Author,
-			bCat, defs.Instance(), bCat == defs.Instance(),
-			proxyRoot.Object, proxyRoot.Definitions.Instance(), proxyRoot.Object == proxyRoot.Definitions.Instance(),
-			bCat.BlogPage, bCat.BlogPage.FieldDefs().Instance(), bCat.BlogPage == bCat.BlogPage.FieldDefs().Instance(),
-			proxyRoot.Next.Object, proxyRoot.Next.Definitions.Instance(), proxyRoot.Next.Object == proxyRoot.Next.Definitions.Instance(),
-		)
+		t.Errorf("expected bCat.BlogPage.Author to be `John Smith`, got `%s`", bCat.BlogPage.Author)
 	}
 
-	cpyDefs = proxyRoot.Next.Definitions
+	cpyDefs = proxyRoot.Next().Object().FieldDefs()
 	cpyDefs.Set("Author", "Alice Johnson")
 
-	var cpyCat = proxyRoot.Object.(*BlogPageCategory)
+	var cpyCat = proxyRoot.Object().(*BlogPageCategory)
 	if cpyCat.BlogPage.Author != "Alice Johnson" {
 		t.Errorf("expected cpyCat.BlogPage.Author to be `Alice Johnson`, got `%s`", cpyCat.BlogPage.Author)
 	}

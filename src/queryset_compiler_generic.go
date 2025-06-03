@@ -180,8 +180,10 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 		args  []any
 		model = qs.Model()
 		inf   = &expr.ExpressionInfo{
-			Driver:      g.driver,
-			Model:       qs.Model(),
+			Driver: g.driver,
+			Model: attrs.NewObject[attrs.Definer](
+				model,
+			),
 			AliasGen:    qs.AliasGen,
 			FormatField: g.FormatColumn,
 			ForUpdate:   false,
@@ -272,14 +274,16 @@ func (g *genericQueryBuilder) BuildCountQuery(
 	qs *GenericQuerySet,
 	internals *QuerySetInternals,
 ) CompiledQuery[int64] {
+	var model = qs.Model()
 	var inf = &expr.ExpressionInfo{
-		Driver:      g.driver,
-		Model:       qs.Model(),
+		Driver: g.driver,
+		Model: attrs.NewObject[attrs.Definer](
+			model,
+		),
 		AliasGen:    qs.AliasGen,
 		FormatField: g.FormatColumn,
 		ForUpdate:   false,
 	}
-	var model = qs.Model()
 	var query = new(strings.Builder)
 	var args = make([]any, 0)
 	query.WriteString("SELECT COUNT(*) FROM ")
@@ -317,7 +321,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 	// e.g. for 2 rows of 3 fields: [[1, 2, 4], [2, 3, 5]] -> [1, 2, 4, 2, 3, 5]
 ) CompiledQuery[[][]interface{}] {
 	var (
-		model   = qs.Model()
+		model   = attrs.NewObject[attrs.Definer](qs.Model())
 		query   = new(strings.Builder)
 		support = internal.DBSupportsReturning(
 			g.queryInfo.DB,
@@ -511,9 +515,12 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 	internals *QuerySetInternals,
 	objects []UpdateInfo, // multiple objects can be updated at once
 ) CompiledQuery[int64] {
+	var model = qs.Model()
 	var inf = &expr.ExpressionInfo{
-		Driver:      g.driver,
-		Model:       qs.Model(),
+		Driver: g.driver,
+		Model: attrs.NewObject[attrs.Definer](
+			model,
+		),
 		AliasGen:    qs.AliasGen,
 		FormatField: g.FormatColumn,
 		ForUpdate:   true,
@@ -522,7 +529,6 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 	var (
 		written bool
 		args    = make([]any, 0)
-		model   = qs.Model()
 		query   = new(strings.Builder)
 	)
 
@@ -600,14 +606,17 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 	qs *GenericQuerySet,
 	internals *QuerySetInternals,
 ) CompiledQuery[int64] {
+	var model = qs.Model()
 	var inf = &expr.ExpressionInfo{
-		Driver:      g.driver,
-		Model:       qs.Model(),
+		Driver: g.driver,
+		Model: attrs.NewObject[attrs.Definer](
+			model,
+		),
+
 		AliasGen:    qs.AliasGen,
 		FormatField: g.FormatColumn,
 		ForUpdate:   false,
 	}
-	var model = qs.Model()
 	var query = new(strings.Builder)
 	var args = make([]any, 0)
 	query.WriteString("DELETE FROM ")

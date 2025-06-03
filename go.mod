@@ -12,7 +12,6 @@ require (
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/pkg/errors v0.9.1
-	github.com/qdm12/reprint v0.0.0-20200326205758-722754a53494
 )
 
 require (

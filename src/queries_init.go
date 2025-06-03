@@ -88,33 +88,33 @@ func init() {
 	}))
 }
 
-var _, _ = attrs.OnBeforeModelRegister.Listen(func(s signals.Signal[attrs.Definer], d attrs.Definer) error {
+var _, _ = attrs.OnBeforeModelRegister.Listen(func(s signals.Signal[attrs.SignalModelMeta], meta attrs.SignalModelMeta) error {
 
 	var (
-		def           = contenttypes.DefinitionForObject(d)
+		def           = contenttypes.DefinitionForObject(meta.Definer)
 		registerCType = false
 		changeCType   = false
 	)
 
 	if def == nil {
 		def = &contenttypes.ContentTypeDefinition{
-			ContentObject:     d,
-			GetInstance:       CT_GetObject(d),
-			GetInstances:      CT_ListObjects(d),
-			GetInstancesByIDs: CT_ListObjectsByIDs(d),
+			ContentObject:     meta.Definer,
+			GetInstance:       CT_GetObject(meta.Definer),
+			GetInstances:      CT_ListObjects(meta.Definer),
+			GetInstancesByIDs: CT_ListObjectsByIDs(meta.Definer),
 		}
 		registerCType = true
 	} else {
 		if def.GetInstance == nil {
-			def.GetInstance = CT_GetObject(d)
+			def.GetInstance = CT_GetObject(meta.Definer)
 			changeCType = true
 		}
 		if def.GetInstances == nil {
-			def.GetInstances = CT_ListObjects(d)
+			def.GetInstances = CT_ListObjects(meta.Definer)
 			changeCType = true
 		}
 		if def.GetInstancesByIDs == nil {
-			def.GetInstancesByIDs = CT_ListObjectsByIDs(d)
+			def.GetInstancesByIDs = CT_ListObjectsByIDs(meta.Definer)
 			changeCType = true
 		}
 	}
@@ -175,19 +175,18 @@ func getMetaUniqueFields(modelMeta attrs.ModelMeta) [][]string {
 // in the queryset, for example when updating or deleting objects.
 //
 // See [GenerateObjectsWhereClause] for the implementation details when a primary key is defined.
-var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.Definer], d attrs.Definer) error {
+var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.SignalModelMeta], meta attrs.SignalModelMeta) error {
 	var (
-		modelMeta = attrs.GetModelMeta(d)
-		modelDefs = modelMeta.Definitions()
+		modelDefs = meta.Meta.Definitions()
 		primary   = modelDefs.Primary()
 	)
 
 	// Store the unique together fields on the model meta
-	if def, ok := modelMeta.Model().(UniqueTogetherDefiner); ok {
+	if def, ok := meta.Meta.Model().(UniqueTogetherDefiner); ok {
 		var uqFields = def.UniqueTogether()
 		if len(uqFields) > 0 {
 			attrs.StoreOnMeta(
-				modelMeta.Model(), MetaUniqueTogetherKey, uqFields,
+				meta.Meta.Model(), MetaUniqueTogetherKey, uqFields,
 			)
 		}
 	}
@@ -198,11 +197,11 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.Definer], d 
 		return nil
 	}
 
-	var uniqueFields = getMetaUniqueFields(modelMeta)
+	var uniqueFields = getMetaUniqueFields(meta.Meta)
 	if len(uniqueFields) == 0 {
 		return fmt.Errorf(
 			"model %T has no unique fields or unique together fields, cannot generate where clause: %w",
-			d, query_errors.ErrFieldNotFound,
+			meta.Definer, query_errors.ErrFieldNotFound,
 		)
 	}
 
@@ -210,7 +209,7 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.Definer], d 
 	//
 	// It will use unique fields or unique together fields
 	// to generate a where clause for the model.
-	attrs.StoreOnMeta(d, __GENERATE_WHERE_CLAUSE_FOR_OBJECTS, func(objects []attrs.Definer) ([]expr.LogicalExpression, error) {
+	attrs.StoreOnMeta(meta.Definer, __GENERATE_WHERE_CLAUSE_FOR_OBJECTS, func(objects []attrs.Definer) ([]expr.LogicalExpression, error) {
 		var orExprs = make([]expr.Expression, 0, len(uniqueFields))
 		for _, object := range objects {
 			var (
@@ -226,14 +225,14 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.Definer], d 
 				for _, fieldName := range fieldNames {
 					var field, ok = defs.Field(fieldName)
 					if !ok {
-						panic(fmt.Sprintf("field %q not found in model %T", fieldName, d))
+						panic(fmt.Sprintf("field %q not found in model %T", fieldName, meta.Definer))
 					}
 
 					var val, err = field.Value()
 					if err != nil {
 						return nil, fmt.Errorf(
 							"error getting value for field %q in model %T: %w",
-							fieldName, d, err,
+							fieldName, meta.Definer, err,
 						)
 					}
 
@@ -262,7 +261,7 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.Definer], d 
 			if objExpr == nil {
 				return nil, fmt.Errorf(
 					"model %T has does not have enough unique fields or unique together fields set to generate a where clause: %w",
-					d, query_errors.ErrNoWhereClause,
+					meta.Definer, query_errors.ErrNoWhereClause,
 				)
 			}
 
@@ -286,7 +285,7 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.Definer], d 
 //
 // It generates a where clause for a list of through model objects
 // that match the source and target fields of the through model meta.
-var _, _ = attrs.OnThroughModelRegister.Listen(func(s signals.Signal[attrs.ThroughModelMeta], d attrs.ThroughModelMeta) error {
+var _, _ = attrs.OnThroughModelRegister.Listen(func(s signals.Signal[attrs.SignalThroughModelMeta], d attrs.SignalThroughModelMeta) error {
 
 	var (
 		throughModel   = d.ThroughInfo.Model()

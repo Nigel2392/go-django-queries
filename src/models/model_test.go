@@ -1,12 +1,15 @@
 package models_test
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/Nigel2392/go-django-queries/src/models"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
+
+func init() {
+	attrs.RegisterModel(&TestModel{})
+}
 
 type TestModel struct {
 	models.Model
@@ -113,29 +116,4 @@ func TestExtractModel(t *testing.T) {
 	if modelObj == nil {
 		t.Errorf("Expected model object to be not nil")
 	}
-}
-
-func TestUnsafeParentModel(t *testing.T) {
-
-	// this might prove useful in the future...
-
-	var m = &TestModel{
-		Title:       "Test",
-		Description: "Test description",
-	}
-
-	var fn = func(m any) {
-		var testModel = (*TestModel)(reflect.ValueOf(m).UnsafePointer())
-		t.Logf("TestModel: %v", testModel)
-		if testModel.Title != "Test" {
-			t.Errorf("Expected Title to be 'Test', got '%s'", testModel.Title)
-		}
-
-		if testModel.Description != "Test description" {
-			t.Errorf("Expected Description to be 'Test description', got '%s'", testModel.Description)
-		}
-	}
-
-	fn(&m.Model)
-
 }

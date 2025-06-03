@@ -49,7 +49,7 @@ type walkFieldsExpected struct {
 	column    string
 	definer   attrs.Definer
 	parent    attrs.Definer
-	field     attrs.Field
+	field     func() attrs.Field
 	chain     []string
 	aliases   []string
 	isRelated bool
@@ -62,10 +62,12 @@ type walkFieldsTest struct {
 	expected []walkFieldsExpected
 }
 
-func getField(m attrs.Definer, field string) attrs.Field {
-	defs := m.FieldDefs()
-	f, _ := defs.Field(field)
-	return f
+func getField(m attrs.Definer, field string) func() attrs.Field {
+	return func() attrs.Field {
+		defs := m.FieldDefs()
+		f, _ := defs.Field(field)
+		return f
+	}
 }
 
 func fieldEquals(f1, f2 attrs.Field) bool {
@@ -203,8 +205,9 @@ func TestWalkFields(t *testing.T) {
 					t.Errorf("expected parent nil, got %T", parent)
 				}
 
-				if !fieldEquals(field, expected.field) {
-					t.Errorf("expected field %T.%s, got %T.%s", expected.field.Instance(), expected.field.Name(), field.Instance(), field.Name())
+				var expectedField = expected.field()
+				if !fieldEquals(field, expectedField) {
+					t.Errorf("expected field %T.%s, got %T.%s", expectedField.Instance(), expectedField.Name(), field.Instance(), field.Name())
 				}
 
 				if len(chain) != len(expected.chain) {

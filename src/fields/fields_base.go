@@ -26,7 +26,6 @@ type DataModelField[T any] struct {
 	dataModel any
 
 	// val is the value of the field in the model
-	// it references the field in the model
 	val reflect.Value
 
 	// name is the name of the field's map key in the model
@@ -66,6 +65,62 @@ var (
 	_DATA_MODEL_STORE_TYPE = reflect.TypeOf((*queries.ModelDataStore)(nil)).Elem()
 )
 
+func scannerGetter[T any](f *DataModelField[T]) (any, bool) {
+	if !f.val.IsValid() || !f.val.CanInterface() {
+		return nil, false
+	}
+	var val = f.val.Interface()
+	if val == nil {
+		return nil, false
+	}
+	return val.(T), true
+}
+
+func scannerSetter[T any](f *DataModelField[T], v any) error {
+	if v == nil {
+		f.val.Set(reflect.Zero(f._Type))
+		return nil
+	}
+
+	var vVal = reflect.ValueOf(v)
+	if !vVal.Type().AssignableTo(f._Type) {
+		panic(fmt.Errorf(
+			"NewDataModelField: cannot assign %T to %s (%s != %s)",
+			v, typeName(f._Type), typeName(vVal.Type()), typeName(f._Type),
+		))
+	}
+
+	if !f.val.IsValid() {
+		return fmt.Errorf("NewDataModelField: dst value is nil")
+	}
+	if !f.val.CanSet() {
+		return fmt.Errorf("NewDataModelField: dst value is not settable")
+	}
+
+	f.val.Set(vVal)
+	return nil
+}
+
+func dataModelGetter[T any](f *DataModelField[T]) (any, bool) {
+	switch m := f.dataModel.(type) {
+	case queries.ModelDataStore:
+		return m.GetValue(f.name)
+	case queries.DataModel:
+		return m.DataStore().GetValue(f.name)
+	}
+	return nil, false
+}
+
+func dataModelsetter[T any](f *DataModelField[T], v any) error {
+	switch m := f.dataModel.(type) {
+	case queries.ModelDataStore:
+		return m.SetValue(f.name, v)
+	case queries.DataModel:
+		return m.DataStore().SetValue(f.name, v)
+	}
+	return nil
+}
+
 func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref ...attrs.Field) *DataModelField[T] {
 	if forModel == nil || dst == nil {
 		panic("NewDataModelField: model is nil")
@@ -76,27 +131,27 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref 
 	}
 
 	var (
-		Type      = reflect.TypeOf((*T)(nil)).Elem()
-		originalT = reflect.TypeOf(dst)
-		originalV = reflect.ValueOf(dst)
-		dstT      = originalT
-		dstV      = originalV
-
-		isPointer = dstT.Kind() == reflect.Pointer
-
+		Type             = reflect.TypeOf((*T)(nil)).Elem()
+		originalT        = reflect.TypeOf(dst)
+		originalV        = reflect.ValueOf(dst)
+		dstT             = originalT
+		dstV             = originalV
+		isPointer        = dstT.Kind() == reflect.Pointer
 		isPointerPointer = dstT.Kind() == reflect.Pointer &&
 			dstT.Elem().Kind() == reflect.Pointer
-
-		isStructPointer = isPointer &&
-			dstT.Elem().Kind() == reflect.Struct
-
-		isDataModel = dstT.Implements(_DATA_MODEL_STORE_TYPE) || dstT.Implements(_DATA_MODEL_TYPE)
 	)
 
-	var setters = make([]func(f *DataModelField[T], v any) error, 0, 2)
-	var getters = make([]func(f *DataModelField[T]) (any, bool), 0, 2)
+	// List of setters and getters to be used
+	// for scanning and setting values in the field.
+	// This allows for simpler handling of different types
+	// of data models and their fields.
+	var (
+		setters = make([]func(f *DataModelField[T], v any) error, 0, 2)
+		getters = make([]func(f *DataModelField[T]) (any, bool), 0, 2)
+	)
 	switch {
 	case dstT.Kind() == reflect.Pointer && dstT.Elem() == Type:
+		// Scan the value into a pointer to T
 
 		dstT = dstT.Elem()
 		dstV = dstV.Elem()
@@ -111,36 +166,12 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref 
 			}
 		}
 
-		getters = append(getters, func(f *DataModelField[T]) (any, bool) {
-			if !f.val.IsValid() || !f.val.CanInterface() {
-				return nil, false
-			}
-			var val = f.val.Interface()
-			if val == nil {
-				return nil, false
-			}
-			return val.(T), true
-		})
+		getters = append(getters, scannerGetter[T])
+		setters = append(setters, scannerSetter[T])
 
-		setters = append(setters, func(f *DataModelField[T], v any) error {
-			if v == nil {
-				f.val.Set(reflect.Zero(f._Type))
-				return nil
-			}
+	case isPointer && dstT.Elem().Kind() == reflect.Struct:
+		// Scan the value into a *struct field
 
-			var vVal = reflect.ValueOf(v)
-			if !vVal.Type().AssignableTo(f._Type) {
-				panic(fmt.Errorf(
-					"NewDataModelField: cannot assign %T to %s (%s != %s)",
-					v, typeName(f._Type), typeName(vVal.Type()), typeName(f._Type),
-				))
-			}
-
-			f.val.Set(vVal)
-			return nil
-		})
-
-	case isStructPointer:
 		if !dstV.IsValid() || dstV.IsNil() {
 			panic(fmt.Errorf("NewDataModelField: dst value is nil for %T.%s", forModel, name))
 		}
@@ -172,39 +203,8 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref 
 
 		dstV = fieldVal
 
-		getters = append(getters, func(f *DataModelField[T]) (any, bool) {
-			if !f.val.IsValid() || !f.val.CanInterface() {
-				return nil, false
-			}
-			var val = f.val.Interface()
-			if val == nil {
-				return nil, false
-			}
-			return val.(T), true
-		})
-
-		setters = append(setters, func(f *DataModelField[T], v any) error {
-			if v == nil {
-				f.val.Set(reflect.Zero(f._Type))
-				return nil
-			}
-			var vVal = reflect.ValueOf(v)
-			if !vVal.Type().AssignableTo(f._Type) {
-				return fmt.Errorf(
-					"NewDataModelField: cannot assign %T to %s (%s != %s)",
-					v, typeName(f._Type), typeName(vVal.Type()), typeName(f._Type),
-				)
-			}
-			if !f.val.IsValid() {
-				return fmt.Errorf("NewDataModelField: dst value is nil")
-			}
-			if !f.val.CanSet() {
-				return fmt.Errorf("NewDataModelField: dst value is not settable")
-			}
-
-			f.val.Set(vVal)
-			return nil
-		})
+		getters = append(getters, scannerGetter[T])
+		setters = append(setters, scannerSetter[T])
 
 	default:
 		panic(fmt.Errorf(
@@ -213,28 +213,15 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref 
 		))
 	}
 
+	// Always check if the original type
+	// implements DataModel or ModelDataStore
+	// to allow for custom data models that are
+	// not pointers to structs/values.
 	var dataModel any
-	if isDataModel {
+	if originalT.Implements(_DATA_MODEL_TYPE) || originalT.Implements(_DATA_MODEL_STORE_TYPE) {
 		dataModel = originalV.Interface()
-		getters = append(getters, func(f *DataModelField[T]) (any, bool) {
-			switch m := f.dataModel.(type) {
-			case queries.ModelDataStore:
-				return m.GetValue(f.name)
-			case queries.DataModel:
-				return m.DataStore().GetValue(f.name)
-			}
-			return nil, false
-		})
-
-		setters = append(setters, func(f *DataModelField[T], v any) error {
-			switch m := f.dataModel.(type) {
-			case queries.ModelDataStore:
-				return m.SetValue(f.name, v)
-			case queries.DataModel:
-				return m.DataStore().SetValue(f.name, v)
-			}
-			return nil
-		})
+		getters = append(getters, dataModelGetter[T])
+		setters = append(setters, dataModelsetter[T])
 	}
 
 	var fRef attrs.Field

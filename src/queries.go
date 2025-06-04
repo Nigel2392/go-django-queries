@@ -163,9 +163,9 @@ type ParentInfo struct {
 }
 
 // canPrimaryKey is an interface that can be implemented by a model field's value
-type canPrimaryKey interface {
+type canUniqueKey interface {
 	// PrimaryKey returns the primary key of the relation.
-	PrimaryKey() any
+	UniqueKey() any
 }
 
 // A model field's value can adhere to this interface to indicate that the
@@ -238,8 +238,27 @@ type ModelDataStore interface {
 // should use the model to store and retrieve annotated values.
 //
 // Relations will also be stored here.
+//
+// Annotations will also be stored using the [Annotator] interface.
 type DataModel interface {
-	ModelDataStore() ModelDataStore
+	DataStore() ModelDataStore
+}
+
+// A model should adhere to this interface to indicate that it can store
+// and retrieve annotated values from the database.
+type Annotator interface {
+	Annotate(annotations map[string]any)
+}
+
+// A model can adhere to this interface to indicate that it can receive
+// a through model for a relation.
+//
+// This is used for OneToOne relations with a through table, or for ManyToMany
+// relations with a through table.
+//
+// The through model will be set on the target end of the relation.
+type ThroughModelSetter interface {
+	SetThroughModel(throughModel attrs.Definer)
 }
 
 // A model can adhere to this interface to indicate that the queries package

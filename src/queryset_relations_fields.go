@@ -35,12 +35,24 @@ func newSettableRelation[T any](typ reflect.Type) T {
 	return newVal.Addr().Interface().(T)
 }
 
+var (
+	_TYP_DEFINER                = reflect.TypeOf((*attrs.Definer)(nil)).Elem()
+	_TYP_REL                    = reflect.TypeOf((*Relation)(nil)).Elem()
+	_TYP_RELVALUE               = reflect.TypeOf((*RelationValue)(nil)).Elem()
+	_TYP_THROUGH_RELVALUE       = reflect.TypeOf((*ThroughRelationValue)(nil)).Elem()
+	_TYP_MULTI_RELVALUE         = reflect.TypeOf((*MultiRelationValue)(nil)).Elem()
+	_TYP_MULTI_THROUGH_RELVALUE = reflect.TypeOf((*MultiThroughRelationValue)(nil)).Elem()
+)
+
 // setRelatedObjects sets the related objects for the given relation name and type.
 //
 // it provides a uniform way to set related objects on a model instance,
 // allowing to handle different relation types and through models.
 //
 // used in [rows.compile] to set the related objects on the parent object.
+//
+// through models will not be set using [ThroughModelSetter.SetThroughModel] here
+// to avoid cluttered, complex and unreadable code in the switch statement.
 func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Definer, relatedObjects []Relation) {
 
 	var fieldDefs = obj.FieldDefs()
@@ -69,11 +81,11 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 		}
 
 		switch {
-		case fieldType.Implements(reflect.TypeOf((*RelationValue)(nil)).Elem()):
+		case fieldType.Implements(_TYP_RELVALUE):
 			// If the field is a RelationValue, we can set the related object directly
 			var rel = fieldValue.(RelationValue)
 			rel.SetValue(relatedObject)
-		case fieldType.Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
+		case fieldType.Implements(_TYP_DEFINER):
 			// If the field is a Definer, we can set the related object directly
 			// This is useful for fields that are not RelationValue but still need to be set
 			field.SetValue(relatedObject, true)
@@ -89,7 +101,7 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 		}
 
 		if dm, ok := obj.(DataModel); ok {
-			dm.ModelDataStore().SetValue(relName, related)
+			dm.DataStore().SetValue(relName, related)
 		}
 
 		switch {
@@ -97,7 +109,7 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 			// If the field is a slice of Definer, we can set the related objects directly
 			field.SetValue(related, true)
 
-		case fieldType.Implements(reflect.TypeOf((*MultiRelationValue)(nil)).Elem()):
+		case fieldType.Implements(_TYP_MULTI_RELVALUE):
 			// If the field is a RelationValue, we can set the related objects directly
 			var rel = fieldValue.(MultiRelationValue)
 			rel.SetValues(related)
@@ -129,20 +141,21 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 		}
 
 		switch {
-		case fieldType.Implements(reflect.TypeOf((*RelationValue)(nil)).Elem()):
+		case fieldType.Implements(_TYP_RELVALUE):
 			rel := fieldValue.(RelationValue)
 			rel.SetValue(relatedObject.Model())
 
-		case fieldType.Implements(reflect.TypeOf((*ThroughRelationValue)(nil)).Elem()):
+		case fieldType.Implements(_TYP_THROUGH_RELVALUE):
 			// If the field is a SettableThroughRelation, we can set the related object directly
 			var rel = fieldValue.(ThroughRelationValue)
 			rel.SetValue(relatedObject.Model(), relatedObject.Through())
 
-		case fieldType.Implements(reflect.TypeOf((*Relation)(nil)).Elem()):
+		case fieldType.Implements(_TYP_REL):
 			// If the field is a Relation, we can set the related object directly
 			field.SetValue(relatedObject, true)
 
-		case fieldType.Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
+		case fieldType.Implements(_TYP_DEFINER):
+
 			// If the field is a Definer, we can set the related object directly
 			field.SetValue(relatedObject.Model(), true)
 
@@ -156,16 +169,16 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 		//
 		// a through model is expected
 		if dm, ok := obj.(DataModel); ok {
-			dm.ModelDataStore().SetValue(relName, relatedObjects)
+			dm.DataStore().SetValue(relName, relatedObjects)
 		}
 
 		switch {
-		case fieldType.Implements(reflect.TypeOf((*MultiThroughRelationValue)(nil)).Elem()):
+		case fieldType.Implements(_TYP_MULTI_THROUGH_RELVALUE):
 			// If the field is a SettableMultiRelation, we can set the related objects directly
 			var rel = fieldValue.(MultiThroughRelationValue)
 			rel.SetValues(relatedObjects)
 
-		case fieldType.Implements(reflect.TypeOf((*MultiRelationValue)(nil)).Elem()):
+		case fieldType.Implements(_TYP_MULTI_RELVALUE):
 			// If the field is a SettableMultiRelation, we can set the related objects directly
 			var rel = fieldValue.(MultiRelationValue)
 			var definerList = make([]attrs.Definer, len(relatedObjects))
@@ -174,7 +187,7 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 			}
 			rel.SetValues(definerList)
 
-		case fieldType.Kind() == reflect.Slice && fieldType.Elem().Implements(reflect.TypeOf((*Relation)(nil)).Elem()):
+		case fieldType.Kind() == reflect.Slice && fieldType.Elem().Implements(_TYP_REL):
 			// If the field is a slice, we can set the related objects directly
 			var slice = reflect.MakeSlice(fieldType, len(relatedObjects), len(relatedObjects))
 			for i, relatedObj := range relatedObjects {
@@ -182,7 +195,7 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 			}
 			fieldDefs.Set(relName, slice.Interface())
 
-		case fieldType.Kind() == reflect.Slice && fieldType.Elem().Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()):
+		case fieldType.Kind() == reflect.Slice && fieldType.Elem().Implements(_TYP_DEFINER):
 			// If the field is a slice of Definer, we can set the related objects directly
 			var slice = reflect.MakeSlice(fieldType, len(relatedObjects), len(relatedObjects))
 			for i, relatedObj := range relatedObjects {

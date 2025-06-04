@@ -8,26 +8,30 @@ import (
 )
 
 var (
-	_ canPrimaryKey             = (*baseRelation)(nil)
+	_ canUniqueKey              = (*baseRelation)(nil)
 	_ Relation                  = (*baseRelation)(nil)
 	_ Relation                  = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
 	_ RelationValue             = (*RelFK[attrs.Definer])(nil)
 	_ MultiRelationValue        = (*RelRevFK[attrs.Definer])(nil)
 	_ ThroughRelationValue      = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
 	_ MultiThroughRelationValue = (*RelM2M[attrs.Definer, attrs.Definer])(nil)
+	_ attrs.Binder              = (*RelFK[attrs.Definer])(nil)
+	_ attrs.Binder              = (*RelRevFK[attrs.Definer])(nil)
+	_ attrs.Binder              = (*RelO2O[attrs.Definer, attrs.Definer])(nil)
+	_ attrs.Binder              = (*RelM2M[attrs.Definer, attrs.Definer])(nil)
 )
 
 // A base relation type that implements the Relation interface.
 //
 // It is used to set the related object and it's through object on a model.
 type baseRelation struct {
-	pk      any
-	object  attrs.Definer
-	through attrs.Definer
+	uniqueValue any
+	object      attrs.Definer
+	through     attrs.Definer
 }
 
-func (r *baseRelation) PrimaryKey() any {
-	return r.pk
+func (r *baseRelation) UniqueKey() any {
+	return r.uniqueValue
 }
 
 func (r *baseRelation) Model() attrs.Definer {
@@ -41,6 +45,15 @@ func (r *baseRelation) Through() attrs.Definer {
 type RelFK[ModelType attrs.Definer] struct {
 	Parent *ParentInfo // The parent model instance
 	Object ModelType
+}
+
+func (rl *RelFK[T]) AutoInitialize(d attrs.Definer) any {
+	return &RelFK[T]{
+		Parent: &ParentInfo{
+			Object: d,
+			Field:  nil, // Field will be set later when binding to the model
+		},
+	}
 }
 
 func (rl *RelFK[T]) ParentInfo() *ParentInfo {
@@ -81,6 +94,16 @@ type RelRevFK[ModelType attrs.Definer] struct {
 	relations *orderedmap.OrderedMap[any, ModelType] // The related objects
 }
 
+func (rl *RelRevFK[T]) AutoInitialize(d attrs.Definer) any {
+	return &RelRevFK[T]{
+		Parent: &ParentInfo{
+			Object: d,
+			Field:  nil, // Field will be set later when binding to the model
+		},
+		relations: orderedmap.NewOrderedMap[any, T](),
+	}
+}
+
 func (rl *RelRevFK[T]) ParentInfo() *ParentInfo {
 	return rl.Parent
 }
@@ -111,8 +134,8 @@ func (rl *RelRevFK[T]) SetValues(objects []attrs.Definer) {
 		}
 
 		var uniqueKey any
-		if canPk, ok := obj.(canPrimaryKey); ok {
-			uniqueKey = canPk.PrimaryKey()
+		if canPk, ok := obj.(canUniqueKey); ok {
+			uniqueKey = canPk.UniqueKey()
 		}
 
 		if uniqueKey == nil {
@@ -162,6 +185,15 @@ type RelO2O[ModelType, ThroughModelType attrs.Definer] struct {
 	Parent        *ParentInfo // The parent model instance
 	Object        ModelType
 	ThroughObject ThroughModelType
+}
+
+func (rl *RelO2O[T1, T2]) AutoInitialize(d attrs.Definer) any {
+	return &RelO2O[T1, T2]{
+		Parent: &ParentInfo{
+			Object: d,
+			Field:  nil, // Field will be set later when binding to the model
+		},
+	}
 }
 
 func (rl *RelO2O[T1, T2]) ParentInfo() *ParentInfo {
@@ -219,6 +251,16 @@ type RelM2M[ModelType, ThroughModelType attrs.Definer] struct {
 	// relations []RelO2O[T1, T2] // can be changed to OrderedMap if needed
 }
 
+func (rl *RelM2M[T1, T2]) AutoInitialize(d attrs.Definer) any {
+	return &RelM2M[T1, T2]{
+		Parent: &ParentInfo{
+			Object: d,
+			Field:  nil, // Field will be set later when binding to the model
+		},
+		relations: orderedmap.NewOrderedMap[any, RelO2O[T1, T2]](),
+	}
+}
+
 func (rl *RelM2M[T1, T2]) ParentInfo() *ParentInfo {
 	return rl.Parent
 }
@@ -261,8 +303,8 @@ func (rl *RelM2M[T1, T2]) SetValues(rel []Relation) {
 		// rl.relations = append(rl.relations, o2o)
 
 		var uniqueKey any
-		if canPk, ok := r.(canPrimaryKey); ok {
-			uniqueKey = canPk.PrimaryKey()
+		if canPk, ok := r.(canUniqueKey); ok {
+			uniqueKey = canPk.UniqueKey()
 		}
 
 		// First nil check we can get the primary key

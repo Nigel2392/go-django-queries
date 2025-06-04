@@ -11,13 +11,15 @@ func (f *ModelSignalFlag) set(flag ModelSignalFlag) {
 	*f |= flag
 }
 
-func (f ModelSignalFlag) true(flag ModelSignalFlag) bool {
+func (f ModelSignalFlag) True(flag ModelSignalFlag) bool {
 	return f&flag == flag
 }
 
 const (
 	ModelSignalFlagNone ModelSignalFlag = 0
 	FlagModelReset      ModelSignalFlag = iota
+	FlagModelSetup
+	FlagProxySetup
 )
 
 type ModelSignalInfo struct {

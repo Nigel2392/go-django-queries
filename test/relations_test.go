@@ -849,7 +849,7 @@ var manyToManyTests = []ManyToManyTest{
 			}
 
 			var user2 = rows[1].Object
-			var m2mSet, ok = user2.ModelDataStore().GetValue("ModelManyToManySet")
+			var m2mSet, ok = user2.DataStore().GetValue("ModelManyToManySet")
 			if !ok {
 				t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", user2.Model, rows[1].QuerySet.LatestQuery().SQL())
 			}
@@ -903,7 +903,7 @@ var manyToManyTests = []ManyToManyTest{
 
 			var (
 				profile1  = rows[0].Object
-				user1, ok = profile1.ModelDataStore().GetValue("User")
+				user1, ok = profile1.DataStore().GetValue("User")
 			)
 			if !ok {
 				t.Fatalf("Expected User to be set: %+v\n\t%s", profile1.Model, rows[0].QuerySet.LatestQuery().SQL())
@@ -912,7 +912,7 @@ var manyToManyTests = []ManyToManyTest{
 			t.Logf("Profile 1: %+v", profile1)
 			t.Logf("User 1:  %+v %p %T", user1, user1, user1)
 
-			m2mSet, ok := user1.(*User).ModelDataStore().GetValue("ModelManyToManySet")
+			m2mSet, ok := user1.(*User).DataStore().GetValue("ModelManyToManySet")
 			if !ok {
 				t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", user1.(*User).Model, rows[0].QuerySet.LatestQuery().SQL())
 			}
@@ -965,7 +965,7 @@ var manyToManyTests = []ManyToManyTest{
 
 			var profile2 = rows[1].Object
 
-			user2, ok := profile2.ModelDataStore().GetValue("User")
+			user2, ok := profile2.DataStore().GetValue("User")
 			if !ok {
 				t.Fatalf("Expected User to be set: %+v\n\t%s", profile2.Model, rows[1].QuerySet.LatestQuery().SQL())
 			}
@@ -973,7 +973,7 @@ var manyToManyTests = []ManyToManyTest{
 			t.Logf("Profile 2: %+v", profile2)
 			t.Logf("User 2:  %+v %p %T", user2, user2, user2)
 
-			m2mSet, ok = user2.(*User).ModelDataStore().GetValue("ModelManyToManySet")
+			m2mSet, ok = user2.(*User).DataStore().GetValue("ModelManyToManySet")
 			if !ok {
 				t.Fatalf("Expected ModelManyToManySet to be set: %+v\n\t%s", profile2.Model, rows[1].QuerySet.LatestQuery().SQL())
 			}
@@ -1030,7 +1030,7 @@ var manyToManyTests = []ManyToManyTest{
 			}
 
 			var hasTarget = func(row *queries.Row[*ModelManyToMany]) bool {
-				var t, ok = row.Object.ModelDataStore().GetValue("Target")
+				var t, ok = row.Object.DataStore().GetValue("Target")
 				return ok && t != nil
 			}
 
@@ -1058,9 +1058,9 @@ var manyToManyTests = []ManyToManyTest{
 			}
 
 			var (
-				target1, _ = row1.Object.ModelDataStore().GetValue("Target")
-				target2, _ = row2.Object.ModelDataStore().GetValue("Target")
-				target3, _ = row3.Object.ModelDataStore().GetValue("Target")
+				target1, _ = row1.Object.DataStore().GetValue("Target")
+				target2, _ = row2.Object.DataStore().GetValue("Target")
+				target3, _ = row3.Object.DataStore().GetValue("Target")
 			)
 
 			t.Logf("Target 1: %+v", target1)
@@ -1105,7 +1105,7 @@ var manyToManyTests = []ManyToManyTest{
 			}
 
 			var hasTarget = func(row *queries.Row[*ModelManyToMany]) bool {
-				var t, ok = row.Object.ModelDataStore().GetValue("Target")
+				var t, ok = row.Object.DataStore().GetValue("Target")
 				return ok && t != nil
 			}
 
@@ -1176,7 +1176,7 @@ var manyToManyTests = []ManyToManyTest{
 						t.Fatalf("Expected target[%d].Name to be %q, got %q", i, expected[idx].Name, target.Name)
 					}
 
-					rev, ok := target.ModelDataStore().GetValue("TargetReverse")
+					rev, ok := target.DataStore().GetValue("TargetReverse")
 					if !ok {
 						t.Fatalf("Expected Target.TargetReverse to be set: %+v\n\t%s", target.Model, row.QuerySet.LatestQuery().SQL())
 					}
@@ -1327,8 +1327,6 @@ var manyToManyTests = []ManyToManyTest{
 			if err := queries.CreateObject(obj); err != nil {
 				t.Fatalf("Failed to create object: %v", err)
 			}
-
-			obj = queries.Setup(obj)
 
 			t.Logf("Created new ModelManyToMany object: %+v", obj)
 			t.Logf("Adding targets to new ModelManyToMany object %v", obj.Target)
@@ -1664,7 +1662,7 @@ func TestPluckManyToManyRows(t *testing.T) {
 	var idx = 0
 	for _, row := range rows {
 		for _, target := range row.Object.Target.Objects() {
-			var rev, ok = target.Object.ModelDataStore().GetValue("TargetReverse")
+			var rev, ok = target.Object.DataStore().GetValue("TargetReverse")
 			if !ok {
 				t.Fatalf("Expected Target.TargetReverse to be set: %+v\n\t%s", target.Object.Model, row.QuerySet.LatestQuery().SQL())
 			}

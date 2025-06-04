@@ -15,10 +15,13 @@ const (
 var (
 	_BASE_MODEL_PTR = reflect.TypeOf(&Model{})
 	_MODEL_IFACE    = reflect.TypeOf((*_ModelInterface)(nil)).Elem()
+	//	_BINDER_VALUE   = reflect.ValueOf((*attrs.Binder)(nil)).Elem()
 )
 
+type private struct{}
+
 type _ModelInterface interface {
-	__Model()
+	__Model() private
 }
 
 var _, _ = attrs.OnBeforeModelRegister.Listen(func(s signals.Signal[attrs.SignalModelMeta], meta attrs.SignalModelMeta) error {
@@ -59,6 +62,10 @@ type BaseModelInfo struct {
 	// can also contain information on
 	// how to control the proxy behavior
 	base reflect.StructField
+
+	//	// fields which should be initialized
+	//	// when the model's fields are defined
+	//	initFields []reflect.StructField
 }
 
 func embedsModel(rTyp reflect.Type) bool {
@@ -85,6 +92,11 @@ func embedsModel(rTyp reflect.Type) bool {
 	}
 	return false
 }
+
+//
+//	func isBinderField(field reflect.StructField) bool {
+//
+//	}
 
 func isProxyField(field reflect.StructField) bool {
 	return field.Type.Kind() == reflect.Ptr &&

@@ -127,10 +127,26 @@ type keyPart struct {
 //
 // The model has to be saved to the database before it can be used,
 // otherwise it will panic.
-func Setup[T attrs.Definer](model T) T {
-	var defs = model.FieldDefs()
-	if defs == nil {
-		panic(fmt.Errorf("model %T has no field definitions", model))
+func Setup[T attrs.Definer](modelOrDefs any) T {
+	var (
+		model T
+		defs  attrs.Definitions
+	)
+	switch m := modelOrDefs.(type) {
+	case T:
+		model = m
+		defs = m.FieldDefs()
+	case attrs.Definer:
+		model = m.(T)
+		defs = m.FieldDefs()
+	case attrs.Definitions:
+		model = m.Instance().(T)
+		defs = m
+	default:
+		panic(fmt.Errorf(
+			"unexpected type for modelOrDefs %T, expected attrs.Definer or attrs.Definitions",
+			modelOrDefs,
+		))
 	}
 
 	var primary = defs.Primary()

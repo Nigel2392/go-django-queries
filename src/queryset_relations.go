@@ -64,13 +64,25 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 		panic("Relation is nil, cannot create relatedQuerySet")
 	}
 
+	return &relatedQuerySet[T, T2]{
+		embedder: embedder,
+		rel:      rel,
+		source:   source,
+	}
+}
+
+func (t *relatedQuerySet[T, T2]) setup() {
+	if t.qs != nil {
+		return // Already set up
+	}
+
 	var (
 		condition *JoinDefCondition
 
-		newTargetObj     = internal.NewObjectFromIface(rel.Model())
+		newTargetObj     = internal.NewObjectFromIface(t.rel.Model())
 		newTargetObjDefs = newTargetObj.FieldDefs()
 		qs               = GetQuerySet(newTargetObj.(T))
-		throughModel     = rel.Through()
+		throughModel     = t.rel.Through()
 	)
 
 	var targetFieldInfo = &FieldInfo[attrs.FieldDefinition]{
@@ -102,7 +114,7 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 			Operator: expr.LogicalOpEQ,
 			ConditionA: expr.TableColumn{
 				TableOrAlias: targetFieldInfo.Table.Name,
-				FieldColumn:  source.Field,
+				FieldColumn:  t.source.Field,
 			},
 			ConditionB: expr.TableColumn{
 				TableOrAlias: targetFieldInfo.Through.Table.Alias,
@@ -119,7 +131,7 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 			ConditionB: expr.TableColumn{
 				TableOrAlias: "",
 				FieldColumn:  nil,
-				Value: source.Object.
+				Value: t.source.Object.
 					FieldDefs().
 					Primary().
 					GetValue(),
@@ -140,7 +152,7 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 
 		qs.internals.addJoin(join)
 	} else {
-		var targetField = rel.Field()
+		var targetField = t.rel.Field()
 		if targetField == nil {
 			targetField = newTargetObjDefs.Primary()
 		}
@@ -148,7 +160,7 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 		qs.internals.Where = append(qs.internals.Where, expr.Expr(
 			targetField.Name(),
 			"exact",
-			source.Object.FieldDefs().Primary().GetValue(),
+			t.source.Object.FieldDefs().Primary().GetValue(),
 		))
 	}
 
@@ -156,21 +168,14 @@ func newRelatedQuerySet[T attrs.Definer, T2 any](embedder T2, rel attrs.Relation
 		qs.internals.Fields, targetFieldInfo,
 	)
 
-	return &relatedQuerySet[T, T2]{
-		embedder:         embedder,
-		rel:              rel,
-		source:           source,
-		originalQs:       *qs,
-		JoinDefCondition: condition,
-		qs:               qs,
-	}
+	t.originalQs = *qs.Clone()
+	t.qs = qs
+	t.JoinDefCondition = condition
+
 }
 
 func (t *relatedQuerySet[T, T2]) createTargets(targets []T) ([]T, error) {
-	if t.qs == nil {
-		panic("QuerySet is nil, cannot create targets")
-	}
-
+	t.setup()
 	return t.originalQs.Clone().BulkCreate(targets)
 }
 
@@ -179,6 +184,7 @@ func (t *relatedQuerySet[T, T2]) createThroughObjects(targets []T) (rels []Relat
 		panic("Relation is nil, cannot create through object")
 	}
 
+	t.setup()
 	var throughModel = t.rel.Through()
 	if throughModel == nil {
 		panic("Through model is nil, cannot create through object")
@@ -264,9 +270,9 @@ func (t *relatedQuerySet[T, T2]) createThroughObjects(targets []T) (rels []Relat
 
 		// Create a new relation object
 		var rel = &baseRelation{
-			pk:      targetPk,
-			object:  target,
-			through: newInstance,
+			uniqueValue: targetPk,
+			object:      target,
+			through:     newInstance,
 		}
 
 		throughModels = append(throughModels, newInstance)
@@ -282,26 +288,31 @@ func (t *relatedQuerySet[T, T2]) createThroughObjects(targets []T) (rels []Relat
 }
 
 func (t *relatedQuerySet[T, T2]) Filter(key any, vals ...any) T2 {
+	t.setup()
 	t.qs = t.qs.Filter(key, vals...)
 	return t.embedder
 }
 
 func (t *relatedQuerySet[T, T2]) OrderBy(fields ...string) T2 {
+	t.setup()
 	t.qs = t.qs.OrderBy(fields...)
 	return t.embedder
 }
 
 func (t *relatedQuerySet[T, T2]) Limit(limit int) T2 {
+	t.setup()
 	t.qs = t.qs.Limit(limit)
 	return t.embedder
 }
 
 func (t *relatedQuerySet[T, T2]) Offset(offset int) T2 {
+	t.setup()
 	t.qs = t.qs.Offset(offset)
 	return t.embedder
 }
 
 func (t *relatedQuerySet[T, T2]) Get() (*Row[T], error) {
+	t.setup()
 	if t.qs == nil {
 		panic("QuerySet is nil, cannot call Get()")
 	}
@@ -309,6 +320,7 @@ func (t *relatedQuerySet[T, T2]) Get() (*Row[T], error) {
 }
 
 func (t *relatedQuerySet[T, T2]) All() (Rows[T], error) {
+	t.setup()
 	if t.qs == nil {
 		panic("QuerySet is nil, cannot call All()")
 	}
@@ -413,8 +425,8 @@ func (r *RelManyToManyQuerySet[T]) RemoveTargets(targets ...any) (int64, error) 
 targetLoop:
 	for _, target := range targets {
 		var pkValue any
-		if canPk, ok := target.(canPrimaryKey); ok {
-			pkValue = canPk.PrimaryKey()
+		if canPk, ok := target.(canUniqueKey); ok {
+			pkValue = canPk.UniqueKey()
 		}
 
 		if pkValue != nil {

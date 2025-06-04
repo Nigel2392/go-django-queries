@@ -58,8 +58,88 @@ type rootObject struct {
 // for deduplication of multi- valued relations, the primary key of the parent and child objects
 // have to be set, otherwise the relation cannot be deduplicated.
 type rows[T attrs.Definer] struct {
+	anyOfRootScannable *scannableField   // any scannable field that can be used to retrieve the root object
+	possibleDuplicates []*scannableField // possible duplicate fields that can be added to the rows
+	hasMultiRelations  bool              // if the rows have multi-valued relations
+
 	objects *orderedmap.OrderedMap[any, *rootObject]
 	forEach func(attrs.Definer) error
+}
+
+// Initialize a new rows structure for the given model type.
+// It will scan the fields of the model and build a list of scannable fields that can be used to retrieve the root object.
+// It will also add possible duplicate fields to the list, which can be used to deduplicate relations later on.
+// The forEach function is called for each object that is added to the rows structure,
+func newRows[T attrs.Definer](fields []*FieldInfo[attrs.FieldDefinition], mdl attrs.Definer, forEach func(attrs.Definer) error) (*rows[T], error) {
+	var seen = make(map[string]struct{}, 0)
+	var scannables = getScannableFields(
+		fields, mdl,
+	)
+
+	var r = &rows[T]{
+		objects:            orderedmap.NewOrderedMap[any, *rootObject](),
+		possibleDuplicates: make([]*scannableField, 0),
+		hasMultiRelations:  false,
+		forEach:            forEach,
+	}
+
+	// add possible duplicate fields to the list
+	//
+	// also add o2o relations, this will
+	// make sure the through model gets set later on
+	for _, scannable := range scannables {
+		// check if field is a multi-valued relation
+		if (scannable.relType == attrs.RelManyToMany ||
+			scannable.relType == attrs.RelOneToMany ||
+			scannable.relType == attrs.RelOneToOne) &&
+			// check if primary and not through object
+			!scannable.isThrough {
+
+			if scannable.relType != attrs.RelOneToOne {
+				r.hasMultiRelations = true
+			}
+
+			if _, ok := seen[scannable.chainKey]; ok {
+				continue
+			}
+
+			r.possibleDuplicates = append(r.possibleDuplicates, scannable)
+		}
+
+		if scannable.relType == -1 && scannable.object != nil && scannable.field.IsPrimary() {
+			r.anyOfRootScannable = scannable
+		}
+
+		if scannable.relType == -1 && scannable.object != nil && r.anyOfRootScannable == nil {
+			r.anyOfRootScannable = scannable
+		}
+	}
+
+	if r.hasMultiRelations && r.anyOfRootScannable == nil {
+		return nil, fmt.Errorf(
+			"no root row selected to build relations for %T", mdl,
+		)
+	}
+
+	return r, nil
+}
+
+// hasRoot checks if the rows structure has a root object.
+// it returns true if there is a scannable field that can be used to retrieve the root object,
+// otherwise it returns false.
+func (r *rows[T]) hasRoot() bool {
+	// if the root scannable has no unique value, it is not a root object
+	return r.anyOfRootScannable != nil
+}
+
+// rootRow returns the root row of the rows structure.
+// it returns the scannable field (from the list provided)
+// that can be used to retrieve the root object
+func (r *rows[T]) rootRow(scannables []*scannableField) *scannableField {
+	if r.anyOfRootScannable != nil {
+		return scannables[r.anyOfRootScannable.idx]
+	}
+	return nil
 }
 
 // addRoot adds a root object to the rows structure.
@@ -190,12 +270,19 @@ func (r *rows[T]) compile(qs *QuerySet[T]) (Rows[T], error) {
 				if relatedObj.through != nil {
 					// If there is a through object, we need to add it to the related objects
 					throughObj = relatedObj.through
+
+					// If the related object implements ThroughModelSetter, we set the through model
+					// directly on the object here as opposed to in the [setRelatedObjects] function.
+					// This is to avoid complex and unreadable code in the [setRelatedObjects] switch case.
+					if def, ok := relatedObj.obj.(ThroughModelSetter); ok {
+						def.SetThroughModel(throughObj)
+					}
 				}
 
 				relatedObjects = append(relatedObjects, &baseRelation{
-					pk:      relatedObj.uniqueValue,
-					object:  relatedObj.obj,
-					through: throughObj,
+					uniqueValue: relatedObj.uniqueValue,
+					object:      relatedObj.obj,
+					through:     throughObj,
 				})
 			}
 
@@ -227,6 +314,7 @@ func (r *rows[T]) compile(qs *QuerySet[T]) (Rows[T], error) {
 			continue
 		}
 
+		// add the relations to each object recursively
 		if err := addRelations(obj.object, 0); err != nil {
 			return nil, fmt.Errorf("failed to add relations for object with primary key %v: %w", obj.object.uniqueValue, err)
 		}
@@ -234,6 +322,18 @@ func (r *rows[T]) compile(qs *QuerySet[T]) (Rows[T], error) {
 		var definer = obj.object.obj
 		if definer == nil {
 			continue
+		}
+
+		// Annotate the object if it implements the Annotator interface
+		if annotator, ok := definer.(Annotator); ok {
+			annotator.Annotate(obj.annotations)
+		}
+
+		// If the definer implements ThroughModelSetter, we set the through model directly on the object.
+		// This is not done inside the [setRelatedObjects] function to avoid
+		// unreadable and complex code.
+		if throughSetter, ok := definer.(ThroughModelSetter); ok && obj.object.through != nil {
+			throughSetter.SetThroughModel(obj.object.through)
 		}
 
 		root = append(root, &Row[T]{

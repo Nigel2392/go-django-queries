@@ -66,19 +66,22 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref 
 	if dstT.Kind() == reflect.Pointer && dstT.Elem().Kind() == reflect.Struct {
 		var field, ok = dstT.Elem().FieldByName(name)
 		if ok {
+			fmt.Printf("NewDataModelField: found field %s.%s in %T\n", dstT.Elem().Name(), name, forModel)
 			if !field.Type.AssignableTo(Type) && !field.Type.ConvertibleTo(Type) {
 				panic(fmt.Errorf("NewDataModelField: %s != %s (%T.%s)", indirect(Type).Name(), indirect(field.Type).Name(), forModel, name))
 			}
 
-			var fieldVal = dstV.Elem().FieldByName(name)
+			var fieldVal = dstV.Elem().FieldByIndex(field.Index)
 			if !fieldVal.IsValid() {
 				if !fieldVal.CanSet() {
 					panic(fmt.Errorf("NewDataModelField: field %T.%s is not settable", forModel, name))
 				}
-				if fieldVal.CanAddr() {
-					fieldVal.Addr().Set(reflect.New(Type.Elem()))
+
+				// if the field is not valid, we need to create a new value for it
+				if field.Type.Kind() == reflect.Ptr {
+					fieldVal.Set(reflect.New(field.Type.Elem()))
 				} else {
-					fieldVal.Set(reflect.New(Type.Elem()).Elem())
+					fieldVal.Set(reflect.Zero(field.Type))
 				}
 			}
 
@@ -143,7 +146,7 @@ func (f *DataModelField[T]) getQueryValue() (any, bool) {
 	case queries.ModelDataStore:
 		return m.GetValue(f.name)
 	case queries.DataModel:
-		return m.ModelDataStore().GetValue(f.name)
+		return m.DataStore().GetValue(f.name)
 	}
 
 	// rVal is always a pointer.
@@ -167,7 +170,7 @@ func (f *DataModelField[T]) setQueryValue(v any) error {
 	case queries.ModelDataStore:
 		return m.SetValue(f.name, v)
 	case queries.DataModel:
-		return m.ModelDataStore().SetValue(f.name, v)
+		return m.DataStore().SetValue(f.name, v)
 	}
 
 	var rVal = reflect.ValueOf(f.DataModel)

@@ -1,11 +1,9 @@
 filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
-github.com/Nigel2392/go-django v1.7.1-0.20250603133007-3855d0ca0a95 h1:RFNzkDbSy6KhtZloolHxaxEMAjE35pUEeF8S9ktfGw8=
-github.com/Nigel2392/go-django v1.7.1-0.20250603133007-3855d0ca0a95/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
-github.com/Nigel2392/go-django v1.7.1-0.20250603211353-2c6227954b94 h1:FP2aejiBqCPWOAvJlPsYmhz9SLiPqOS6bkyl5QRAHjM=
-github.com/Nigel2392/go-django v1.7.1-0.20250603211353-2c6227954b94/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
 github.com/Nigel2392/go-django v1.7.1-0.20250603221625-d755a1953ba9 h1:1/RcoI969i8FiInoIwlg3mccZtIqzjmt93W7pEKBvQM=
 github.com/Nigel2392/go-django v1.7.1-0.20250603221625-d755a1953ba9/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
+github.com/Nigel2392/go-django v1.7.1-0.20250604125859-d38bc8b982be h1:fad2bLOROulDyt4oVHpCL6FVIf72WR5uI3ggpMMjONc=
+github.com/Nigel2392/go-django v1.7.1-0.20250604125859-d38bc8b982be/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
 github.com/Nigel2392/go-signals v1.0.8 h1:A7WchnawfSVk9FyMer5YtKUyDs5fIdKePnoumD56vgc=
 github.com/Nigel2392/go-signals v1.0.8/go.mod h1:Olk7MJlZ9gdGPN8bh+OZSe7iOsBixn7biVI7LqoWEIA=
 github.com/Nigel2392/goldcrest v1.0.4 h1:Xx+QLht6QjJ3Gg9uksgc6Ye1XjbtzQ1208ClZwoVWsg=

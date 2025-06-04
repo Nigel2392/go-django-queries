@@ -18,7 +18,6 @@ import (
 	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/Nigel2392/go-django/src/forms/fields"
 	"github.com/Nigel2392/go-django/src/models"
-	"github.com/elliotchance/orderedmap/v2"
 	"github.com/pkg/errors"
 
 	_ "unsafe"
@@ -37,231 +36,15 @@ const (
 	MAX_DEFAULT_RESULTS = 1000
 )
 
+// QUERYSET_USE_CACHE_DEFAULT is the default value for the useCache field in the QuerySet.
+//
+// It is used to determine whether the QuerySet should cache the results of the
+// latest query until the QuerySet is modified.
 var QUERYSET_USE_CACHE_DEFAULT = true
 
-type (
-	// JoinType represents the type of join to use in a query.
-	//
-	// It is used to specify how to join two tables in a query.
-	JoinType string
-)
-
-const (
-	TypeJoinLeft  JoinType = "LEFT JOIN"
-	TypeJoinRight JoinType = "RIGHT JOIN"
-	TypeJoinInner JoinType = "INNER JOIN"
-	TypeJoinFull  JoinType = "FULL JOIN"
-	TypeJoinCross JoinType = "CROSS JOIN"
-)
-
-// A table represents a database table.
-type Table struct {
-	Name  string
-	Alias string
-}
-
-// OrderBy represents an order by clause in a query.
-//
-// It contains the table to order by, the field to order by, an optional alias for the field,
-// and a boolean indicating whether to order in descending order.
-//
-// It is used to specify how to order the results of a query.
-type OrderBy struct {
-	Column expr.TableColumn // The field to order by
-	Desc   bool
-}
-
-type JoinDefCondition struct {
-	ConditionA expr.TableColumn  // The first condition to join on
-	ConditionB expr.TableColumn  // The second condition to join on
-	Operator   expr.LogicalOp    // The operator to use to join the two conditions
-	Next       *JoinDefCondition // The next join condition, if any
-}
-
-func (j *JoinDefCondition) String() string {
-	var sb = strings.Builder{}
-	var curr = j
-	for curr != nil {
-		if curr.ConditionA.TableOrAlias != "" {
-			sb.WriteString(curr.ConditionA.TableOrAlias)
-		}
-		if curr.ConditionA.FieldColumn != nil {
-			sb.WriteString(".")
-			sb.WriteString(curr.ConditionA.FieldColumn.ColumnName())
-		}
-		if curr.ConditionA.FieldAlias != "" {
-			sb.WriteString(".")
-			sb.WriteString(curr.ConditionA.FieldAlias)
-		}
-		if curr.ConditionB.TableOrAlias != "" {
-			sb.WriteString(curr.ConditionB.TableOrAlias)
-		}
-		if curr.ConditionB.FieldAlias != "" {
-			sb.WriteString(".")
-			sb.WriteString(curr.ConditionB.FieldAlias)
-		}
-		if curr.ConditionB.FieldColumn != nil {
-			sb.WriteString(".")
-			sb.WriteString(curr.ConditionB.FieldColumn.ColumnName())
-		}
-		curr = curr.Next
-
-	}
-	return sb.String()
-}
-
-// JoinDef represents a join definition in a query.
-//
-// It contains the table to join, the type of join, and the fields to join on.
-//
-// See [JoinType] for different types of joins.
-// See [LogicalOp] for different logical operators.
-type JoinDef struct {
-	Table            Table
-	TypeJoin         JoinType
-	JoinDefCondition *JoinDefCondition
-}
-
-// FieldInfo represents information about a field in a query.
-//
-// It is both used by the QuerySet and by the QueryCompiler.
-type FieldInfo[FieldType attrs.FieldDefinition] struct {
-	SourceField FieldType
-	Model       attrs.Definer
-	RelType     attrs.RelationType
-	Table       Table
-	Chain       []string
-	Fields      []FieldType
-	Through     *FieldInfo[FieldType]
-}
-
-func (f *FieldInfo[T]) WriteFields(sb *strings.Builder, inf *expr.ExpressionInfo) []any {
-	var args = make([]any, 0, len(f.Fields))
-	var written bool
-
-	// If the field has a through relation, write the fields of the through relation first
-	//
-	// This logic matches in [getScannableFields]
-	if f.Through != nil {
-		for _, field := range f.Through.Fields {
-			if written {
-				sb.WriteString(", ")
-			}
-
-			var a, _, ok = f.Through.WriteField(sb, inf, field, false)
-			written = ok || written
-			if !ok {
-				continue
-			}
-
-			args = append(args, a...)
-		}
-	}
-
-	for _, field := range f.Fields {
-		if written {
-			sb.WriteString(", ")
-		}
-
-		var a, _, ok = f.WriteField(sb, inf, field, false)
-		written = ok || written
-		if !ok {
-			continue
-		}
-
-		args = append(args, a...)
-	}
-
-	return args
-}
-
-func (f *FieldInfo[T]) WriteUpdateFields(sb *strings.Builder, inf *expr.ExpressionInfo) []any {
-	var args = make([]any, 0, len(f.Fields))
-	var written bool
-
-	// If the field has a through relation, write the fields of the through relation first
-	//
-	// This logic matches in [getScannableFields]
-	if f.Through != nil {
-		for _, field := range f.Through.Fields {
-			if written {
-				sb.WriteString(", ")
-			}
-
-			var a, _, ok = f.Through.WriteField(sb, inf, field, true)
-			written = ok || written
-			if !ok {
-				continue
-			}
-
-			args = append(args, a...)
-		}
-	}
-
-	for _, field := range f.Fields {
-		if written {
-			sb.WriteString(", ")
-		}
-
-		var a, _, ok = f.WriteField(sb, inf, field, true)
-		written = ok || written
-		if !ok {
-			continue
-		}
-
-		args = append(args, a...)
-	}
-
-	return args
-}
-
-func (f *FieldInfo[T]) WriteField(sb *strings.Builder, inf *expr.ExpressionInfo, field attrs.FieldDefinition, forUpdate bool) (args []any, isSQL, written bool) {
-	var fieldAlias string
-	if ve, ok := field.(AliasField); ok && !forUpdate {
-		fieldAlias = ve.Alias()
-	}
-
-	var tableAlias string
-	if f.Table.Alias == "" {
-		tableAlias = f.Table.Name
-	} else {
-		tableAlias = f.Table.Alias
-	}
-	var col = &expr.TableColumn{}
-	if ve, ok := field.(VirtualField); ok && inf.Model != nil {
-		var rawSql, a = ve.SQL(inf)
-		if rawSql == "" {
-			return nil, true, false
-		}
-
-		col.RawSQL = rawSql
-
-		if fieldAlias != "" && !forUpdate {
-			col.FieldAlias = inf.AliasGen.GetFieldAlias(
-				tableAlias, fieldAlias,
-			)
-		}
-
-		var fmtSql, extra = inf.FormatField(col)
-		sb.WriteString(fmtSql)
-		args = append(args, a...)
-		args = append(args, extra...)
-		return args, true, true
-	}
-
-	if !forUpdate {
-		col.TableOrAlias = tableAlias
-	}
-
-	col.FieldColumn = field
-	col.ForUpdate = forUpdate
-
-	var fmtSql, _ = inf.FormatField(col)
-	sb.WriteString(fmtSql)
-
-	return []any{}, false, true
-}
-
+// Basic information about the model used in the QuerySet.
+// It contains the model's meta information, primary key field, all fields,
+// and the table name.
 type modelInfo struct {
 	Meta      attrs.ModelMeta
 	Primary   attrs.FieldDefinition
@@ -269,6 +52,10 @@ type modelInfo struct {
 	TableName string
 }
 
+// Internals contains the internal state of the QuerySet.
+//
+// It includes all nescessary information for
+// the compiler to build a query out of.
 type QuerySetInternals struct {
 	Model       modelInfo
 	Annotations map[string]*queryField[any]
@@ -306,6 +93,26 @@ func (i *QuerySetInternals) addJoin(join JoinDef) {
 	}
 }
 
+// ObjectsFunc is a function type that takes a model of type T and returns a QuerySet for that model.
+//
+// It is used to create a new QuerySet for a model which is automatically initialized with a transaction.
+//
+// See [RunInTransaction] for more details.
+type ObjectsFunc[T attrs.Definer] func(model T) *QuerySet[T]
+
+// QuerySet is a struct that represents a query set in the database.
+//
+// It contains methods to filter, order, and limit the results of a query.
+//
+// It is used to build and execute queries against the database.
+//
+// Every method on the queryset returns a new queryset, so that the original queryset is not modified.
+//
+// It also has a chainable api, so that you can easily build complex queries by chaining methods together.
+//
+// Queries are built internally with the help of the QueryCompiler interface, which is responsible for generating the SQL queries for the database.
+type GenericQuerySet = QuerySet[attrs.Definer]
+
 // QuerySet is a struct that represents a query set in the database.
 //
 // It contains methods to filter, order, and limit the results of a query.
@@ -328,19 +135,6 @@ type QuerySet[T attrs.Definer] struct {
 	cached       any
 }
 
-// QuerySet is a struct that represents a query set in the database.
-//
-// It contains methods to filter, order, and limit the results of a query.
-//
-// It is used to build and execute queries against the database.
-//
-// Every method on the queryset returns a new queryset, so that the original queryset is not modified.
-//
-// It also has a chainable api, so that you can easily build complex queries by chaining methods together.
-//
-// Queries are built internally with the help of the QueryCompiler interface, which is responsible for generating the SQL queries for the database.
-type GenericQuerySet = QuerySet[attrs.Definer]
-
 // GetQuerySet creates a new QuerySet for the given model.
 //
 // If the model implements the QuerySetDefiner interface,
@@ -355,13 +149,6 @@ func GetQuerySet[T attrs.Definer](model T) *QuerySet[T] {
 
 		var qs = m.GetQuerySet()
 		qs = qs.Clone()
-		return ChangeObjectsType[attrs.Definer, T](qs)
-	}
-
-	// Allow the model to change the QuerySet
-	if c, ok := any(model).(QuerySetChanger); ok {
-		qs := Objects[attrs.Definer](model)
-		qs = c.ChangeQuerySet(qs)
 		return ChangeObjectsType[attrs.Definer, T](qs)
 	}
 
@@ -447,6 +234,15 @@ func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
 		useCache: QUERYSET_USE_CACHE_DEFAULT,
 	}
 	qs.compiler = Compiler(model, defaultDb)
+
+	// Allow the model to change the QuerySet
+	if c, ok := any(model).(QuerySetChanger); ok {
+		var changed = c.ChangeQuerySet(
+			ChangeObjectsType[T, attrs.Definer](qs),
+		)
+		qs = ChangeObjectsType[attrs.Definer, T](changed)
+	}
+
 	return qs
 }
 
@@ -477,8 +273,6 @@ func ChangeObjectsType[OldT, NewT attrs.Definer](qs *QuerySet[OldT]) *QuerySet[N
 		internals:    qs.internals,
 	}
 }
-
-type ObjectsFunc[T attrs.Definer] func(model T) *QuerySet[T]
 
 func RunInTransaction[T attrs.Definer](ctx context.Context, fn func(NewQuerySet ObjectsFunc[T]) error) error {
 	var (
@@ -1593,61 +1387,23 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 		return nil, err
 	}
 
-	var possibleDuplicates = make([]*scannableField, 0)
-	var seen = make(map[string]struct{}, 0)
-	var hasMultiRelations bool
-	var scannables = getScannableFields(
-		qs.internals.Fields, internal.NewObjectFromIface(qs.model),
+	var runActors = func(o attrs.Definer) error {
+		if o == nil {
+			return nil
+		}
+		return runActor(
+			actsAfterQuery, o,
+			ChangeObjectsType[T, attrs.Definer](qs),
+		)
+	}
+
+	rows, err := newRows[T](
+		qs.internals.Fields,
+		internal.NewObjectFromIface(qs.model),
+		runActors,
 	)
-
-	// add possible duplicate fields to the list
-	//
-	// also add o2o relations, this will
-	// make sure the through model gets set later on
-	var anyOfRowScannable *scannableField
-	for _, scannable := range scannables {
-		// check if field is a multi-valued relation
-		if (scannable.relType == attrs.RelManyToMany ||
-			scannable.relType == attrs.RelOneToMany ||
-			scannable.relType == attrs.RelOneToOne) &&
-			// check if primary and not through object
-			!scannable.isThrough {
-
-			if scannable.relType != attrs.RelOneToOne {
-				hasMultiRelations = true
-			}
-
-			if _, ok := seen[scannable.chainKey]; ok {
-				continue
-			}
-
-			possibleDuplicates = append(possibleDuplicates, scannable)
-		}
-
-		if scannable.relType == -1 && scannable.object != nil && scannable.field.IsPrimary() {
-			anyOfRowScannable = scannable
-		}
-
-		if scannable.relType == -1 && scannable.object != nil && anyOfRowScannable == nil {
-			anyOfRowScannable = scannable
-		}
-	}
-
-	if hasMultiRelations && anyOfRowScannable == nil {
-		panic(fmt.Errorf(
-			"QuerySet: no root row selected to build relations for %T",
-			qs.model,
-		))
-	}
-
-	var rows = &rows[T]{
-		objects: orderedmap.NewOrderedMap[any, *rootObject](),
-		forEach: func(o attrs.Definer) error {
-			if o == nil {
-				return nil
-			}
-			return runActor(actsAfterQuery, o, ChangeObjectsType[T, attrs.Definer](qs))
-		},
+	if err != nil {
+		return nil, errors.Wrap(err, "QuerySet.All: failed to create rows")
 	}
 
 	for resultIndex, row := range results {
@@ -1663,7 +1419,7 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 		)
 
 		if annotator != nil {
-			datastore = annotator.ModelDataStore()
+			datastore = annotator.DataStore()
 		}
 
 		for j, field := range scannables {
@@ -1698,19 +1454,25 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 		)
 
 		// required in case the root object has a through relation bound to it
-		if anyOfRowScannable != nil {
-			uniqueValue, err = GetUniqueKey(scannables[anyOfRowScannable.idx].field)
-			if err != nil && errors.Is(err, query_errors.ErrNoUniqueKey) && !hasMultiRelations {
-				uniqueValue = resultIndex + 1
-			} else if err != nil && !errors.Is(err, query_errors.ErrNoUniqueKey) {
+		if rows.hasRoot() {
+			var rootRow = rows.rootRow(scannables)
+			uniqueValue, err = GetUniqueKey(rootRow.field)
+			switch {
+			case err != nil && errors.Is(err, query_errors.ErrNoUniqueKey) && rows.hasMultiRelations:
 				return nil, errors.Wrapf(
-					err,
-					"failed to get unique key for %T",
-					scannables[anyOfRowScannable.idx].object,
+					err, "failed to get unique key for %T, but has multi relations",
+					rootRow.object,
 				)
+			case err != nil && errors.Is(err, query_errors.ErrNoUniqueKey):
+				// if no unique key is found, we can use the result index as a unique value
+				// this is only valid for the root object, as it is not a relation
+				uniqueValue = resultIndex + 1
 			}
 
-			throughObj = scannables[anyOfRowScannable.idx].through
+			// if the root object has a through relation
+			// we should store it in the rows tree for
+			// binding it to the root.
+			throughObj = rootRow.through
 		}
 
 		// fake unique value for the root object is OK
@@ -1718,11 +1480,13 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 			uniqueValue = resultIndex + 1
 		}
 
+		// add the root object to the rows tree
+		// this has to be done before adding possible duplicate relations
 		rows.addRoot(
 			uniqueValue, obj, throughObj, annotations,
 		)
 
-		for _, possibleDuplicate := range possibleDuplicates {
+		for _, possibleDuplicate := range rows.possibleDuplicates {
 			var chainParts = buildChainParts(
 				scannables[possibleDuplicate.idx],
 			)
@@ -2238,7 +2002,8 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 
 		for i, row := range resultList {
 			var id = results[i][0].(int64)
-			var prim = row.FieldDefs().Primary()
+			var rowDefs = row.FieldDefs()
+			var prim = rowDefs.Primary()
 			if err := prim.SetValue(id, true); err != nil {
 				return nil, errors.Wrapf(
 					err,
@@ -2246,6 +2011,10 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 					prim.Name(), row,
 				)
 			}
+
+			//	if prim != nil {
+			//		row = Setup[T](row)
+			//	}
 
 			var rVal = reflect.ValueOf(objects[i])
 			if rVal.Kind() == reflect.Ptr {
@@ -2314,10 +2083,12 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 				}
 			}
 
+			//	if prim != nil {
+			//		row = Setup[T](row)
+			//	}
+
 			var rVal = reflect.ValueOf(objects[i])
-			if rVal.Kind() == reflect.Ptr {
-				rVal.Elem().Set(reflect.ValueOf(row).Elem())
-			}
+			rVal.Elem().Set(reflect.ValueOf(row).Elem())
 
 			if err := runActor(actsAfterCreate, row, ChangeObjectsType[T, attrs.Definer](qs)); err != nil {
 				return nil, errors.Wrapf(
@@ -2328,11 +2099,6 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 			}
 		}
 	}
-
-	//var rVal = reflect.ValueOf(value)
-	//if rVal.Kind() == reflect.Ptr {
-	//	rVal.Elem().Set(reflect.ValueOf(newObj).Elem())
-	//}
 
 	return resultList, nil
 

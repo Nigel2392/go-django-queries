@@ -124,7 +124,7 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 			field.SetValue(slice.Interface(), true)
 
 		default:
-			panic(fmt.Sprintf("expected field %s to be a slice, got %s", relName, fieldType))
+			panic(fmt.Sprintf("expected field %s to be a RelationValue, MultiRelationValue, or slice of Definer, got %s", relName, fieldType))
 		}
 
 	case attrs.RelOneToOne:
@@ -160,7 +160,7 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 			field.SetValue(relatedObject.Model(), true)
 
 		default:
-			panic(fmt.Sprintf("expected field %s to be a Relation or Definer, got %s", relName, field.Type()))
+			panic(fmt.Sprintf("expected field %s to be a RelationValue, ThroughRelationValue, Relation, or Definer, got %s", relName, fieldType))
 
 		}
 
@@ -205,7 +205,7 @@ func setRelatedObjects(relName string, relTyp attrs.RelationType, obj attrs.Defi
 			fieldDefs.Set(relName, slice.Interface())
 
 		default:
-			panic(fmt.Sprintf("expected field %s to be a slice, got %s", relName, fieldType))
+			panic(fmt.Sprintf("expected field %s to be a SettableMultiRelation, SettableMultiThroughRelation, or a slice of Relation/Definer, got %s", relName, fieldType))
 		}
 	default:
 		panic(fmt.Sprintf("unknown relation type %s for field %s in %T", relTyp, relName, obj))

@@ -10,7 +10,7 @@ import (
 )
 
 //go:linkname newFunc github.com/Nigel2392/go-django-queries/src/expr.newFunc
-func newFunc(funcLookup string, value []any, expr ...any) *expr.Func
+func newFunc(funcLookup string, value []any, expr ...any) *expr.Function
 
 var _ expr.Expression = (*subqueryExpr)(nil)
 

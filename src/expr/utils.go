@@ -2,6 +2,7 @@ package expr
 
 import (
 	"fmt"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -59,13 +60,48 @@ func ParseExprStatement(statement string, value []any) (newStatement string, fie
 	return statement, fields, values
 }
 
-func Express(key interface{}, vals ...interface{}) []LogicalExpression {
+func expressionFromInterface[T Expression](exprValue interface{}) []T {
+	var s = make([]T, 0)
+	switch v := exprValue.(type) {
+	case Expression:
+		s = append(s, v.(T))
+	case []Expression:
+		for _, expr := range v {
+			s = append(s, expr.(T))
+		}
+	case []T:
+		s = append(s, v...)
+	case []any:
+		for _, expr := range v {
+			s = append(s, expressionFromInterface[T](expr)...)
+		}
+	case string:
+		s = append(s, F(v).(T))
+	default:
+		var rTyp = reflect.TypeOf(exprValue)
+		var rVal = reflect.ValueOf(exprValue)
+		switch rTyp.Kind() {
+		case reflect.Slice, reflect.Array:
+			for i := 0; i < rVal.Len(); i++ {
+				var elem = rVal.Index(i).Interface()
+				s = append(s, expressionFromInterface[T](elem)...)
+			}
+			return s
+		default:
+			panic(fmt.Errorf("unsupported type %T for expression conversion", exprValue))
+		}
+
+	}
+	return nil
+}
+
+func Express(key interface{}, vals ...interface{}) []ClauseExpression {
 	switch v := key.(type) {
 	case string:
 		if len(vals) == 0 {
 			panic(fmt.Errorf("no values provided for key %q", v))
 		}
-		return []LogicalExpression{Q(v, vals...)}
+		return []ClauseExpression{Q(v, vals...)}
 	case Expression:
 		var expr = &ExprGroup{children: make([]Expression, 0, len(vals)+1), op: OpAnd}
 		expr.children = append(expr.children, v)
@@ -76,7 +112,7 @@ func Express(key interface{}, vals ...interface{}) []LogicalExpression {
 			}
 			expr.children = append(expr.children, v)
 		}
-		return []LogicalExpression{expr}
+		return []ClauseExpression{expr}
 	case []Expression:
 		var expr = &ExprGroup{children: make([]Expression, 0, len(vals)+1), op: OpAnd}
 		expr.children = append(expr.children, v...)
@@ -87,8 +123,8 @@ func Express(key interface{}, vals ...interface{}) []LogicalExpression {
 			}
 			expr.children = append(expr.children, v)
 		}
-		return []LogicalExpression{expr}
-	case []LogicalExpression:
+		return []ClauseExpression{expr}
+	case []ClauseExpression:
 		var expr = &ExprGroup{children: make([]Expression, 0, len(vals)+len(v)), op: OpAnd}
 		for _, e := range v {
 			expr.children = append(expr.children, e)
@@ -100,9 +136,9 @@ func Express(key interface{}, vals ...interface{}) []LogicalExpression {
 			}
 			expr.children = append(expr.children, v)
 		}
-		return []LogicalExpression{expr}
+		return []ClauseExpression{expr}
 	case map[string]interface{}:
-		var expr = make([]LogicalExpression, 0, len(v))
+		var expr = make([]ClauseExpression, 0, len(v))
 		for k, val := range v {
 			expr = append(expr, Q(k, val))
 		}

@@ -1,6 +1,7 @@
 package expr
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
@@ -89,7 +90,7 @@ func (e *ExprNode) SQL(sb *strings.Builder) []any {
 	return e.args
 }
 
-func (e *ExprNode) Not(not bool) LogicalExpression {
+func (e *ExprNode) Not(not bool) ClauseExpression {
 	e.not = not
 	return e
 }
@@ -98,11 +99,11 @@ func (e *ExprNode) IsNot() bool {
 	return e.not
 }
 
-func (e *ExprNode) And(exprs ...Expression) LogicalExpression {
+func (e *ExprNode) And(exprs ...Expression) ClauseExpression {
 	return &ExprGroup{children: append([]Expression{e}, exprs...), op: OpAnd}
 }
 
-func (e *ExprNode) Or(exprs ...Expression) LogicalExpression {
+func (e *ExprNode) Or(exprs ...Expression) ClauseExpression {
 	return &ExprGroup{children: append([]Expression{e}, exprs...), op: OpOr}
 }
 
@@ -144,7 +145,7 @@ func (g *ExprGroup) SQL(sb *strings.Builder) []any {
 	return args
 }
 
-func (g *ExprGroup) Not(not bool) LogicalExpression {
+func (g *ExprGroup) Not(not bool) ClauseExpression {
 	g.not = not
 	return g
 }
@@ -153,11 +154,11 @@ func (g *ExprGroup) IsNot() bool {
 	return g.not
 }
 
-func (g *ExprGroup) And(exprs ...Expression) LogicalExpression {
+func (g *ExprGroup) And(exprs ...Expression) ClauseExpression {
 	return &ExprGroup{children: append([]Expression{g}, exprs...), op: OpAnd}
 }
 
-func (g *ExprGroup) Or(exprs ...Expression) LogicalExpression {
+func (g *ExprGroup) Or(exprs ...Expression) ClauseExpression {
 	return &ExprGroup{children: append([]Expression{g}, exprs...), op: OpOr}
 }
 
@@ -179,4 +180,189 @@ func (g *ExprGroup) Resolve(inf *ExpressionInfo) Expression {
 		gClone.children[i] = e.Resolve(inf)
 	}
 	return gClone
+}
+
+type logicalChainExpr struct {
+	fieldName string
+	used      bool
+	forUpdate bool
+	inner     []Expression
+}
+
+func L(expr ...any) LogicalExpression {
+	var inner = make([]Expression, 0, len(expr))
+	var fieldName string
+	for i, e := range expr {
+		if n, ok := e.(NamedExpression); ok && (i == 0 || i > 0 && fieldName == "") {
+			fieldName = n.FieldName()
+		}
+		if opStr, ok := e.(string); ok {
+			op, ok := logicalOps[opStr]
+			if ok {
+				inner = append(inner, StringExpr(op))
+				continue
+			}
+			if i == 0 && fieldName == "" {
+				fieldName = opStr
+				continue
+			}
+		}
+		inner = append(inner, expressionFromInterface[Expression](e)...)
+	}
+	if len(inner) == 0 {
+		panic(fmt.Errorf("logicalChainExpr requires at least one inner expression"))
+	}
+	return &logicalChainExpr{
+		fieldName: fieldName,
+		used:      false,
+		forUpdate: false,
+		inner:     inner,
+	}
+}
+
+func (l *logicalChainExpr) FieldName() string {
+	if len(l.inner) == 0 {
+		return ""
+	}
+	if l.fieldName != "" {
+		return l.fieldName
+	}
+	for _, expr := range l.inner {
+		if namer, ok := expr.(NamedExpression); ok {
+			var name = namer.FieldName()
+			if name != "" {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+func (l *logicalChainExpr) SQL(sb *strings.Builder) []any {
+	if len(l.inner) == 0 {
+		panic(fmt.Errorf("SQL logicalChainExpr has no inner expressions"))
+	}
+	var args = make([]any, 0)
+	if l.fieldName != "" {
+		sb.WriteString(l.fieldName)
+	}
+	if l.forUpdate {
+		sb.WriteString(" = ")
+	}
+	for _, inner := range l.inner {
+		args = append(args, inner.SQL(sb)...)
+	}
+	return args
+}
+
+func (l *logicalChainExpr) Clone() Expression {
+	var inner = slices.Clone(l.inner)
+	for i := range inner {
+		inner[i] = inner[i].Clone()
+	}
+	return &logicalChainExpr{
+		fieldName: l.fieldName,
+		used:      l.used,
+		forUpdate: l.forUpdate,
+		inner:     inner,
+	}
+}
+
+func (l *logicalChainExpr) Resolve(inf *ExpressionInfo) Expression {
+	if inf.Model == nil || l.used {
+		return l
+	}
+	var nE = l.Clone().(*logicalChainExpr)
+	nE.used = true
+	nE.forUpdate = inf.ForUpdate
+
+	if nE.fieldName != "" {
+		nE.fieldName = ResolveExpressionField(inf, nE.fieldName)
+	}
+
+	if nE.fieldName == "" {
+		panic(fmt.Errorf("logicalChainExpr requires a field name"))
+	}
+
+	if len(nE.inner) > 0 {
+		for i, inner := range nE.inner {
+			nE.inner[i] = inner.Resolve(inf)
+		}
+	}
+
+	return nE
+}
+
+func (l *logicalChainExpr) chain(op LogicalOp, key interface{}, vals ...interface{}) LogicalExpression {
+	if l.fieldName == "" {
+		panic(fmt.Errorf("logicalChainExpr requires a field name before applying operation %s", op))
+	}
+	var copy = slices.Clone(l.inner)
+	copy = append(copy, StringExpr(op))
+	if key != nil {
+		var exprs = expressionFromInterface[Expression](key)
+		copy = append(copy, exprs...)
+	}
+	if len(vals) > 0 {
+		var exprs = expressionFromInterface[Expression](vals)
+		copy = append(copy, exprs...)
+	}
+	return &logicalChainExpr{
+		fieldName: l.fieldName,
+		used:      l.used,
+		forUpdate: l.forUpdate,
+		inner:     copy,
+	}
+}
+
+func (l *logicalChainExpr) EQ(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpEQ, key, vals...)
+}
+func (l *logicalChainExpr) NE(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpNE, key, vals...)
+}
+func (l *logicalChainExpr) GT(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpGT, key, vals...)
+}
+func (l *logicalChainExpr) LT(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpLT, key, vals...)
+}
+func (l *logicalChainExpr) GTE(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpGTE, key, vals...)
+}
+func (l *logicalChainExpr) LTE(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpLTE, key, vals...)
+}
+func (l *logicalChainExpr) ADD(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpADD, key, vals...)
+}
+func (l *logicalChainExpr) SUB(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpSUB, key, vals...)
+}
+func (l *logicalChainExpr) MUL(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpMUL, key, vals...)
+}
+func (l *logicalChainExpr) DIV(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpDIV, key, vals...)
+}
+func (l *logicalChainExpr) MOD(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpMOD, key, vals...)
+}
+func (l *logicalChainExpr) BITAND(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpBITAND, key, vals...)
+}
+func (l *logicalChainExpr) BITOR(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpBITOR, key, vals...)
+}
+func (l *logicalChainExpr) BITXOR(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpBITXOR, key, vals...)
+}
+func (l *logicalChainExpr) BITLSH(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpBITLSH, key, vals...)
+}
+func (l *logicalChainExpr) BITRSH(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpBITRSH, key, vals...)
+}
+func (l *logicalChainExpr) BITNOT(key interface{}, vals ...interface{}) LogicalExpression {
+	return l.chain(LogicalOpBITNOT, key, vals...)
 }

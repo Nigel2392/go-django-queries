@@ -60,8 +60,8 @@ type QuerySetInternals struct {
 	Model       modelInfo
 	Annotations map[string]*queryField[any]
 	Fields      []*FieldInfo[attrs.FieldDefinition]
-	Where       []expr.LogicalExpression
-	Having      []expr.LogicalExpression
+	Where       []expr.ClauseExpression
+	Having      []expr.ClauseExpression
 	Joins       []JoinDef
 	GroupBy     []FieldInfo[attrs.FieldDefinition]
 	OrderBy     []OrderBy
@@ -219,8 +219,8 @@ func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
 				TableName: tableName,
 			},
 			Annotations: make(map[string]*queryField[any]),
-			Where:       make([]expr.LogicalExpression, 0),
-			Having:      make([]expr.LogicalExpression, 0),
+			Where:       make([]expr.ClauseExpression, 0),
+			Having:      make([]expr.ClauseExpression, 0),
 			Joins:       make([]JoinDef, 0),
 			GroupBy:     make([]FieldInfo[attrs.FieldDefinition], 0),
 			OrderBy:     make([]OrderBy, 0),

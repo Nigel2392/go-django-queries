@@ -123,10 +123,31 @@ type Expression interface {
 
 type LogicalExpression interface {
 	Expression
+	EQ(key interface{}, vals ...interface{}) LogicalExpression
+	NE(key interface{}, vals ...interface{}) LogicalExpression
+	GT(key interface{}, vals ...interface{}) LogicalExpression
+	LT(key interface{}, vals ...interface{}) LogicalExpression
+	GTE(key interface{}, vals ...interface{}) LogicalExpression
+	LTE(key interface{}, vals ...interface{}) LogicalExpression
+	ADD(key interface{}, vals ...interface{}) LogicalExpression
+	SUB(key interface{}, vals ...interface{}) LogicalExpression
+	MUL(key interface{}, vals ...interface{}) LogicalExpression
+	DIV(key interface{}, vals ...interface{}) LogicalExpression
+	MOD(key interface{}, vals ...interface{}) LogicalExpression
+	BITAND(key interface{}, vals ...interface{}) LogicalExpression
+	BITOR(key interface{}, vals ...interface{}) LogicalExpression
+	BITXOR(key interface{}, vals ...interface{}) LogicalExpression
+	BITLSH(key interface{}, vals ...interface{}) LogicalExpression
+	BITRSH(key interface{}, vals ...interface{}) LogicalExpression
+	BITNOT(key interface{}, vals ...interface{}) LogicalExpression
+}
+
+type ClauseExpression interface {
+	Expression
 	IsNot() bool
-	Not(b bool) LogicalExpression
-	And(...Expression) LogicalExpression
-	Or(...Expression) LogicalExpression
+	Not(b bool) ClauseExpression
+	And(...Expression) ClauseExpression
+	Or(...Expression) ClauseExpression
 }
 
 type NamedExpression interface {

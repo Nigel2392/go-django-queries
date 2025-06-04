@@ -359,7 +359,7 @@ type CompiledValuesListQuery CompiledQuery[[][]any]
 
 type UpdateInfo struct {
 	FieldInfo[attrs.Field]
-	Where  []expr.LogicalExpression
+	Where  []expr.ClauseExpression
 	Joins  []JoinDef
 	Values []any
 }

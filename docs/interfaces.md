@@ -240,8 +240,8 @@ type QueryCompiler interface {
         ctx context.Context,
         qs *QuerySet[attrs.Definer],
         fields []FieldInfo,
-        where []expr.LogicalExpression,
-        having []expr.LogicalExpression,
+        where []expr.ClauseExpression,
+        having []expr.ClauseExpression,
         joins []JoinDef,
         groupBy []FieldInfo,
         orderBy []OrderBy,
@@ -255,7 +255,7 @@ type QueryCompiler interface {
     BuildCountQuery(
         ctx context.Context,
         qs *QuerySet[attrs.Definer],
-        where []expr.LogicalExpression,
+        where []expr.ClauseExpression,
         joins []JoinDef,
         groupBy []FieldInfo,
         limit int,
@@ -276,7 +276,7 @@ type QueryCompiler interface {
         ctx context.Context,
         qs *QuerySet[attrs.Definer],
         fields FieldInfo,
-        where []expr.LogicalExpression,
+        where []expr.ClauseExpression,
         joins []JoinDef,
         groupBy []FieldInfo,
         values []any,
@@ -286,7 +286,7 @@ type QueryCompiler interface {
     BuildDeleteQuery(
         ctx context.Context,
         qs *QuerySet[attrs.Definer],
-        where []expr.LogicalExpression,
+        where []expr.ClauseExpression,
         joins []JoinDef,
         groupBy []FieldInfo,
     ) CompiledQuery[int64]

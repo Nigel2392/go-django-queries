@@ -209,12 +209,12 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.SignalModelM
 	//
 	// It will use unique fields or unique together fields
 	// to generate a where clause for the model.
-	attrs.StoreOnMeta(meta.Definer, __GENERATE_WHERE_CLAUSE_FOR_OBJECTS, func(objects []attrs.Definer) ([]expr.LogicalExpression, error) {
+	attrs.StoreOnMeta(meta.Definer, __GENERATE_WHERE_CLAUSE_FOR_OBJECTS, func(objects []attrs.Definer) ([]expr.ClauseExpression, error) {
 		var orExprs = make([]expr.Expression, 0, len(uniqueFields))
 		for _, object := range objects {
 			var (
 				defs    = object.FieldDefs()
-				objExpr expr.LogicalExpression
+				objExpr expr.ClauseExpression
 			)
 		uniqueFieldsLoop:
 			for _, fieldNames := range uniqueFields {
@@ -269,7 +269,7 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.SignalModelM
 			orExprs = append(orExprs, objExpr)
 		}
 
-		return []expr.LogicalExpression{expr.Or(orExprs...)}, nil
+		return []expr.ClauseExpression{expr.Or(orExprs...)}, nil
 	})
 	return nil
 })
@@ -314,7 +314,7 @@ var _, _ = attrs.OnThroughModelRegister.Listen(func(s signals.Signal[attrs.Signa
 		//
 		// this is used when deleting through objects for many-to-many or one-to-one relations
 		// where the through model does not have a primary key defined.
-		attrs.StoreOnMeta(throughModel, __GENERATE_WHERE_CLAUSE_FOR_OBJECTS, func(objects []attrs.Definer) ([]expr.LogicalExpression, error) {
+		attrs.StoreOnMeta(throughModel, __GENERATE_WHERE_CLAUSE_FOR_OBJECTS, func(objects []attrs.Definer) ([]expr.ClauseExpression, error) {
 
 			// groups of source object ids to target ids
 			//
@@ -374,7 +374,7 @@ var _, _ = attrs.OnThroughModelRegister.Listen(func(s signals.Signal[attrs.Signa
 
 			// Generate the where clause expressions
 			// based on the grouped source and target values.
-			var expressions = make([]expr.LogicalExpression, 0, groups.Len())
+			var expressions = make([]expr.ClauseExpression, 0, groups.Len())
 			for head := groups.Front(); head != nil; head = head.Next() {
 				var (
 					source  = head.Key

@@ -16,7 +16,7 @@ type function[LookupType comparable] struct {
 	inner      []Expression
 }
 
-type Func = function[string]
+type Function = function[string]
 
 func (e *function[T]) FieldName() string {
 	if e.field != "" {
@@ -136,50 +136,50 @@ func newFunc[T comparable](registry *_lookups[any, T], funcLookup T, value []any
 	}
 }
 
-func FuncSum(expr ...any) *Func {
+func FuncSum(expr ...any) *Function {
 	return newFunc(funcLookups, "SUM", []any{}, expr...)
 }
 
-func FuncCount(expr ...any) *Func {
+func FuncCount(expr ...any) *Function {
 	return newFunc(funcLookups, "COUNT", []any{}, expr...)
 }
 
-func FuncAvg(expr ...any) *Func {
+func FuncAvg(expr ...any) *Function {
 	return newFunc(funcLookups, "AVG", []any{}, expr...)
 }
 
-func FuncMax(expr ...any) *Func {
+func FuncMax(expr ...any) *Function {
 	return newFunc(funcLookups, "MAX", []any{}, expr...)
 }
 
-func FuncMin(expr ...any) *Func {
+func FuncMin(expr ...any) *Function {
 	return newFunc(funcLookups, "MIN", []any{}, expr...)
 }
 
-func FuncCoalesce(expr ...any) *Func {
+func FuncCoalesce(expr ...any) *Function {
 	return newFunc(funcLookups, "COALESCE", []any{}, expr...)
 }
 
-func FuncConcat(expr ...any) *Func {
+func FuncConcat(expr ...any) *Function {
 	return newFunc(funcLookups, "CONCAT", []any{}, expr...)
 }
 
-func FuncSubstr(expr any, start, length any) *Func {
+func FuncSubstr(expr any, start, length any) *Function {
 	return newFunc(funcLookups, "SUBSTR", []any{start, length}, expr)
 }
 
-func FuncUpper(expr any) *Func {
+func FuncUpper(expr any) *Function {
 	return newFunc(funcLookups, "UPPER", []any{}, expr)
 }
 
-func FuncLower(expr any) *Func {
+func FuncLower(expr any) *Function {
 	return newFunc(funcLookups, "LOWER", []any{}, expr)
 }
 
-func FuncLength(expr any) *Func {
+func FuncLength(expr any) *Function {
 	return newFunc(funcLookups, "LENGTH", []any{}, expr)
 }
 
-func FuncNow() *Func {
+func FuncNow() *Function {
 	return newFunc(funcLookups, "NOW", []any{}, nil)
 }

@@ -703,7 +703,7 @@ func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) [
 	return args
 }
 
-func (g *genericQueryBuilder) writeWhereClause(sb *strings.Builder, inf *expr.ExpressionInfo, where []expr.LogicalExpression) []any {
+func (g *genericQueryBuilder) writeWhereClause(sb *strings.Builder, inf *expr.ExpressionInfo, where []expr.ClauseExpression) []any {
 	var args = make([]any, 0)
 	if len(where) > 0 {
 		sb.WriteString(" WHERE ")
@@ -731,7 +731,7 @@ func (g *genericQueryBuilder) writeGroupBy(sb *strings.Builder, inf *expr.Expres
 	return args
 }
 
-func (g *genericQueryBuilder) writeHaving(sb *strings.Builder, inf *expr.ExpressionInfo, having []expr.LogicalExpression) []any {
+func (g *genericQueryBuilder) writeHaving(sb *strings.Builder, inf *expr.ExpressionInfo, having []expr.ClauseExpression) []any {
 	var args = make([]any, 0)
 	if len(having) > 0 {
 		sb.WriteString(" HAVING ")
@@ -788,7 +788,7 @@ func (g *genericQueryBuilder) writeLimitOffset(sb *strings.Builder, limit int, o
 // Helpers
 // -----------------------------------------------------------------------------
 
-func buildWhereClause(b *strings.Builder, inf *expr.ExpressionInfo, exprs []expr.LogicalExpression) []any {
+func buildWhereClause(b *strings.Builder, inf *expr.ExpressionInfo, exprs []expr.ClauseExpression) []any {
 	var args = make([]any, 0)
 	for i, e := range exprs {
 		e := e.Resolve(inf)

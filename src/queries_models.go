@@ -29,10 +29,10 @@ const __GENERATE_WHERE_CLAUSE_FOR_OBJECTS = "queries.__GENERATE_WHERE_CLAUSE_FOR
 //
 //   - If no primary key, unique fields or unique together
 //     fields are defined, it will return an error.
-func GenerateObjectsWhereClause[T attrs.Definer](objects ...T) ([]expr.LogicalExpression, error) {
+func GenerateObjectsWhereClause[T attrs.Definer](objects ...T) ([]expr.ClauseExpression, error) {
 
 	if len(objects) == 0 {
-		return []expr.LogicalExpression{}, nil
+		return []expr.ClauseExpression{}, nil
 	}
 
 	var (
@@ -52,7 +52,7 @@ func GenerateObjectsWhereClause[T attrs.Definer](objects ...T) ([]expr.LogicalEx
 
 		var or = make([]expr.Expression, 0, len(objects))
 		switch q := q.(type) {
-		case func([]attrs.Definer) ([]expr.LogicalExpression, error):
+		case func([]attrs.Definer) ([]expr.ClauseExpression, error):
 			var definers = make([]attrs.Definer, len(objects))
 			for i, object := range objects {
 				definers[i] = object
@@ -67,7 +67,7 @@ func GenerateObjectsWhereClause[T attrs.Definer](objects ...T) ([]expr.LogicalEx
 				or = append(or, expr)
 			}
 
-		case func(attrs.Definer) ([]expr.LogicalExpression, error):
+		case func(attrs.Definer) ([]expr.ClauseExpression, error):
 			for _, object := range objects {
 				var exprs, err = q(object)
 				if err != nil {
@@ -78,7 +78,7 @@ func GenerateObjectsWhereClause[T attrs.Definer](objects ...T) ([]expr.LogicalEx
 				}
 			}
 
-		case func(attrs.Definer) (expr.LogicalExpression, error):
+		case func(attrs.Definer) (expr.ClauseExpression, error):
 			for _, object := range objects {
 				var expr, err = q(object)
 				if err != nil {
@@ -91,7 +91,7 @@ func GenerateObjectsWhereClause[T attrs.Definer](objects ...T) ([]expr.LogicalEx
 			return nil, fmt.Errorf("model %T has no primary key defined, cannot delete", objects[0])
 		}
 
-		return []expr.LogicalExpression{expr.Or(or...)}, nil
+		return []expr.ClauseExpression{expr.Or(or...)}, nil
 	} else {
 		var primaryName = primaryDef.Name()
 
@@ -110,7 +110,7 @@ func GenerateObjectsWhereClause[T attrs.Definer](objects ...T) ([]expr.LogicalEx
 			ids = append(ids, primary.GetValue())
 		}
 
-		return []expr.LogicalExpression{expr.Q(
+		return []expr.ClauseExpression{expr.Q(
 			fmt.Sprintf("%s__in", primaryName), ids,
 		)}, nil
 	}

@@ -800,9 +800,10 @@ var manyToManyTests = []ManyToManyTest{
 
 			var user1 = rows[0].Object
 			t.Logf("User 1: %+v", user1)
-			t.Logf("User 1 ManyToManySet: %+v %+v", user1.ModelManyToManySet.Parent, user1.ModelManyToManySet.Objects())
+			t.Logf("ModelManyToManySet 1: %+v %p %T", user1.ModelManyToManySet, user1.ModelManyToManySet, user1.ModelManyToManySet)
+			t.Logf("User 1 ManyToManySet: %+v %+v", user1.ModelManyToManySet.Parent, user1.ModelManyToManySet.AsList())
 
-			var set = user1.ModelManyToManySet.Objects()
+			var set = user1.ModelManyToManySet.AsList()
 			if len(set) != 2 {
 				t.Errorf("Expected 2 items in set, got %d", len(set))
 				for _, obj := range set {
@@ -1161,11 +1162,11 @@ var manyToManyTests = []ManyToManyTest{
 					t.Fatalf("Expected actual.Parent.Object to be set: %+v\n\t%s", row.Object.Model, row.QuerySet.LatestQuery().SQL())
 				}
 
-				if len(actual.Objects()) != len(expected) {
-					t.Fatalf("Expected %d items in actual.Objects(), got %d: %+v\n\t%s", len(expected), len(actual.Objects()), row.Object.Model, row.QuerySet.LatestQuery().SQL())
+				if len(actual.AsList()) != len(expected) {
+					t.Fatalf("Expected %d items in actual.AsList(), got %d: %+v\n\t%s", len(expected), len(actual.AsList()), row.Object.Model, row.QuerySet.LatestQuery().SQL())
 				}
 
-				for i, item := range actual.Objects() {
+				for i, item := range actual.AsList() {
 					target := item.Model().(*ModelManyToMany_Target)
 
 					if target.ID != expected[idx].ID {
@@ -1249,7 +1250,7 @@ var manyToManyTests = []ManyToManyTest{
 				t.Fatalf("Failed to get row: %v", err)
 			}
 
-			created, err := row.Object.Target.Relations.AddTarget(m2m_targets[3])
+			created, err := row.Object.Target.Objects().AddTarget(m2m_targets[3])
 			if err != nil {
 				t.Fatalf("Failed to add Target object: %v", err)
 			}
@@ -1258,7 +1259,7 @@ var manyToManyTests = []ManyToManyTest{
 				t.Fatalf("Expected Target object to already exist, but it was created")
 			}
 
-			created, err = row.Object.Target.Relations.AddTarget(&ModelManyToMany_Target{
+			created, err = row.Object.Target.Objects().AddTarget(&ModelManyToMany_Target{
 				Name: "TestManyToMany_Target__AddTarget",
 				Age:  35,
 			})
@@ -1270,7 +1271,7 @@ var manyToManyTests = []ManyToManyTest{
 				t.Fatalf("Expected Target object to be created, but it already exists")
 			}
 
-			a, err := row.Object.Target.Relations.All()
+			a, err := row.Object.Target.Objects().All()
 			if err != nil {
 				t.Fatalf("Failed to get Target objects for row 0: %v", err)
 			}
@@ -1290,7 +1291,7 @@ var manyToManyTests = []ManyToManyTest{
 				targetObjects = append(targetObjects, item.Object)
 			}
 
-			removed, err := row.Object.Target.Relations.Filter("ID__in", targetObjects[0].ID, targetObjects[1].ID).ClearTargets()
+			removed, err := row.Object.Target.Objects().Filter("ID__in", targetObjects[0].ID, targetObjects[1].ID).ClearTargets()
 			// removed, err := row.Object.Target.Relations.RemoveTargets(targetObjects)
 			if err != nil {
 				t.Fatalf("Failed to remove targets: %v", err)
@@ -1300,7 +1301,7 @@ var manyToManyTests = []ManyToManyTest{
 				t.Fatalf("Expected to remove %d targets, got %d", 2, removed)
 			}
 
-			a, err = row.Object.Target.Relations.All()
+			a, err = row.Object.Target.Objects().All()
 			if err != nil {
 				t.Fatalf("Failed to get Target objects for row 0: %v", err)
 			}
@@ -1331,7 +1332,7 @@ var manyToManyTests = []ManyToManyTest{
 			t.Logf("Created new ModelManyToMany object: %+v", obj)
 			t.Logf("Adding targets to new ModelManyToMany object %v", obj.Target)
 
-			var created, err = obj.Target.Relations.AddTarget(&ModelManyToMany_Target{
+			var created, err = obj.Target.Objects().AddTarget(&ModelManyToMany_Target{
 				Name: "TestManyToMany_Target_AddTarget_1",
 				Age:  40,
 			})
@@ -1342,11 +1343,11 @@ var manyToManyTests = []ManyToManyTest{
 				t.Fatalf("Expected Target object to be created, but it already exists")
 			}
 
-			if len(obj.Target.Objects()) != 1 {
-				t.Fatalf("Expected 1 Target object, got %d", len(obj.Target.Objects()))
+			if len(obj.Target.AsList()) != 1 {
+				t.Fatalf("Expected 1 Target object, got %d", len(obj.Target.AsList()))
 			}
 
-			a, err := obj.Target.Relations.All()
+			a, err := obj.Target.Objects().All()
 			if err != nil {
 				t.Fatalf("Failed to get Target objects for row: %v", err)
 			}
@@ -1355,8 +1356,8 @@ var manyToManyTests = []ManyToManyTest{
 				t.Fatalf("Expected 1 Target object, got %d", len(a))
 			}
 
-			if len(obj.Target.Objects()) != 1 {
-				t.Fatalf("Expected 1 Target object in ModelManyToMany.Target, got %d", len(obj.Target.Objects()))
+			if len(obj.Target.AsList()) != 1 {
+				t.Fatalf("Expected 1 Target object in ModelManyToMany.Target, got %d", len(obj.Target.AsList()))
 			}
 
 			for _, item := range a {
@@ -1383,14 +1384,14 @@ var manyToManyTests = []ManyToManyTest{
 
 			var user = row.Object
 			t.Logf("User 1: %+v", user)
-			t.Logf("User 1 ManyToManySet: %+v %+v", user.ModelManyToManySet.Parent, user.ModelManyToManySet.Objects())
+			t.Logf("User 1 ManyToManySet: %+v %+v", user.ModelManyToManySet.Parent, user.ModelManyToManySet.AsList())
 
-			for _, obj := range user.ModelManyToManySet.Objects() {
+			for _, obj := range user.ModelManyToManySet.AsList() {
 				t.Logf("obj: %+v", obj)
 			}
 
-			if len(user.ModelManyToManySet.Objects()) != 2 {
-				t.Fatalf("Expected 2 items in ManyToManySet, got %d", len(user.ModelManyToManySet.Objects()))
+			if len(user.ModelManyToManySet.AsList()) != 2 {
+				t.Fatalf("Expected 2 items in ManyToManySet, got %d", len(user.ModelManyToManySet.AsList()))
 			}
 
 			chk, err := queries.GetQuerySet(&ModelManyToMany{}).
@@ -1408,7 +1409,7 @@ var manyToManyTests = []ManyToManyTest{
 				t.FailNow()
 			}
 
-			var objs = user.ModelManyToManySet.Objects()
+			var objs = user.ModelManyToManySet.AsList()
 			if len(chk) != len(objs) {
 				t.Errorf("Expected %d items in set, got %d", len(chk), len(objs))
 				for _, obj := range objs {
@@ -1417,7 +1418,7 @@ var manyToManyTests = []ManyToManyTest{
 				t.FailNow()
 			}
 
-			a, err := user.ModelManyToManySet.Relations.OrderBy("ID").All()
+			a, err := user.ModelManyToManySet.Objects().OrderBy("ID").All()
 			if err != nil {
 				t.Fatalf("Failed to get ManyToManySet relations: %v", err)
 			}
@@ -1661,7 +1662,7 @@ func TestPluckManyToManyRows(t *testing.T) {
 
 	var idx = 0
 	for _, row := range rows {
-		for _, target := range row.Object.Target.Objects() {
+		for _, target := range row.Object.Target.AsList() {
 			var rev, ok = target.Object.DataStore().GetValue("TargetReverse")
 			if !ok {
 				t.Fatalf("Expected Target.TargetReverse to be set: %+v\n\t%s", target.Object.Model, row.QuerySet.LatestQuery().SQL())
@@ -1672,7 +1673,7 @@ func TestPluckManyToManyRows(t *testing.T) {
 				t.Fatalf("Expected Target.TargetReverse to be a list: %+v %T\n\t%s", target.Object.Model, rev, row.QuerySet.LatestQuery().SQL())
 			}
 
-			for _, revItem := range revList.Objects() {
+			for _, revItem := range revList.AsList() {
 
 				revTarget := revItem.Model().(*ModelManyToMany)
 				if revTarget.ID != values[idx] {

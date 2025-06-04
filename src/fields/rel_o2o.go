@@ -23,6 +23,7 @@ func NewOneToOneField[T any](forModel attrs.Definer, dst any, name string, rever
 		),
 	}
 	f.DataModelField.fieldRef = f // Set the field reference to itself
+	f.DataModelField.setupInitialVal()
 	return f
 }
 
@@ -45,5 +46,6 @@ func NewOneToOneReverseField[T any](forModel attrs.Definer, dst any, name string
 		),
 	}
 	f.DataModelField.fieldRef = f // Set the field reference to itself
+	f.DataModelField.setupInitialVal()
 	return f
 }

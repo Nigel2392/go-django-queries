@@ -10,7 +10,6 @@ import (
 
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
-	"github.com/Nigel2392/go-django/src/core/assert"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/forms/fields"
 )
@@ -120,77 +119,6 @@ func GenerateObjectsWhereClause[T attrs.Definer](objects ...T) ([]expr.LogicalEx
 type keyPart struct {
 	name  string
 	value driver.Value
-}
-
-// Setup initializes a model's field definitions and binds
-// the model's values to the model.
-//
-// The model has to be saved to the database before it can be used,
-// otherwise it will panic.
-func Setup[T attrs.Definer](modelOrDefs any) T {
-	var (
-		model T
-		defs  attrs.Definitions
-	)
-	switch m := modelOrDefs.(type) {
-	case T:
-		model = m
-		defs = m.FieldDefs()
-	case attrs.Definer:
-		model = m.(T)
-		defs = m.FieldDefs()
-	case attrs.Definitions:
-		model = m.Instance().(T)
-		defs = m
-	default:
-		panic(fmt.Errorf(
-			"unexpected type for modelOrDefs %T, expected attrs.Definer or attrs.Definitions",
-			modelOrDefs,
-		))
-	}
-
-	var primary = defs.Primary()
-	if primary == nil {
-		panic(fmt.Errorf("model %T has no primary field defined, cannot initialize", model))
-	}
-
-	if primary.GetValue() == nil {
-		panic(fmt.Errorf(
-			"model %T has no primary key set, the model has to be saved before it can be used",
-			model,
-		))
-	}
-
-	var objFields = defs.Fields()
-	for _, field := range objFields {
-		var rel = field.Rel()
-		if rel == nil {
-			continue
-		}
-
-		var (
-			shouldSet bool
-			value     = field.GetValue()
-			dftValue  = field.GetDefault()
-		)
-
-		if fields.IsZero(value) && !fields.IsZero(dftValue) {
-			shouldSet = true
-			value = dftValue
-		}
-
-		assert.Err(attrs.BindValueToModel(
-			model, field, value,
-		))
-
-		if shouldSet {
-			// If the field has a default value, set it.
-			// This is useful for fields that are not set yet.
-			field.SetValue(value, true)
-		}
-	}
-
-	return model
 }
 
 // Use the model meta to get the unique key for an object.

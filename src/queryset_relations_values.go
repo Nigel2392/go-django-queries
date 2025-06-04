@@ -47,15 +47,6 @@ type RelFK[ModelType attrs.Definer] struct {
 	Object ModelType
 }
 
-func (rl *RelFK[T]) AutoInitialize(d attrs.Definer) any {
-	return &RelFK[T]{
-		Parent: &ParentInfo{
-			Object: d,
-			Field:  nil, // Field will be set later when binding to the model
-		},
-	}
-}
-
 func (rl *RelFK[T]) ParentInfo() *ParentInfo {
 	return rl.Parent
 }
@@ -89,19 +80,9 @@ func (rl *RelFK[T]) GetValue() attrs.Definer {
 }
 
 type RelRevFK[ModelType attrs.Definer] struct {
-	Parent    *ParentInfo                            // The parent model instance
-	Relations *RelManyToOneQuerySet[ModelType]       // The query set for this relation
-	relations *orderedmap.OrderedMap[any, ModelType] // The related objects
-}
-
-func (rl *RelRevFK[T]) AutoInitialize(d attrs.Definer) any {
-	return &RelRevFK[T]{
-		Parent: &ParentInfo{
-			Object: d,
-			Field:  nil, // Field will be set later when binding to the model
-		},
-		relations: orderedmap.NewOrderedMap[any, T](),
-	}
+	Parent          *ParentInfo                            // The parent model instance
+	relations       *orderedmap.OrderedMap[any, ModelType] // The related objects
+	relatedQuerySet *RelManyToOneQuerySet[ModelType]       // The query set for this relation
 }
 
 func (rl *RelRevFK[T]) ParentInfo() *ParentInfo {
@@ -116,10 +97,14 @@ func (rl *RelRevFK[T]) BindToModel(parent attrs.Definer, parentField attrs.Field
 	if rl.relations == nil {
 		rl.relations = orderedmap.NewOrderedMap[any, T]()
 	}
-	if rl.Relations == nil {
-		rl.Relations = ManyToOneQuerySet[T](rl)
-	}
 	return nil
+}
+
+func (rl *RelRevFK[T]) Objects() *RelManyToOneQuerySet[T] {
+	if rl.relatedQuerySet == nil {
+		rl.relatedQuerySet = ManyToOneQuerySet[T](rl)
+	}
+	return rl.relatedQuerySet
 }
 
 // SetValues sets the related objects on the relation.
@@ -165,7 +150,7 @@ func (rl *RelRevFK[T]) GetValues() []attrs.Definer {
 }
 
 // Objects returns the related objects as a slice of ModelType.
-func (rl *RelRevFK[T]) Objects() []T {
+func (rl *RelRevFK[T]) AsList() []T {
 	if rl == nil || rl.relations == nil {
 		return nil
 	}
@@ -185,15 +170,6 @@ type RelO2O[ModelType, ThroughModelType attrs.Definer] struct {
 	Parent        *ParentInfo // The parent model instance
 	Object        ModelType
 	ThroughObject ThroughModelType
-}
-
-func (rl *RelO2O[T1, T2]) AutoInitialize(d attrs.Definer) any {
-	return &RelO2O[T1, T2]{
-		Parent: &ParentInfo{
-			Object: d,
-			Field:  nil, // Field will be set later when binding to the model
-		},
-	}
 }
 
 func (rl *RelO2O[T1, T2]) ParentInfo() *ParentInfo {
@@ -244,21 +220,11 @@ func (rl *RelO2O[T1, T2]) GetValue() (obj attrs.Definer, through attrs.Definer) 
 // This implements the [SettableMultiThroughRelation] interface, which allows setting
 // the related objects and their through objects.
 type RelM2M[ModelType, ThroughModelType attrs.Definer] struct {
-	Parent    *ParentInfo                                                      // The parent model instance
-	Relations *RelManyToManyQuerySet[ModelType]                                // The query set for this relation
-	relations *orderedmap.OrderedMap[any, RelO2O[ModelType, ThroughModelType]] // can be changed to slice if needed
+	Parent          *ParentInfo                                                      // The parent model instance
+	relations       *orderedmap.OrderedMap[any, RelO2O[ModelType, ThroughModelType]] // can be changed to slice if needed
+	relatedQuerySet *RelManyToManyQuerySet[ModelType]                                // The query set for this relation
 
 	// relations []RelO2O[T1, T2] // can be changed to OrderedMap if needed
-}
-
-func (rl *RelM2M[T1, T2]) AutoInitialize(d attrs.Definer) any {
-	return &RelM2M[T1, T2]{
-		Parent: &ParentInfo{
-			Object: d,
-			Field:  nil, // Field will be set later when binding to the model
-		},
-		relations: orderedmap.NewOrderedMap[any, RelO2O[T1, T2]](),
-	}
 }
 
 func (rl *RelM2M[T1, T2]) ParentInfo() *ParentInfo {
@@ -270,10 +236,14 @@ func (rl *RelM2M[T1, T2]) BindToModel(parent attrs.Definer, parentField attrs.Fi
 		Object: parent,
 		Field:  parentField,
 	}
-	if rl.Relations == nil {
-		rl.Relations = ManyToManyQuerySet[T1](rl)
-	}
 	return nil
+}
+
+func (rl *RelM2M[T1, T2]) Objects() *RelManyToManyQuerySet[T1] {
+	if rl.relatedQuerySet == nil {
+		rl.relatedQuerySet = ManyToManyQuerySet[T1](rl)
+	}
+	return rl.relatedQuerySet
 }
 
 func (rl *RelM2M[T1, T2]) SetValues(rel []Relation) {
@@ -338,7 +308,7 @@ func (rl *RelM2M[T1, T2]) GetValues() []Relation {
 	return relatedObjects
 }
 
-func (rl *RelM2M[T1, T2]) Objects() []RelO2O[T1, T2] {
+func (rl *RelM2M[T1, T2]) AsList() []RelO2O[T1, T2] {
 	if rl == nil || rl.relations == nil {
 		return nil
 	}

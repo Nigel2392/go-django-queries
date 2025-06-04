@@ -319,79 +319,11 @@ func (m *Model) Define(def attrs.Definer, flds ...any) *attrs.ObjectDefinitions 
 			}
 		}
 
-		//	for i, field := range f {
-		//		if field.IsPrimary() {
-		//			f[i] = &primaryField{
-		//				Field: field,
-		//				model: m,
-		//			}
-		//			break
-		//		}
-		//	}
-
 		m.internals.defs = attrs.Define(def, f...)
 	}
 
 	if tableName != "" && m.internals.defs.Table == "" {
 		m.internals.defs.Table = tableName
-	}
-
-	return m.internals.defs
-}
-
-func (m *Model) initDefaults(defs *attrs.ObjectDefinitions) *attrs.ObjectDefinitions {
-	var primary = m.internals.defs.Primary()
-	if primary == nil {
-		return m.internals.defs
-	}
-
-	var val, err = primary.Value()
-	if err != nil {
-		panic(fmt.Errorf(
-			"failed to get primary key value for model %T: %w",
-			m.internals.object.Interface(), err,
-		))
-	}
-
-	if val == nil || attrs.IsZero(val) {
-		return m.internals.defs
-	}
-
-	for head := m.internals.defs.ObjectFields.Front(); head != nil; head = head.Next() {
-		var field = head.Value
-		if field.IsPrimary() {
-			continue
-		}
-
-		// This is only for related fields
-		if field.Rel() == nil {
-			continue
-		}
-
-		var (
-			shouldSet bool
-			value     = field.GetValue()
-			dftValue  = field.GetDefault()
-			valZero   = attrs.IsZero(value)
-			dftZero   = attrs.IsZero(dftValue)
-		)
-
-		if valZero && !dftZero {
-			shouldSet = true
-			value = dftValue
-		}
-
-		if !valZero && !dftZero {
-			assert.Err(attrs.BindValueToModel(
-				defs.Object, field, value,
-			))
-		}
-
-		if shouldSet {
-			// If the field has a default value, set it.
-			// This is useful for fields that are not set yet.
-			field.SetValue(value, true)
-		}
 	}
 
 	return m.internals.defs

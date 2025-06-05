@@ -191,7 +191,7 @@ type logicalChainExpr struct {
 	inner     []Expression
 }
 
-func L(expr ...any) LogicalExpression {
+func Logical(expr ...any) LogicalExpression {
 	if len(expr) == 0 {
 		panic(fmt.Errorf("logicalChainExpr requires at least one inner expression"))
 	}
@@ -201,17 +201,6 @@ func L(expr ...any) LogicalExpression {
 	for i, e := range expr {
 		if n, ok := e.(NamedExpression); ok && (i == 0 || i > 0 && fieldName == "") {
 			fieldName = n.FieldName()
-		}
-		if opStr, ok := e.(string); ok {
-			op, ok := logicalOps[opStr]
-			if ok {
-				inner = append(inner, StringExpr(op))
-				continue
-			}
-			if i == 0 && fieldName == "" {
-				fieldName = opStr
-				continue
-			}
 		}
 
 		inner = append(
@@ -225,18 +214,6 @@ func L(expr ...any) LogicalExpression {
 		used:      false,
 		forUpdate: false,
 		inner:     inner,
-	}
-}
-
-func (l *logicalChainExpr) Scope(op LogicalOp, expr Expression) LogicalExpression {
-	return &logicalChainExpr{
-		fieldName: l.fieldName,
-		used:      l.used,
-		forUpdate: l.forUpdate,
-		inner: append(slices.Clone(l.inner), StringExpr(op), &ExprGroup{
-			children: []Expression{expr},
-			op:       "",
-		}),
 	}
 }
 
@@ -309,11 +286,23 @@ func (l *logicalChainExpr) Resolve(inf *ExpressionInfo) Expression {
 	return nE
 }
 
+func (l *logicalChainExpr) Scope(op LogicalOp, expr Expression) LogicalExpression {
+	return &logicalChainExpr{
+		fieldName: l.fieldName,
+		used:      l.used,
+		forUpdate: l.forUpdate,
+		inner: append(slices.Clone(l.inner), op, &ExprGroup{
+			children: []Expression{expr},
+			op:       "",
+		}),
+	}
+}
+
 func (l *logicalChainExpr) chain(op LogicalOp, key interface{}, vals ...interface{}) LogicalExpression {
 	var (
 		copyExprs = slices.Clone(l.inner)
 	)
-	copyExprs = append(copyExprs, StringExpr(op))
+	copyExprs = append(copyExprs, op)
 
 	if key != nil {
 		copyExprs = append(

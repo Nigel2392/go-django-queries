@@ -10,6 +10,24 @@ import (
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
+//
+//	type LookupInfo struct {
+//		Driver driver.Driver
+//	}
+//
+//	type Lookup struct {
+//		Name          string
+//		NormalizeArgs func(this *Lookup, value []any) []any
+//		SQL           func(inf *LookupInfo, inner SQLWriter, value []any) (SQLWriter, error)
+//	}
+//
+//	type Lookup interface {
+//		Name() string                             // name of the lookup
+//		Arity() int                               // number of arguments the lookup expects, or -1 for variable arguments
+//		NormalizeArgs(value []any) ([]any, error) // normalize the arguments for the lookup
+//		SQL(inf *LookupInfo, inner SQLWriter, value []any) (SQLWriter, error)
+//	}
+
 func init() {
 	RegisterLookup("exact", func(d driver.Driver, field string, value []any) (string, []any, error) {
 		return fmt.Sprintf("%s = ?", field), value, nil

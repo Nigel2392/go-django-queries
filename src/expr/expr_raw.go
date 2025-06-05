@@ -39,7 +39,7 @@ type RawNamedExpression struct {
 	used      bool
 }
 
-// F creates a new RawNamedExpression with the given statement and values.
+// F creates a new RawNamedExpression or chainExpr with the given statement and values.
 // It parses the statement to extract the fields and values, and returns a pointer to the new RawNamedExpression.
 //
 // The first field in the statement is used as the field name for the expression, and the rest of the fields are used as placeholders for the values.
@@ -56,16 +56,37 @@ type RawNamedExpression struct {
 //		expr := F("![Age] + ?[1] + ![Height] + ?[2] * ?[1]", 3, 4)
 //		fmt.Println(expr.SQL()) // prints: "table.age + ? + table.height + ? * ?"
 //		fmt.Println(expr.Args()) // prints: [3, 4, 3]
-
+//
 //	 # sets the field name to the first field found in the statement, I.E. ![Height]:
 //
 //		expr := F("? + ? + ![Height] + ? * ?", 4, 5, 6, 7)
 //		fmt.Println(expr.SQL()) // prints: "? + ? + table.height + ? * ?"
 //		fmt.Println(expr.Args()) // prints: [4, 5, 6, 7]
-func F(statement string, value ...any) NamedExpression {
-	statement, fields, values := ParseExprStatement(statement, value)
-
+func F(statement any, value ...any) NamedExpression {
+	var stmt string
 	var fieldName string
+	var fields []string
+	var values []any
+	switch v := statement.(type) {
+	case string:
+		stmt, fields, values = ParseExprStatement(v, value)
+	case NamedExpression:
+		return &chainExpr{
+			inner: append(
+				[]Expression{v},
+				expressionFromInterface[Expression](value)...,
+			),
+		}
+	default:
+		return &chainExpr{
+			inner: append(
+				expressionFromInterface[Expression](statement),
+				expressionFromInterface[Expression](value)...,
+			),
+		}
+
+	}
+
 	if len(fields) > 0 {
 		fieldName = fields[0]
 	} else {
@@ -73,30 +94,7 @@ func F(statement string, value ...any) NamedExpression {
 	}
 
 	return &RawNamedExpression{
-		Statement: statement,
-		Params:    values,
-		Fields:    fields,
-		Field:     fieldName,
-	}
-}
-
-// NamedF creates a new RawNamedExpression with the given statement and values.
-// It parses the statement to extract the fields and values, and returns a pointer to the new RawNamedExpression.
-//
-// The statement should contain placeholders for the fields and values, which will be replaced with the actual values.
-//
-// The placeholders for fields should be in the format ![FieldName], and the placeholders for values should be in the format ?[Index],
-// or the values should use the regular SQL placeholder directly (database driver dependent).
-//
-// Example usage:
-//
-//	expr := NamedF("Field1", "![Age] + ?[1] + ![Height] + ?[2] * ?[1]", 3, 4)
-//	fmt.Println(expr.SQL()) // prints: "table.age + ? + table.height + ? * ?"
-//	fmt.Println(expr.Args()) // prints: [3, 4, 3]
-func NamedF(fieldName, stmt string, value ...any) NamedExpression {
-	statement, fields, values := ParseExprStatement(stmt, value)
-	return &RawNamedExpression{
-		Statement: statement,
+		Statement: stmt,
 		Params:    values,
 		Fields:    fields,
 		Field:     fieldName,

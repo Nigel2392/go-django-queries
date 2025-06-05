@@ -127,7 +127,7 @@ func SubqueryIn(field any, qs *GenericQuerySet) expr.Expression {
 	case expr.NamedExpression:
 		f = v
 	case string:
-		f = expr.F(fmt.Sprintf("![%s]", v))
+		f = expr.Field(v)
 	default:
 		panic(fmt.Errorf("invalid type %T", v))
 	}

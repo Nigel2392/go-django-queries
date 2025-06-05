@@ -11,20 +11,67 @@ import (
 // It can be used like so, and supports no arguments:
 //
 //	StringExpr("a = b")
-type StringExpr string
+type String string
 
-func (e StringExpr) SQL(sb *strings.Builder) []any {
+func (e String) String() string {
+	return string(e)
+}
+
+func (e String) SQL(sb *strings.Builder) []any {
+	sb.WriteString(" ")
 	sb.WriteString(string(e))
+	sb.WriteString(" ")
 	return []any{}
 }
 
-func (e StringExpr) Clone() Expression {
-	return StringExpr([]byte(e))
+func (e String) Clone() Expression {
+	return String([]byte(e))
 }
 
 // Resolve resolves the expression by returning itself - this is a no-op for StringExpr.
-func (e StringExpr) Resolve(inf *ExpressionInfo) Expression {
+func (e String) Resolve(inf *ExpressionInfo) Expression {
 	return e
+}
+
+// field is a string type which implements the Expression interface.
+// It is used to represent a field in SQL queries.
+// It can be used like so:
+//
+//	Field("MyModel.MyField")
+type field struct {
+	field string
+	used  bool
+}
+
+func Field(fld string) NamedExpression {
+	return &field{field: fld}
+}
+
+func (e *field) FieldName() string {
+	return e.field
+}
+
+func (e *field) SQL(sb *strings.Builder) []any {
+	sb.WriteString(e.field)
+	return []any{}
+}
+
+func (e *field) Clone() Expression {
+	return &field{field: e.field, used: e.used}
+}
+
+func (e *field) Resolve(inf *ExpressionInfo) Expression {
+	if inf.Model == nil || e.used {
+		return e
+	}
+
+	var nE = e.Clone().(*field)
+	nE.used = true
+	nE.field = ResolveExpressionField(
+		inf, nE.field,
+	)
+
+	return nE
 }
 
 // Value is a type that implements the Expression interface.

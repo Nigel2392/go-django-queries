@@ -119,10 +119,7 @@ func newFunc[T comparable](registry *_lookups[any, T], funcLookup T, value []any
 		case Expression:
 			inner = append(inner, v)
 		case string:
-			if !strings.HasPrefix(v, "![") && !strings.HasSuffix(v, "]") {
-				v = fmt.Sprintf("![%s]", v)
-			}
-			inner = append(inner, F(v))
+			inner = append(inner, Field(v))
 		default:
 			panic("unsupported type")
 		}

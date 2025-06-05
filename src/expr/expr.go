@@ -3,6 +3,7 @@ package expr
 import (
 	"database/sql/driver"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/src/alias"
@@ -14,7 +15,7 @@ import (
 // It is used to compare two values in a logical expression.
 // The logical operators are used in the WHERE clause of a SQL query,
 // or inside of queryset join conditions.
-type LogicalOp string
+type LogicalOp = String
 
 const (
 	EQ  LogicalOp = "="
@@ -116,8 +117,12 @@ func (c *TableColumn) Validate() error {
 	return nil
 }
 
-type Expression interface {
+type SQLWriter interface {
 	SQL(sb *strings.Builder) []any
+}
+
+type Expression interface {
+	SQLWriter
 	Clone() Expression
 	Resolve(inf *ExpressionInfo) Expression
 }
@@ -180,4 +185,14 @@ var logicalOps = map[string]LogicalOp{
 	"<<": BITLSH,
 	">>": BITRSH,
 	"~":  BITNOT,
+}
+
+func Op(op any) (LogicalOp, bool) {
+	var rV = reflect.ValueOf(op)
+	if rV.Kind() == reflect.String {
+		var strOp = rV.String()
+		op, ok := logicalOps[strOp]
+		return op, ok
+	}
+	return "", false
 }

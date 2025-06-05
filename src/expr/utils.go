@@ -76,7 +76,7 @@ func expressionFromInterface[T Expression](exprValue interface{}) []T {
 			exprs = append(exprs, expressionFromInterface[T](expr)...)
 		}
 	case string:
-		exprs = append(exprs, F(v).(T))
+		exprs = append(exprs, Field(v).(T))
 	default:
 		var rTyp = reflect.TypeOf(exprValue)
 		var rVal = reflect.ValueOf(exprValue)

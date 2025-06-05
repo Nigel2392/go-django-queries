@@ -1067,7 +1067,7 @@ func TestQuerySetSelectExpressions(t *testing.T) {
 	}
 
 	var qs = queries.GetQuerySet[attrs.Definer](&Todo{}).
-		Select("ID", expr.F("UPPER(![Title])"), "Description", "Done").
+		Select("ID", expr.F(expr.FuncUpper("Title")), "Description", "Done").
 		Filter("Title", "TestQuerySet_Select_Expressions").
 		OrderBy("-ID")
 
@@ -2475,7 +2475,7 @@ func TestQueryGroupBy(t *testing.T) {
 		allTodosTitleMap[short] = struct{}{}
 	}
 
-	var expression = expr.FuncSubstr(expr.FuncLower("![Title]"), 1, 2)
+	var expression = expr.FuncSubstr(expr.FuncLower("Title"), 1, 2)
 	var qs = queries.GetQuerySet(&Todo{}).
 		Select("Title", "Done").
 		Annotate("shortTitle", expression).
@@ -2604,6 +2604,8 @@ func TestUpdateWithCast(t *testing.T) {
 		Update(
 			todo,
 			expr.Chain(
+				expr.Field("Title"),
+				expr.EQ,
 				expr.CastInt("Title"),
 				expr.ADD,
 				expr.CastInt("Description"),
@@ -2825,12 +2827,11 @@ func TestLogicalExpression(t *testing.T) {
 
 	var todos, err = queries.GetQuerySet(&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
-		Filter(expr.L(expr.Value(1, true)).
+		Filter(expr.Logical("Done", expr.EQ, expr.Value(1, true)).
 			ADD(1).
 			Scope(
 				expr.DIV,
-				expr.L(expr.Value(1, true)).
-					ADD(1),
+				expr.Logical(2),
 			).
 			EQ(1),
 		).All()

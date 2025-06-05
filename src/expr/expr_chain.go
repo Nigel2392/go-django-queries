@@ -7,17 +7,12 @@ import (
 )
 
 type chainExpr struct {
-	field     string
 	used      bool
 	forUpdate bool
 	inner     []Expression
 }
 
 func (e *chainExpr) FieldName() string {
-	if e.field != "" {
-		return e.field
-	}
-
 	for _, expr := range e.inner {
 		if namer, ok := expr.(NamedExpression); ok {
 			var name = namer.FieldName()
@@ -26,21 +21,12 @@ func (e *chainExpr) FieldName() string {
 			}
 		}
 	}
-
 	return ""
 }
 
 func (e *chainExpr) SQL(sb *strings.Builder) []any {
 	if len(e.inner) == 0 {
 		panic(fmt.Errorf("SQL chainExpr has no inner expressions"))
-	}
-
-	if e.field != "" {
-		sb.WriteString(e.field)
-	}
-
-	if e.forUpdate {
-		sb.WriteString(" = ")
 	}
 
 	var args = make([]any, 0)
@@ -58,7 +44,6 @@ func (e *chainExpr) Clone() Expression {
 	}
 
 	return &chainExpr{
-		field:     e.field,
 		used:      e.used,
 		forUpdate: e.forUpdate,
 		inner:     inner,
@@ -74,11 +59,6 @@ func (e *chainExpr) Resolve(inf *ExpressionInfo) Expression {
 
 	nE.used = true
 	nE.forUpdate = inf.ForUpdate
-	nE.field = ResolveExpressionField(inf, nE.field)
-
-	if nE.field == "" {
-		panic(fmt.Errorf("chainExpr requires a field name"))
-	}
 
 	if len(nE.inner) > 0 {
 		for i, inner := range nE.inner {
@@ -93,36 +73,19 @@ func Chain(expr ...any) NamedExpression {
 	var inner = make([]Expression, 0, len(expr))
 	var fieldName string
 
-exprLoop:
 	for i, e := range expr {
 
 		if n, ok := e.(NamedExpression); ok && (i == 0 || i > 0 && fieldName == "") {
 			fieldName = n.FieldName()
 		}
 
-		if opStr, ok := e.(string); ok {
-			op, ok := logicalOps[opStr]
-			if ok {
-				inner = append(inner, StringExpr(op))
-				continue exprLoop
-			}
-
-			if i == 0 && fieldName == "" {
-				fieldName = opStr
-				continue exprLoop
-			}
-		}
-
 		switch v := e.(type) {
 		case Expression:
 			inner = append(inner, v)
 		case LogicalOp:
-			inner = append(inner, StringExpr(v))
+			inner = append(inner, v)
 		case string:
-			if !strings.HasPrefix(v, "![") && !strings.HasSuffix(v, "]") {
-				v = fmt.Sprintf("![%s]", v)
-			}
-			inner = append(inner, F(v))
+			inner = append(inner, Field(v))
 		default:
 			panic("unsupported type")
 		}
@@ -133,7 +96,6 @@ exprLoop:
 	}
 
 	return &chainExpr{
-		field: fieldName,
 		inner: inner,
 	}
 }

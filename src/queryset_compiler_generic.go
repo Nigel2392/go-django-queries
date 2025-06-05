@@ -61,6 +61,15 @@ func (g *genericQueryBuilder) Quote() (string, string) {
 	return g.quote, g.quote
 }
 
+func (g *genericQueryBuilder) QuoteString(s string) string {
+	var sb strings.Builder
+	sb.Grow(len(s) + len(g.quote)*2)
+	sb.WriteString(g.quote)
+	sb.WriteString(s)
+	sb.WriteString(g.quote)
+	return sb.String()
+}
+
 func (g *genericQueryBuilder) FormatColumn(col *expr.TableColumn) (string, []any) {
 	var (
 		sb   = new(strings.Builder)
@@ -184,6 +193,7 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 			Model: attrs.NewObject[attrs.Definer](
 				model,
 			),
+			Quote:       g.QuoteString,
 			AliasGen:    qs.AliasGen,
 			FormatField: g.FormatColumn,
 			ForUpdate:   false,
@@ -280,6 +290,7 @@ func (g *genericQueryBuilder) BuildCountQuery(
 		Model: attrs.NewObject[attrs.Definer](
 			model,
 		),
+		Quote:       g.QuoteString,
 		AliasGen:    qs.AliasGen,
 		FormatField: g.FormatColumn,
 		ForUpdate:   false,
@@ -521,6 +532,7 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 		Model: attrs.NewObject[attrs.Definer](
 			model,
 		),
+		Quote:       g.QuoteString,
 		AliasGen:    qs.AliasGen,
 		FormatField: g.FormatColumn,
 		ForUpdate:   true,
@@ -612,7 +624,7 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 		Model: attrs.NewObject[attrs.Definer](
 			model,
 		),
-
+		Quote:       g.QuoteString,
 		AliasGen:    qs.AliasGen,
 		FormatField: g.FormatColumn,
 		ForUpdate:   false,

@@ -183,15 +183,20 @@ func (g *ExprGroup) Resolve(inf *ExpressionInfo) Expression {
 }
 
 type logicalChainExpr struct {
-	fieldName string
-	used      bool
-	forUpdate bool
-	inner     []Expression
+	parentheses bool // whether the expression should be wrapped in parentheses
+	fieldName   string
+	used        bool
+	forUpdate   bool
+	inner       []Expression
 }
 
 func L(expr ...any) LogicalExpression {
-	var inner = make([]Expression, 0, len(expr))
+	if len(expr) == 0 {
+		panic(fmt.Errorf("logicalChainExpr requires at least one inner expression"))
+	}
+
 	var fieldName string
+	var inner = make([]Expression, 0, len(expr))
 	for i, e := range expr {
 		if n, ok := e.(NamedExpression); ok && (i == 0 || i > 0 && fieldName == "") {
 			fieldName = n.FieldName()
@@ -207,18 +212,36 @@ func L(expr ...any) LogicalExpression {
 				continue
 			}
 		}
-		inner = append(inner, expressionFromInterface[Expression](e)...)
+
+		inner = append(
+			inner,
+			expressionFromInterface[Expression](e)...,
+		)
 	}
-	if len(inner) == 0 {
-		panic(fmt.Errorf("logicalChainExpr requires at least one inner expression"))
-	}
+
 	return &logicalChainExpr{
-		fieldName: fieldName,
-		used:      false,
-		forUpdate: false,
-		inner:     inner,
+		parentheses: false,
+		fieldName:   fieldName,
+		used:        false,
+		forUpdate:   false,
+		inner:       inner,
 	}
 }
+
+//
+// func (l *logicalChainExpr) Scope(fn func(LogicalExpression) LogicalExpression) LogicalExpression {
+// var clone = l.Clone().(*logicalChainExpr)
+// clone = fn(clone).(*logicalChainExpr)
+// clone.parentheses = true
+// var inner = slices.Clone(l.inner)
+// inner = append(inner, clone)
+// return &logicalChainExpr{
+// fieldName: l.fieldName,
+// used:      l.used,
+// forUpdate: l.forUpdate,
+// inner:     inner,
+// }
+// }
 
 func (l *logicalChainExpr) FieldName() string {
 	if len(l.inner) == 0 {
@@ -246,7 +269,7 @@ func (l *logicalChainExpr) SQL(sb *strings.Builder) []any {
 	if l.fieldName != "" {
 		sb.WriteString(l.fieldName)
 	}
-	if l.forUpdate {
+	if l.forUpdate && l.fieldName != "" {
 		sb.WriteString(" = ")
 	}
 	for _, inner := range l.inner {
@@ -280,10 +303,6 @@ func (l *logicalChainExpr) Resolve(inf *ExpressionInfo) Expression {
 		nE.fieldName = ResolveExpressionField(inf, nE.fieldName)
 	}
 
-	if nE.fieldName == "" {
-		panic(fmt.Errorf("logicalChainExpr requires a field name"))
-	}
-
 	if len(nE.inner) > 0 {
 		for i, inner := range nE.inner {
 			nE.inner[i] = inner.Resolve(inf)
@@ -294,24 +313,30 @@ func (l *logicalChainExpr) Resolve(inf *ExpressionInfo) Expression {
 }
 
 func (l *logicalChainExpr) chain(op LogicalOp, key interface{}, vals ...interface{}) LogicalExpression {
-	if l.fieldName == "" {
-		panic(fmt.Errorf("logicalChainExpr requires a field name before applying operation %s", op))
-	}
-	var copy = slices.Clone(l.inner)
-	copy = append(copy, StringExpr(op))
+	var (
+		copyExprs = slices.Clone(l.inner)
+	)
+	copyExprs = append(copyExprs, StringExpr(op))
+
 	if key != nil {
-		var exprs = expressionFromInterface[Expression](key)
-		copy = append(copy, exprs...)
+		copyExprs = append(
+			copyExprs,
+			expressionFromInterface[Expression](key)...,
+		)
 	}
-	if len(vals) > 0 {
-		var exprs = expressionFromInterface[Expression](vals)
-		copy = append(copy, exprs...)
+
+	for _, val := range vals {
+		copyExprs = append(
+			copyExprs,
+			expressionFromInterface[Expression](val)...,
+		)
 	}
+
 	return &logicalChainExpr{
 		fieldName: l.fieldName,
 		used:      l.used,
 		forUpdate: l.forUpdate,
-		inner:     copy,
+		inner:     copyExprs,
 	}
 }
 

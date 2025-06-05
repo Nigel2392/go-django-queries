@@ -61,22 +61,22 @@ func ParseExprStatement(statement string, value []any) (newStatement string, fie
 }
 
 func expressionFromInterface[T Expression](exprValue interface{}) []T {
-	var s = make([]T, 0)
+	var exprs = make([]T, 0)
 	switch v := exprValue.(type) {
 	case Expression:
-		s = append(s, v.(T))
+		exprs = append(exprs, v.(T))
 	case []Expression:
 		for _, expr := range v {
-			s = append(s, expr.(T))
+			exprs = append(exprs, expr.(T))
 		}
 	case []T:
-		s = append(s, v...)
+		exprs = append(exprs, v...)
 	case []any:
 		for _, expr := range v {
-			s = append(s, expressionFromInterface[T](expr)...)
+			exprs = append(exprs, expressionFromInterface[T](expr)...)
 		}
 	case string:
-		s = append(s, F(v).(T))
+		exprs = append(exprs, F(v).(T))
 	default:
 		var rTyp = reflect.TypeOf(exprValue)
 		var rVal = reflect.ValueOf(exprValue)
@@ -84,15 +84,14 @@ func expressionFromInterface[T Expression](exprValue interface{}) []T {
 		case reflect.Slice, reflect.Array:
 			for i := 0; i < rVal.Len(); i++ {
 				var elem = rVal.Index(i).Interface()
-				s = append(s, expressionFromInterface[T](elem)...)
+				exprs = append(exprs, expressionFromInterface[T](elem)...)
 			}
-			return s
 		default:
-			panic(fmt.Errorf("unsupported type %T for expression conversion", exprValue))
+			exprs = append(exprs, Value(v).(T))
 		}
-
 	}
-	return nil
+
+	return exprs
 }
 
 func Express(key interface{}, vals ...interface{}) []ClauseExpression {

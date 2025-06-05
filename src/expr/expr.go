@@ -53,6 +53,7 @@ type ExpressionInfo struct {
 	Model       attrs.Definer
 	AliasGen    *alias.Generator
 	FormatField func(*TableColumn) (string, []any)
+	Quote       func(string) string
 
 	// ForUpdate specifies if the expression is used in an UPDATE statement
 	// or UPDATE- like statement.
@@ -123,6 +124,7 @@ type Expression interface {
 
 type LogicalExpression interface {
 	Expression
+	// Scope(func(LogicalExpression) LogicalExpression) LogicalExpression
 	EQ(key interface{}, vals ...interface{}) LogicalExpression
 	NE(key interface{}, vals ...interface{}) LogicalExpression
 	GT(key interface{}, vals ...interface{}) LogicalExpression

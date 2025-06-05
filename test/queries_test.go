@@ -2816,6 +2816,28 @@ func TestGetOrCreateInTransaction(t *testing.T) {
 	}
 }
 
+func TestLogicalExpression(t *testing.T) {
+	//var todo = &Todo{
+	//	Title:       "TestLogicalExpression",
+	//	Description: "This is a new test todo",
+	//	Done:        false,
+	//}
+
+	var todos, err = queries.GetQuerySet(&Todo{}).
+		Select("ID", "Title", "Description", "Done", "User").
+		Filter(expr.L(expr.Value(1, true)).ADD(1).EQ(2)).All()
+	if err != nil {
+		t.Fatalf("Failed to get todos: %v", err)
+	}
+
+	if len(todos) == 0 {
+		t.Fatalf("Expected at least 1 todo, got 0")
+	}
+
+	t.Logf("Todos with logical expression: %d todos found", len(todos))
+
+}
+
 //
 //	func TestFakeModel(t *testing.T) {
 //

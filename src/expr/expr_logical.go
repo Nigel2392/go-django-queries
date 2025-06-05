@@ -228,13 +228,13 @@ func L(expr ...any) LogicalExpression {
 	}
 }
 
-func (l *logicalChainExpr) Scope(fn func() LogicalExpression) LogicalExpression {
+func (l *logicalChainExpr) Scope(op LogicalOp, expr Expression) LogicalExpression {
 	return &logicalChainExpr{
 		fieldName: l.fieldName,
 		used:      l.used,
 		forUpdate: l.forUpdate,
-		inner: append(slices.Clone(l.inner), &ExprGroup{
-			children: []Expression{fn()},
+		inner: append(slices.Clone(l.inner), StringExpr(op), &ExprGroup{
+			children: []Expression{expr},
 			op:       "",
 		}),
 	}

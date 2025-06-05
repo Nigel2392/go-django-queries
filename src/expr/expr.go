@@ -124,7 +124,7 @@ type Expression interface {
 
 type LogicalExpression interface {
 	Expression
-	// Scope(func(LogicalExpression) LogicalExpression) LogicalExpression
+	Scope(LogicalOp, Expression) LogicalExpression
 	EQ(key interface{}, vals ...interface{}) LogicalExpression
 	NE(key interface{}, vals ...interface{}) LogicalExpression
 	GT(key interface{}, vals ...interface{}) LogicalExpression

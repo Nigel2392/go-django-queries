@@ -2825,7 +2825,15 @@ func TestLogicalExpression(t *testing.T) {
 
 	var todos, err = queries.GetQuerySet(&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
-		Filter(expr.L(expr.Value(1, true)).ADD(1).EQ(2)).All()
+		Filter(expr.L(expr.Value(1, true)).
+			ADD(1).
+			Scope(
+				expr.LogicalOpDIV,
+				expr.L(expr.Value(1, true)).
+					ADD(1),
+			).
+			EQ(1),
+		).All()
 	if err != nil {
 		t.Fatalf("Failed to get todos: %v", err)
 	}

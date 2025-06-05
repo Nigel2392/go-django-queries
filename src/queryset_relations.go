@@ -111,7 +111,7 @@ func (t *relatedQuerySet[T, T2]) setup() {
 		}
 
 		condition = &JoinDefCondition{
-			Operator: expr.LogicalOpEQ,
+			Operator: expr.EQ,
 			ConditionA: expr.TableColumn{
 				TableOrAlias: targetFieldInfo.Table.Name,
 				FieldColumn:  t.source.Field,
@@ -123,7 +123,7 @@ func (t *relatedQuerySet[T, T2]) setup() {
 		}
 
 		condition.Next = &JoinDefCondition{
-			Operator: expr.LogicalOpEQ,
+			Operator: expr.EQ,
 			ConditionA: expr.TableColumn{
 				TableOrAlias: targetFieldInfo.Through.Table.Alias,
 				FieldColumn:  throughObject.sourceField,

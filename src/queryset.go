@@ -748,7 +748,7 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 
 	var joinCond = &JoinDefCondition{
 		ConditionA: condA,
-		Operator:   expr.LogicalOpEQ,
+		Operator:   expr.EQ,
 		ConditionB: condB,
 	}
 
@@ -823,7 +823,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 			Alias: aliasThrough,
 		},
 		JoinDefCondition: &JoinDefCondition{
-			Operator: expr.LogicalOpEQ,
+			Operator: expr.EQ,
 			ConditionA: expr.TableColumn{
 				TableOrAlias: parentAlias,
 				FieldColumn:  parentField,
@@ -843,7 +843,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 			Alias: alias,
 		},
 		JoinDefCondition: &JoinDefCondition{
-			Operator: expr.LogicalOpEQ,
+			Operator: expr.EQ,
 			ConditionA: expr.TableColumn{
 				TableOrAlias: aliasThrough,
 				FieldColumn:  throughTargetField,

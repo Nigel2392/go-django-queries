@@ -338,53 +338,53 @@ func (l *logicalChainExpr) chain(op LogicalOp, key interface{}, vals ...interfac
 }
 
 func (l *logicalChainExpr) EQ(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpEQ, key, vals...)
+	return l.chain(EQ, key, vals...)
 }
 func (l *logicalChainExpr) NE(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpNE, key, vals...)
+	return l.chain(NE, key, vals...)
 }
 func (l *logicalChainExpr) GT(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpGT, key, vals...)
+	return l.chain(GT, key, vals...)
 }
 func (l *logicalChainExpr) LT(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpLT, key, vals...)
+	return l.chain(LT, key, vals...)
 }
 func (l *logicalChainExpr) GTE(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpGTE, key, vals...)
+	return l.chain(GTE, key, vals...)
 }
 func (l *logicalChainExpr) LTE(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpLTE, key, vals...)
+	return l.chain(LTE, key, vals...)
 }
 func (l *logicalChainExpr) ADD(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpADD, key, vals...)
+	return l.chain(ADD, key, vals...)
 }
 func (l *logicalChainExpr) SUB(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpSUB, key, vals...)
+	return l.chain(SUB, key, vals...)
 }
 func (l *logicalChainExpr) MUL(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpMUL, key, vals...)
+	return l.chain(MUL, key, vals...)
 }
 func (l *logicalChainExpr) DIV(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpDIV, key, vals...)
+	return l.chain(DIV, key, vals...)
 }
 func (l *logicalChainExpr) MOD(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpMOD, key, vals...)
+	return l.chain(MOD, key, vals...)
 }
 func (l *logicalChainExpr) BITAND(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpBITAND, key, vals...)
+	return l.chain(BITAND, key, vals...)
 }
 func (l *logicalChainExpr) BITOR(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpBITOR, key, vals...)
+	return l.chain(BITOR, key, vals...)
 }
 func (l *logicalChainExpr) BITXOR(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpBITXOR, key, vals...)
+	return l.chain(BITXOR, key, vals...)
 }
 func (l *logicalChainExpr) BITLSH(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpBITLSH, key, vals...)
+	return l.chain(BITLSH, key, vals...)
 }
 func (l *logicalChainExpr) BITRSH(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpBITRSH, key, vals...)
+	return l.chain(BITRSH, key, vals...)
 }
 func (l *logicalChainExpr) BITNOT(key interface{}, vals ...interface{}) LogicalExpression {
-	return l.chain(LogicalOpBITNOT, key, vals...)
+	return l.chain(BITNOT, key, vals...)
 }

@@ -17,25 +17,25 @@ import (
 type LogicalOp string
 
 const (
-	LogicalOpEQ  LogicalOp = "="
-	LogicalOpNE  LogicalOp = "!="
-	LogicalOpGT  LogicalOp = ">"
-	LogicalOpLT  LogicalOp = "<"
-	LogicalOpGTE LogicalOp = ">="
-	LogicalOpLTE LogicalOp = "<="
+	EQ  LogicalOp = "="
+	NE  LogicalOp = "!="
+	GT  LogicalOp = ">"
+	LT  LogicalOp = "<"
+	GTE LogicalOp = ">="
+	LTE LogicalOp = "<="
 
-	LogicalOpADD LogicalOp = "+"
-	LogicalOpSUB LogicalOp = "-"
-	LogicalOpMUL LogicalOp = "*"
-	LogicalOpDIV LogicalOp = "/"
-	LogicalOpMOD LogicalOp = "%"
+	ADD LogicalOp = "+"
+	SUB LogicalOp = "-"
+	MUL LogicalOp = "*"
+	DIV LogicalOp = "/"
+	MOD LogicalOp = "%"
 
-	LogicalOpBITAND LogicalOp = "&"
-	LogicalOpBITOR  LogicalOp = "|"
-	LogicalOpBITXOR LogicalOp = "^"
-	LogicalOpBITLSH LogicalOp = "<<"
-	LogicalOpBITRSH LogicalOp = ">>"
-	LogicalOpBITNOT LogicalOp = "~"
+	BITAND LogicalOp = "&"
+	BITOR  LogicalOp = "|"
+	BITXOR LogicalOp = "^"
+	BITLSH LogicalOp = "<<"
+	BITRSH LogicalOp = ">>"
+	BITNOT LogicalOp = "~"
 )
 
 // ExprOp represents the expression operator to use in a query.
@@ -159,25 +159,25 @@ type NamedExpression interface {
 
 var logicalOps = map[string]LogicalOp{
 	// Equality comparison operators
-	"=":  LogicalOpEQ,
-	"!=": LogicalOpNE,
-	">":  LogicalOpGT,
-	"<":  LogicalOpLT,
-	">=": LogicalOpGTE,
-	"<=": LogicalOpLTE,
+	"=":  EQ,
+	"!=": NE,
+	">":  GT,
+	"<":  LT,
+	">=": GTE,
+	"<=": LTE,
 
 	// Arithmetic operators
-	"+": LogicalOpADD,
-	"-": LogicalOpSUB,
-	"*": LogicalOpMUL,
-	"/": LogicalOpDIV,
-	"%": LogicalOpMOD,
+	"+": ADD,
+	"-": SUB,
+	"*": MUL,
+	"/": DIV,
+	"%": MOD,
 
 	// Bitwise operators
-	"&":  LogicalOpBITAND,
-	"|":  LogicalOpBITOR,
-	"^":  LogicalOpBITXOR,
-	"<<": LogicalOpBITLSH,
-	">>": LogicalOpBITRSH,
-	"~":  LogicalOpBITNOT,
+	"&":  BITAND,
+	"|":  BITOR,
+	"^":  BITXOR,
+	"<<": BITLSH,
+	">>": BITRSH,
+	"~":  BITNOT,
 }

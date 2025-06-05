@@ -2605,7 +2605,7 @@ func TestUpdateWithCast(t *testing.T) {
 			todo,
 			expr.Chain(
 				expr.CastInt("Title"),
-				expr.LogicalOpADD,
+				expr.ADD,
 				expr.CastInt("Description"),
 			),
 		)
@@ -2828,7 +2828,7 @@ func TestLogicalExpression(t *testing.T) {
 		Filter(expr.L(expr.Value(1, true)).
 			ADD(1).
 			Scope(
-				expr.LogicalOpDIV,
+				expr.DIV,
 				expr.L(expr.Value(1, true)).
 					ADD(1),
 			).

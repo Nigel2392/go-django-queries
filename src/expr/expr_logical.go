@@ -134,9 +134,11 @@ func (g *ExprGroup) SQL(sb *strings.Builder) []any {
 	var args = make([]any, 0)
 	for i, child := range g.children {
 		if i > 0 {
-			sb.WriteString(" ")
-			sb.WriteString(string(g.op))
-			sb.WriteString(" ")
+			if g.op != "" {
+				sb.WriteString(" ")
+				sb.WriteString(string(g.op))
+				sb.WriteString(" ")
+			}
 		}
 
 		args = append(args, child.SQL(sb)...)
@@ -228,20 +230,17 @@ func L(expr ...any) LogicalExpression {
 	}
 }
 
-//
-// func (l *logicalChainExpr) Scope(fn func(LogicalExpression) LogicalExpression) LogicalExpression {
-// var clone = l.Clone().(*logicalChainExpr)
-// clone = fn(clone).(*logicalChainExpr)
-// clone.parentheses = true
-// var inner = slices.Clone(l.inner)
-// inner = append(inner, clone)
-// return &logicalChainExpr{
-// fieldName: l.fieldName,
-// used:      l.used,
-// forUpdate: l.forUpdate,
-// inner:     inner,
-// }
-// }
+func (l *logicalChainExpr) Scope(fn func() LogicalExpression) LogicalExpression {
+	return &logicalChainExpr{
+		fieldName: l.fieldName,
+		used:      l.used,
+		forUpdate: l.forUpdate,
+		inner: append(slices.Clone(l.inner), &ExprGroup{
+			children: []Expression{fn()},
+			op:       "",
+		}),
+	}
+}
 
 func (l *logicalChainExpr) FieldName() string {
 	if len(l.inner) == 0 {

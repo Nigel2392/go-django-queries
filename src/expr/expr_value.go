@@ -27,6 +27,14 @@ func (e StringExpr) Resolve(inf *ExpressionInfo) Expression {
 	return e
 }
 
+// Value is a type that implements the Expression interface.
+// It is used to represent a value in SQL queries, allowing for both safe and unsafe usage.
+// It can be used like so:
+//
+//	Value("some value") // safe usage
+//	Value("some value", true) // unsafe usage, will not use placeholders
+//
+// The unsafe usage allows for direct insertion of values into the SQL query, which can be dangerous if not used carefully.
 type value struct {
 	v      any
 	used   bool

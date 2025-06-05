@@ -185,11 +185,10 @@ func (g *ExprGroup) Resolve(inf *ExpressionInfo) Expression {
 }
 
 type logicalChainExpr struct {
-	parentheses bool // whether the expression should be wrapped in parentheses
-	fieldName   string
-	used        bool
-	forUpdate   bool
-	inner       []Expression
+	fieldName string
+	used      bool
+	forUpdate bool
+	inner     []Expression
 }
 
 func L(expr ...any) LogicalExpression {
@@ -222,11 +221,10 @@ func L(expr ...any) LogicalExpression {
 	}
 
 	return &logicalChainExpr{
-		parentheses: false,
-		fieldName:   fieldName,
-		used:        false,
-		forUpdate:   false,
-		inner:       inner,
+		fieldName: fieldName,
+		used:      false,
+		forUpdate: false,
+		inner:     inner,
 	}
 }
 

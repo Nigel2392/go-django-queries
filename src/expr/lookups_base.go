@@ -15,7 +15,7 @@ type BaseLookup struct {
 	ArgMin         int
 	ArgMax         int
 	Normalize      func(any) any
-	ResolveFunc    func(inf *ExpressionInfo, lhsResolved Expression, values []any) LookupExpression
+	ResolveFunc    func(inf *ExpressionInfo, lhsResolved ResolvedExpression, values []any) LookupExpression
 }
 
 func (l *BaseLookup) Drivers() []driver.Driver {
@@ -41,7 +41,7 @@ func (l *BaseLookup) NormalizeArgs(inf *ExpressionInfo, values []any) ([]any, er
 	return newValues, nil
 }
 
-func (l *BaseLookup) Resolve(inf *ExpressionInfo, lhsResolved Expression, values []any) func(sb *strings.Builder) []any {
+func (l *BaseLookup) Resolve(inf *ExpressionInfo, lhsResolved ResolvedExpression, values []any) func(sb *strings.Builder) []any {
 	if l.ResolveFunc == nil {
 		panic(fmt.Sprintf(
 			"lookup %q does not have a resolve function defined, cannot be used",
@@ -56,7 +56,7 @@ type LogicalLookup struct {
 	Operator LogicalOp
 }
 
-func (l *LogicalLookup) Resolve(inf *ExpressionInfo, lhsResolved Expression, values []any) func(sb *strings.Builder) []any {
+func (l *LogicalLookup) Resolve(inf *ExpressionInfo, lhsResolved ResolvedExpression, values []any) func(sb *strings.Builder) []any {
 	return func(sb *strings.Builder) []any {
 		var lhsExpr strings.Builder
 		var args = lhsResolved.SQL(&lhsExpr)
@@ -112,7 +112,7 @@ func (l *PatternLookup) NormalizeArgs(inf *ExpressionInfo, value []any) ([]any, 
 	return []any{normalizedValue}, nil
 }
 
-func (l *PatternLookup) Resolve(inf *ExpressionInfo, resolvedExpression Expression, values []any) func(sb *strings.Builder) []any {
+func (l *PatternLookup) Resolve(inf *ExpressionInfo, resolvedExpression ResolvedExpression, values []any) func(sb *strings.Builder) []any {
 
 	return func(sb *strings.Builder) []any {
 		var lhsExpr strings.Builder
@@ -173,7 +173,7 @@ func (l *IsNullLookup) NormalizeArgs(inf *ExpressionInfo, values []any) ([]any, 
 	return []any{isNull}, nil
 }
 
-func (l *IsNullLookup) Resolve(inf *ExpressionInfo, resolvedExpression Expression, values []any) func(sb *strings.Builder) []any {
+func (l *IsNullLookup) Resolve(inf *ExpressionInfo, resolvedExpression ResolvedExpression, values []any) func(sb *strings.Builder) []any {
 	return func(sb *strings.Builder) []any {
 		var lhsExpr strings.Builder
 		var args = resolvedExpression.SQL(&lhsExpr)
@@ -213,7 +213,7 @@ func (l *InLookup) NormalizeArgs(inf *ExpressionInfo, values []any) ([]any, erro
 	return flattenList(values), nil
 }
 
-func (l *InLookup) Resolve(inf *ExpressionInfo, resolvedExpression Expression, values []any) func(sb *strings.Builder) []any {
+func (l *InLookup) Resolve(inf *ExpressionInfo, resolvedExpression ResolvedExpression, values []any) func(sb *strings.Builder) []any {
 	return func(sb *strings.Builder) []any {
 		var lhsExpr strings.Builder
 		var args = resolvedExpression.SQL(&lhsExpr)
@@ -258,7 +258,7 @@ func (l *RangeLookup) Arity() (min, max int) {
 	return 2, 2 // exactly two arguments
 }
 
-func (l *RangeLookup) Resolve(inf *ExpressionInfo, resolvedExpression Expression, values []any) func(sb *strings.Builder) []any {
+func (l *RangeLookup) Resolve(inf *ExpressionInfo, resolvedExpression ResolvedExpression, values []any) func(sb *strings.Builder) []any {
 	return func(sb *strings.Builder) []any {
 		if len(values) != 2 {
 			panic(fmt.Sprintf("lookup %s requires exactly two values, got %d", l.Identifier, len(values)))

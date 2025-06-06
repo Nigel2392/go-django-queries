@@ -48,10 +48,23 @@ func init() {
 		Identifier: LOOKUP_ISNULL,
 	}})
 
+	RegisterTransforms(&BaseTransform{
+		Identifier: "lower",
+		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
+			return FuncLower(lhsResolved).Resolve(inf), nil
+		},
+	})
+	RegisterTransforms(&BaseTransform{
+		Identifier: "upper",
+		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
+			return FuncUpper(lhsResolved).Resolve(inf), nil
+		},
+	})
 }
 
 const (
 	ErrLookupNotFound    errs.Error = "lookup not found"
+	ErrTransformNotFound errs.Error = "transform not found"
 	ErrLookupArgsInvalid errs.Error = "lookup arguments invalid"
 
 	LOOKUP_EXACT       = "exact"
@@ -99,13 +112,26 @@ func RegisterLookup(Lookup Lookup) {
 		panic("lookup cannot be nil")
 	}
 
-	lookupsRegistry.Register(Lookup)
+	lookupsRegistry.RegisterLookup(Lookup)
+}
+
+func RegisterTransforms(transforms ...LookupTransform) {
+	if len(transforms) == 0 {
+		panic("at least one transform must be provided")
+	}
+
+	for _, transform := range transforms {
+		if transform == nil {
+			panic("transform cannot be nil")
+		}
+		lookupsRegistry.RegisterTransform(transform)
+	}
 }
 
 // GetLookup retrieves a lookup function based on the provided expression info, lookup name, inner expression, and arguments.
 // It returns a function that can be used to build a SQL string with the lookup applied.
 // The LHS will need to be either an Expression (RESOLVED ALREADY!) or a sql `table`.`column` pair.
-func GetLookup(inf *ExpressionInfo, lookupName string, lhs any, args []any) (func(sb *strings.Builder) []any, error) {
+func GetLookup(inf *ExpressionInfo, transforms []string, lookupName string, lhs any, args []any) (func(sb *strings.Builder) []any, error) {
 	if inf == nil {
 		return nil, fmt.Errorf("expression info cannot be nil")
 	}
@@ -114,5 +140,5 @@ func GetLookup(inf *ExpressionInfo, lookupName string, lhs any, args []any) (fun
 		lookupName = DEFAULT_LOOKUP
 	}
 
-	return lookupsRegistry.Lookup(inf, lookupName, lhs, args)
+	return lookupsRegistry.Lookup(inf, transforms, lookupName, lhs, args)
 }

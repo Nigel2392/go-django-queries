@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/Nigel2392/go-django-queries/internal"
-	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -15,20 +14,9 @@ import (
 	"github.com/Nigel2392/go-signals"
 	"github.com/Nigel2392/goldcrest"
 	"github.com/elliotchance/orderedmap/v2"
-	"github.com/go-sql-driver/mysql"
-	pg_stdlib "github.com/jackc/pgx/v5/stdlib"
-	"github.com/mattn/go-sqlite3"
 )
 
 func init() {
-	drivers.RegisterDriver(&mysql.MySQLDriver{}, "mysql", drivers.SupportsReturningLastInsertId)
-	drivers.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", drivers.SupportsReturningColumns)
-	drivers.RegisterDriver(&pg_stdlib.Driver{}, "postgres", drivers.SupportsReturningColumns)
-	drivers.RegisterDriver(&pg_stdlib.Driver{}, "pgx", drivers.SupportsReturningColumns)
-
-	RegisterCompiler(&mysql.MySQLDriver{}, NewGenericQueryBuilder)
-	RegisterCompiler(&sqlite3.SQLiteDriver{}, NewGenericQueryBuilder)
-	RegisterCompiler(&pg_stdlib.Driver{}, NewGenericQueryBuilder)
 
 	goldcrest.Register(models.MODEL_SAVE_HOOK, 0, models.ModelFunc(func(c context.Context, m attrs.Definer) (changed bool, err error) {
 		if u, ok := m.(ForUseInQueries); ok && !u.ForUseInQueries() {

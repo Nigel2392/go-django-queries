@@ -50,6 +50,28 @@ const (
 
 type LookupExpression = func(sb *strings.Builder) []any
 
+type LookupTransform interface {
+	// returns the drivers that support this transform
+	// if empty, the transform is supported by all drivers
+	Drivers() []driver.Driver
+
+	// name of the transform
+	Name() string
+
+	//	// Allowed transform types which can be applied aftr this transform.
+	//	// If empty, any transform can be applied after this transform.
+	//	// If nil, no transforms are allowed after this transform.
+	//	AllowedTransforms() []string
+	//
+	//	// AllowedLookups returns the lookups that can be applied after this transform.
+	//	// 'exact', 'not' and 'is_null' are always allowed, so they dont have to be specified.
+	//	// If empty, any lookup can be applied after this transform.
+	//	AllowedLookups() []string
+
+	// Resolves the expression and generates a new expressionq
+	Resolve(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error)
+}
+
 type Lookup interface {
 	// returns the drivers that support this lookup
 	// if empty, the lookup is supported by all drivers
@@ -66,7 +88,7 @@ type Lookup interface {
 
 	// Resolve resolves the lookup for the given field and value
 	// and generates an expression for the lookup.
-	Resolve(inf *ExpressionInfo, lhsResolved Expression, args []any) LookupExpression
+	Resolve(inf *ExpressionInfo, lhsResolved ResolvedExpression, args []any) LookupExpression
 }
 
 type TableColumn struct {
@@ -123,8 +145,12 @@ func (c *TableColumn) Validate() error {
 	return nil
 }
 
-type Expression interface {
+type ResolvedExpression interface {
 	SQL(sb *strings.Builder) []any
+}
+
+type Expression interface {
+	ResolvedExpression
 	Clone() Expression
 	Resolve(inf *ExpressionInfo) Expression
 }

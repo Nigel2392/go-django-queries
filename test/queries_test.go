@@ -470,6 +470,7 @@ func (t *ModelManyToMany_Target) FieldDefs() attrs.Definitions {
 
 func init() {
 	// make db globally available
+	// var db, err = sql.Open("mysql", "root:password@tcp(localhost:3306)/queries_test?parseTime=true")
 	var db, err = sql.Open("sqlite3", "file:queries_memory?mode=memory&cache=shared")
 	// var db, err = sql.Open("sqlite3", "file:queries_test.db")
 	if err != nil {

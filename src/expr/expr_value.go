@@ -37,25 +37,26 @@ func (e String) Resolve(inf *ExpressionInfo) Expression {
 //
 //	Field("MyModel.MyField")
 type field struct {
-	field string
-	used  bool
+	fieldName string
+	field     *ResolvedField
+	used      bool
 }
 
 func Field(fld string) NamedExpression {
-	return &field{field: fld}
+	return &field{fieldName: fld}
 }
 
 func (e *field) FieldName() string {
-	return e.field
+	return e.fieldName
 }
 
 func (e *field) SQL(sb *strings.Builder) []any {
-	sb.WriteString(e.field)
+	sb.WriteString(e.field.Column)
 	return []any{}
 }
 
 func (e *field) Clone() Expression {
-	return &field{field: e.field, used: e.used}
+	return &field{fieldName: e.fieldName, field: e.field, used: e.used}
 }
 
 func (e *field) Resolve(inf *ExpressionInfo) Expression {
@@ -66,7 +67,7 @@ func (e *field) Resolve(inf *ExpressionInfo) Expression {
 	var nE = e.Clone().(*field)
 	nE.used = true
 	nE.field = ResolveExpressionField(
-		inf, nE.field,
+		inf, nE.fieldName,
 	)
 
 	return nE

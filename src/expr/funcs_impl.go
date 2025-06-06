@@ -10,7 +10,8 @@ type function[LookupType comparable] struct {
 	reg        *_lookups[any, LookupType]
 	sql        func(col any, value []any) (sql string, args []any, err error)
 	funcLookup LookupType
-	field      string
+	fieldName  string
+	field      *ResolvedField
 	args       []any
 	used       bool
 	inner      []Expression
@@ -19,8 +20,12 @@ type function[LookupType comparable] struct {
 type Function = function[string]
 
 func (e *function[T]) FieldName() string {
-	if e.field != "" {
-		return e.field
+	if e.fieldName != "" {
+		return e.fieldName
+	}
+
+	if e.field != nil && e.field.Field != "" {
+		return e.field.Field
 	}
 
 	for _, expr := range e.inner {
@@ -73,6 +78,7 @@ func (e *function[T]) Clone() Expression {
 		reg:        e.reg,
 		sql:        e.sql,
 		funcLookup: e.funcLookup,
+		fieldName:  e.fieldName,
 		field:      e.field,
 		args:       slices.Clone(e.args),
 		used:       e.used,
@@ -105,8 +111,8 @@ func (e *function[T]) Resolve(inf *ExpressionInfo) Expression {
 		return sql(inf.Driver, col, value)
 	}
 
-	if nE.field != "" {
-		nE.field = ResolveExpressionField(inf, nE.field)
+	if nE.fieldName != "" {
+		nE.field = ResolveExpressionField(inf, nE.fieldName)
 	}
 
 	return nE

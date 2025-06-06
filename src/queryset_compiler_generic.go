@@ -12,8 +12,22 @@ import (
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/go-sql-driver/mysql"
+	pg_stdlib "github.com/jackc/pgx/v5/stdlib"
+	"github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 )
+
+func init() {
+	drivers.RegisterDriver(&mysql.MySQLDriver{}, "mysql", drivers.SupportsReturningLastInsertId)
+	drivers.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", drivers.SupportsReturningColumns)
+	drivers.RegisterDriver(&pg_stdlib.Driver{}, "postgres", drivers.SupportsReturningColumns)
+	drivers.RegisterDriver(&pg_stdlib.Driver{}, "pgx", drivers.SupportsReturningColumns)
+
+	RegisterCompiler(&mysql.MySQLDriver{}, NewGenericQueryBuilder)
+	RegisterCompiler(&sqlite3.SQLiteDriver{}, NewGenericQueryBuilder)
+	RegisterCompiler(&pg_stdlib.Driver{}, NewGenericQueryBuilder)
+}
 
 func newExpressionInfo(g *genericQueryBuilder, qs *QuerySet[attrs.Definer], updating bool) *expr.ExpressionInfo {
 	return &expr.ExpressionInfo{

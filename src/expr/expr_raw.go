@@ -140,7 +140,8 @@ func (e *RawNamedExpression) Resolve(inf *ExpressionInfo) Expression {
 	nE.used = true
 
 	for i, field := range nE.Fields {
-		nE.Fields[i] = ResolveExpressionField(inf, field)
+		var resolved = ResolveExpressionField(inf, field)
+		nE.Fields[i] = resolved.Column
 	}
 
 	return nE

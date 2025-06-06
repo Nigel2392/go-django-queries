@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/internal"
+	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
 var (
@@ -147,31 +148,39 @@ func Express(key interface{}, vals ...interface{}) []ClauseExpression {
 	}
 }
 
-func ResolveExpressionArgs(inf *ExpressionInfo, arguments []any) []any {
-	var args = make([]any, 0, len(arguments))
-
-	for _, arg := range arguments {
-
-		if expr, ok := arg.(Expression); ok {
-			var (
-				sb    strings.Builder
-				exCpy = expr.Resolve(inf)
-				extra = exCpy.SQL(&sb)
-				sql   = sb.String()
-			)
-
-			args = append(args, sql)
-			args = append(args, extra...)
-			continue
-		}
-
-		args = append(args, arg)
-	}
-
-	return args
+type LookupField interface {
+	attrs.FieldDefinition
+	AllowedTransforms() []string
+	AllowedLookups() []string
 }
 
-func ResolveExpressionField(inf *ExpressionInfo, field string) string {
+type ResolvedField struct {
+	FieldPath         string
+	Field             string
+	Column            string
+	AllowedTransforms []string
+	AllowedLookups    []string
+}
+
+func newResolvedField(fieldPath, column string, field attrs.FieldDefinition) *ResolvedField {
+	var (
+		transforms []string
+		lookups    []string
+	)
+	if v, ok := field.(LookupField); ok {
+		transforms = v.AllowedTransforms()
+		lookups = v.AllowedLookups()
+	}
+	return &ResolvedField{
+		FieldPath:         fieldPath,
+		Field:             field.Name(),
+		Column:            column,
+		AllowedTransforms: transforms,
+		AllowedLookups:    lookups,
+	}
+}
+
+func ResolveExpressionField(inf *ExpressionInfo, field string) *ResolvedField {
 	var current, _, f, chain, aliases, isRelated, err = internal.WalkFields(inf.Model, field, inf.AliasGen)
 	if err != nil {
 		panic(err)
@@ -196,36 +205,14 @@ func ResolveExpressionField(inf *ExpressionInfo, field string) string {
 		}
 
 		var sql, _ = inf.FormatField(col)
-		return sql
+		return newResolvedField(
+			field, sql, f,
+		)
 	}
 
 	col.FieldColumn = f
 	var sql, _ = inf.FormatField(col)
-	return sql
-}
-
-func normalizeArgs(op string, value []any) []any {
-	if len(value) > 0 {
-		switch op {
-		case "icontains", "contains":
-			for i := range value {
-				if s, ok := value[i].(string); ok {
-					value[i] = "%" + s + "%"
-				}
-			}
-		case "istartswith", "startswith":
-			for i := range value {
-				if s, ok := value[i].(string); ok {
-					value[i] = s + "%"
-				}
-			}
-		case "iendswith", "endswith":
-			for i := range value {
-				if s, ok := value[i].(string); ok {
-					value[i] = "%" + s
-				}
-			}
-		}
-	}
-	return value
+	return newResolvedField(
+		field, sql, f,
+	)
 }

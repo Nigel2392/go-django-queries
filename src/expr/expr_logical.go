@@ -68,7 +68,7 @@ func (e *ExprNode) Resolve(inf *ExpressionInfo) Expression {
 		inf, nE.field,
 	)
 	nE.sql, err = GetLookup(
-		inf, nE.lookup, String(col), nE.args,
+		inf, []string{}, nE.lookup, String(col.Column), nE.args,
 	)
 	if err != nil {
 		panic(err)
@@ -186,6 +186,7 @@ func (g *ExprGroup) Resolve(inf *ExpressionInfo) Expression {
 
 type logicalChainExpr struct {
 	fieldName string
+	field     *ResolvedField
 	used      bool
 	forUpdate bool
 	inner     []Expression
@@ -224,6 +225,9 @@ func (l *logicalChainExpr) FieldName() string {
 	if l.fieldName != "" {
 		return l.fieldName
 	}
+	if l.field != nil && l.field.Field != "" {
+		return l.field.Field
+	}
 	for _, expr := range l.inner {
 		if namer, ok := expr.(NamedExpression); ok {
 			var name = namer.FieldName()
@@ -240,11 +244,13 @@ func (l *logicalChainExpr) SQL(sb *strings.Builder) []any {
 		panic(fmt.Errorf("SQL logicalChainExpr has no inner expressions"))
 	}
 	var args = make([]any, 0)
-	if l.fieldName != "" {
-		sb.WriteString(l.fieldName)
-	}
-	if l.forUpdate && l.fieldName != "" {
-		sb.WriteString(" = ")
+	if l.field != nil {
+		if l.field.Column != "" {
+			sb.WriteString(l.field.Column)
+		}
+		if l.forUpdate && l.field.Column != "" {
+			sb.WriteString(" = ")
+		}
 	}
 	for _, inner := range l.inner {
 		args = append(args, inner.SQL(sb)...)
@@ -259,6 +265,7 @@ func (l *logicalChainExpr) Clone() Expression {
 	}
 	return &logicalChainExpr{
 		fieldName: l.fieldName,
+		field:     l.field,
 		used:      l.used,
 		forUpdate: l.forUpdate,
 		inner:     inner,
@@ -274,7 +281,7 @@ func (l *logicalChainExpr) Resolve(inf *ExpressionInfo) Expression {
 	nE.forUpdate = inf.ForUpdate
 
 	if nE.fieldName != "" {
-		nE.fieldName = ResolveExpressionField(inf, nE.fieldName)
+		nE.field = ResolveExpressionField(inf, nE.fieldName)
 	}
 
 	if len(nE.inner) > 0 {

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/go-sql-driver/mysql"
 )
 
 const (
@@ -20,23 +20,23 @@ const (
 // MYSQL TYPES
 func init() {
 	// register kinds
-	migrator.RegisterColumnKind(&mysql.MySQLDriver{}, []reflect.Kind{reflect.String}, Type__string)
-	migrator.RegisterColumnKind(&mysql.MySQLDriver{}, []reflect.Kind{reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64}, Type__int)
-	migrator.RegisterColumnKind(&mysql.MySQLDriver{}, []reflect.Kind{reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64}, Type__int)
-	migrator.RegisterColumnKind(&mysql.MySQLDriver{}, []reflect.Kind{reflect.Float32, reflect.Float64}, Type__float)
-	migrator.RegisterColumnKind(&mysql.MySQLDriver{}, []reflect.Kind{reflect.Bool}, Type__bool)
+	migrator.RegisterColumnKind(&drivers.DriverMySQL{}, []reflect.Kind{reflect.String}, Type__string)
+	migrator.RegisterColumnKind(&drivers.DriverMySQL{}, []reflect.Kind{reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64}, Type__int)
+	migrator.RegisterColumnKind(&drivers.DriverMySQL{}, []reflect.Kind{reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64}, Type__int)
+	migrator.RegisterColumnKind(&drivers.DriverMySQL{}, []reflect.Kind{reflect.Float32, reflect.Float64}, Type__float)
+	migrator.RegisterColumnKind(&drivers.DriverMySQL{}, []reflect.Kind{reflect.Bool}, Type__bool)
 
 	// register types
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullString{}, Type__string)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullFloat64{}, Type__int)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullInt64{}, Type__int)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullInt32{}, Type__int)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullInt16{}, Type__int)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullBool{}, Type__bool)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullByte{}, Type__int)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, sql.NullTime{}, Type__datetime)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, time.Time{}, Type__datetime)
-	migrator.RegisterColumnType(&mysql.MySQLDriver{}, []byte{}, Type__string)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, sql.NullString{}, Type__string)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, sql.NullFloat64{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, sql.NullInt64{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, sql.NullInt32{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, sql.NullInt16{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, sql.NullBool{}, Type__bool)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, sql.NullByte{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, sql.NullTime{}, Type__datetime)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, time.Time{}, Type__datetime)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, []byte{}, Type__string)
 }
 
 func Type__string(f attrs.Field) string {

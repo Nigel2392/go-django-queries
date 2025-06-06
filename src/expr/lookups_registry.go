@@ -99,6 +99,23 @@ func (r *lookupRegistry) RegisterTransform(transform LookupTransform) {
 	)
 }
 
+func (r *lookupRegistry) HasLookup(lookupName string, driver driver.Driver) bool {
+	if lookupName == "" {
+		return false
+	}
+
+	var _, ok = retrieveFromMap(r.lookupsLocal, r.lookupsGlobal, lookupName, driver)
+	return ok
+}
+
+func (r *lookupRegistry) HasTransform(transformName string, driver driver.Driver) bool {
+	if transformName == "" {
+		return false
+	}
+	var _, ok = retrieveFromMap(r.transformsLocal, r.transformsGlobal, transformName, driver)
+	return ok
+}
+
 func (r *lookupRegistry) Lookup(inf *ExpressionInfo, transforms []string, lookupName string, lhs any, args []any) (func(sb *strings.Builder) []any, error) {
 	var lookup, ok = retrieveFromMap(r.lookupsLocal, r.lookupsGlobal, lookupName, inf.Driver)
 	if !ok || lookup == nil {

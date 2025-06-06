@@ -5,12 +5,9 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/errs"
-	"github.com/go-sql-driver/mysql"
-	pg_stdlib "github.com/jackc/pgx/v5/stdlib"
-
-	"github.com/mattn/go-sqlite3"
 )
 
 type CastType uint
@@ -35,47 +32,47 @@ const (
 )
 
 func init() {
-	registerCastTypeFunc(&mysql.MySQLDriver{}, 1, CastTypeString, "CAST(%s AS CHAR(%d))")
-	registerCastTypeFunc(&mysql.MySQLDriver{}, 0, CastTypeText, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&mysql.MySQLDriver{}, 0, CastTypeInt, "CAST(%s AS SIGNED)")
-	registerCastTypeFunc(&mysql.MySQLDriver{}, 2, CastTypeFloat, "CAST(%s AS DECIMAL(%d,%d))")
-	registerCastTypeFunc(&mysql.MySQLDriver{}, 0, CastTypeBool, "CAST(%s AS UNSIGNED)")
-	registerCastTypeFunc(&mysql.MySQLDriver{}, 0, CastTypeDate, "CAST(%s AS DATE)")
-	registerCastTypeFunc(&mysql.MySQLDriver{}, 0, CastTypeTime, "CAST(%s AS TIME)")
-	registerCastTypeFunc(&mysql.MySQLDriver{}, 0, CastTypeBytes, "CAST(%s AS BINARY)")
-	registerCastTypeFunc(&mysql.MySQLDriver{}, 0, CastTypeDecimal, "CAST(%s AS DECIMAL(10,2))")
-	registerCastTypeFunc(&mysql.MySQLDriver{}, 0, CastTypeJSON, "CAST(%s AS JSON)")
-	registerCastTypeFunc(&mysql.MySQLDriver{}, 0, CastTypeUUID, "CAST(%s AS CHAR(36))")
-	registerCastTypeFunc(&mysql.MySQLDriver{}, 0, CastTypeNull, "CAST(%s AS NULL)")
-	registerCastTypeFunc(&mysql.MySQLDriver{}, 0, CastTypeArray, "CAST(%s AS JSON)")
+	registerCastTypeFunc(&drivers.DriverMySQL{}, 1, CastTypeString, "CAST(%s AS CHAR(%d))")
+	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeText, "CAST(%s AS TEXT)")
+	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeInt, "CAST(%s AS SIGNED)")
+	registerCastTypeFunc(&drivers.DriverMySQL{}, 2, CastTypeFloat, "CAST(%s AS DECIMAL(%d,%d))")
+	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeBool, "CAST(%s AS UNSIGNED)")
+	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeDate, "CAST(%s AS DATE)")
+	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeTime, "CAST(%s AS TIME)")
+	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeBytes, "CAST(%s AS BINARY)")
+	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeDecimal, "CAST(%s AS DECIMAL(10,2))")
+	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeJSON, "CAST(%s AS JSON)")
+	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeUUID, "CAST(%s AS CHAR(36))")
+	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeNull, "CAST(%s AS NULL)")
+	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeArray, "CAST(%s AS JSON)")
 
-	registerCastTypeFunc(&sqlite3.SQLiteDriver{}, 1, CastTypeString, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&sqlite3.SQLiteDriver{}, 0, CastTypeText, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&sqlite3.SQLiteDriver{}, 0, CastTypeInt, "CAST(%s AS INTEGER)")
-	registerCastTypeFunc(&sqlite3.SQLiteDriver{}, 2, CastTypeFloat, "CAST(%s AS REAL)")
-	registerCastTypeFunc(&sqlite3.SQLiteDriver{}, 0, CastTypeBool, "CAST(%s AS INTEGER)")
-	registerCastTypeFunc(&sqlite3.SQLiteDriver{}, 0, CastTypeDate, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&sqlite3.SQLiteDriver{}, 0, CastTypeTime, "CAST(%s AS TIMESTAMP)")
-	registerCastTypeFunc(&sqlite3.SQLiteDriver{}, 0, CastTypeBytes, "CAST(%s AS BLOB)")
-	registerCastTypeFunc(&sqlite3.SQLiteDriver{}, 0, CastTypeDecimal, "CAST(%s AS REAL)")
-	registerCastTypeFunc(&sqlite3.SQLiteDriver{}, 0, CastTypeJSON, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&sqlite3.SQLiteDriver{}, 0, CastTypeUUID, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&sqlite3.SQLiteDriver{}, 0, CastTypeNull, "CAST(%s AS NULL)")
-	registerCastTypeFunc(&sqlite3.SQLiteDriver{}, 0, CastTypeArray, "CAST(%s AS TEXT)")
+	registerCastTypeFunc(&drivers.DriverSQLite{}, 1, CastTypeString, "CAST(%s AS TEXT)")
+	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeText, "CAST(%s AS TEXT)")
+	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeInt, "CAST(%s AS INTEGER)")
+	registerCastTypeFunc(&drivers.DriverSQLite{}, 2, CastTypeFloat, "CAST(%s AS REAL)")
+	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeBool, "CAST(%s AS INTEGER)")
+	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeDate, "CAST(%s AS TEXT)")
+	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeTime, "CAST(%s AS TIMESTAMP)")
+	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeBytes, "CAST(%s AS BLOB)")
+	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeDecimal, "CAST(%s AS REAL)")
+	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeJSON, "CAST(%s AS TEXT)")
+	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeUUID, "CAST(%s AS TEXT)")
+	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeNull, "CAST(%s AS NULL)")
+	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeArray, "CAST(%s AS TEXT)")
 
-	registerCastTypeFunc(&pg_stdlib.Driver{}, 1, CastTypeString, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&pg_stdlib.Driver{}, 0, CastTypeText, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&pg_stdlib.Driver{}, 0, CastTypeInt, "CAST(%s AS INTEGER)")
-	registerCastTypeFunc(&pg_stdlib.Driver{}, 2, CastTypeFloat, "CAST(%s AS NUMERIC(%d,%d))")
-	registerCastTypeFunc(&pg_stdlib.Driver{}, 0, CastTypeBool, "CAST(%s AS BOOLEAN)")
-	registerCastTypeFunc(&pg_stdlib.Driver{}, 0, CastTypeDate, "CAST(%s AS DATE)")
-	registerCastTypeFunc(&pg_stdlib.Driver{}, 0, CastTypeTime, "CAST(%s AS TIME)")
-	registerCastTypeFunc(&pg_stdlib.Driver{}, 0, CastTypeBytes, "CAST(%s AS BYTEA)")
-	registerCastTypeFunc(&pg_stdlib.Driver{}, 2, CastTypeDecimal, "CAST(%s AS NUMERIC(%d,%d))")
-	registerCastTypeFunc(&pg_stdlib.Driver{}, 0, CastTypeJSON, "CAST(%s AS JSONB)")
-	registerCastTypeFunc(&pg_stdlib.Driver{}, 0, CastTypeUUID, "CAST(%s AS UUID)")
-	registerCastTypeFunc(&pg_stdlib.Driver{}, 0, CastTypeNull, "CAST(%s AS NULL)")
-	registerCastTypeFunc(&pg_stdlib.Driver{}, 0, CastTypeArray, "CAST(%s AS JSONB)")
+	registerCastTypeFunc(&drivers.DriverPostgres{}, 1, CastTypeString, "CAST(%s AS TEXT)")
+	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeText, "CAST(%s AS TEXT)")
+	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeInt, "CAST(%s AS INTEGER)")
+	registerCastTypeFunc(&drivers.DriverPostgres{}, 2, CastTypeFloat, "CAST(%s AS NUMERIC(%d,%d))")
+	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeBool, "CAST(%s AS BOOLEAN)")
+	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeDate, "CAST(%s AS DATE)")
+	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeTime, "CAST(%s AS TIME)")
+	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeBytes, "CAST(%s AS BYTEA)")
+	registerCastTypeFunc(&drivers.DriverPostgres{}, 2, CastTypeDecimal, "CAST(%s AS NUMERIC(%d,%d))")
+	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeJSON, "CAST(%s AS JSONB)")
+	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeUUID, "CAST(%s AS UUID)")
+	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeNull, "CAST(%s AS NULL)")
+	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeArray, "CAST(%s AS JSONB)")
 }
 
 func castTypeFunc(sqlText string, arity int) func(d driver.Driver, col any, value []any) (sql string, args []any, err error) {

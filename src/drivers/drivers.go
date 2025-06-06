@@ -3,6 +3,11 @@ package drivers
 import (
 	"database/sql"
 	"database/sql/driver"
+
+	"github.com/go-sql-driver/mysql"
+	pg_stdlib "github.com/jackc/pgx/v5/stdlib"
+	"github.com/mattn/go-sqlite3"
+
 	"reflect"
 )
 
@@ -21,6 +26,12 @@ const (
 )
 
 var Drivers = make(map[reflect.Type]driverData)
+
+type (
+	DriverPostgres = pg_stdlib.Driver
+	DriverMySQL    = mysql.MySQLDriver
+	DriverSQLite   = sqlite3.SQLiteDriver
+)
 
 type driverData struct {
 	Name              string

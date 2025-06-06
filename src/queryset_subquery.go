@@ -97,19 +97,15 @@ func Subquery(qs *GenericQuerySet) expr.Expression {
 func SubqueryCount(qs *GenericQuerySet) *subqueryExpr {
 	q := qs.queryCount()
 	return &subqueryExpr{
-		q:    q,
-		not:  false,
-		used: false,
-		op:   "COUNT",
+		q:  q,
+		op: "COUNT",
 	}
 }
 
 func SubqueryExists(qs *GenericQuerySet) expr.Expression {
 	q := qs.queryAll()
 	return &subqueryExpr{
-		q:    q,
-		not:  false,
-		used: false,
-		op:   "EXISTS",
+		q:  q,
+		op: "EXISTS",
 	}
 }

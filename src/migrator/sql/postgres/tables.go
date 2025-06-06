@@ -7,15 +7,15 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	django "github.com/Nigel2392/go-django/src"
-	pg_stdlib "github.com/jackc/pgx/v5/stdlib"
 )
 
 var _ migrator.SchemaEditor = &PostgresSchemaEditor{}
 
 func init() {
-	migrator.RegisterSchemaEditor(&pg_stdlib.Driver{}, func() (migrator.SchemaEditor, error) {
+	migrator.RegisterSchemaEditor(&drivers.DriverPostgres{}, func() (migrator.SchemaEditor, error) {
 		var db, ok = django.ConfigGetOK[*sql.DB](
 			django.Global.Settings,
 			django.APPVAR_DATABASE,
@@ -200,8 +200,8 @@ func (m *PostgresSchemaEditor) AlterField(table migrator.Table, oldCol migrator.
 	// Alter column type
 
 	var (
-		aTyp = migrator.GetFieldType(&pg_stdlib.Driver{}, oldCol.Field)
-		bTyp = migrator.GetFieldType(&pg_stdlib.Driver{}, newCol.Field)
+		aTyp = migrator.GetFieldType(&drivers.DriverPostgres{}, oldCol.Field)
+		bTyp = migrator.GetFieldType(&drivers.DriverPostgres{}, newCol.Field)
 	)
 
 	if aTyp != bTyp {
@@ -291,7 +291,7 @@ func (m *PostgresSchemaEditor) WriteColumn(w *strings.Builder, col migrator.Colu
 	w.WriteString(`"`)
 	w.WriteString(col.Field.ColumnName())
 	w.WriteString(`" `)
-	w.WriteString(migrator.GetFieldType(&pg_stdlib.Driver{}, col.Field))
+	w.WriteString(migrator.GetFieldType(&drivers.DriverPostgres{}, col.Field))
 	if !col.Nullable {
 		w.WriteString(" NOT NULL")
 	}

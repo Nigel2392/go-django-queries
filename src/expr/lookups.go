@@ -60,6 +60,42 @@ func init() {
 			return FuncUpper(lhsResolved).Resolve(inf), nil
 		},
 	})
+	RegisterTransforms(&BaseTransform{
+		Identifier: "length",
+		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
+			return FuncLength(lhsResolved).Resolve(inf), nil
+		},
+	})
+	RegisterTransforms(&BaseTransform{
+		Identifier: "count",
+		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
+			return FuncCount(lhsResolved).Resolve(inf), nil
+		},
+	})
+	RegisterTransforms(&BaseTransform{
+		Identifier: "avg",
+		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
+			return FuncAvg(lhsResolved).Resolve(inf), nil
+		},
+	})
+	RegisterTransforms(&BaseTransform{
+		Identifier: "sum",
+		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
+			return FuncSum(lhsResolved).Resolve(inf), nil
+		},
+	})
+	RegisterTransforms(&BaseTransform{
+		Identifier: "min",
+		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
+			return FuncMin(lhsResolved).Resolve(inf), nil
+		},
+	})
+	RegisterTransforms(&BaseTransform{
+		Identifier: "max",
+		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
+			return FuncMax(lhsResolved).Resolve(inf), nil
+		},
+	})
 }
 
 const (
@@ -131,12 +167,23 @@ func RegisterTransforms(transforms ...LookupTransform) {
 // GetLookup retrieves a lookup function based on the provided expression info, lookup name, inner expression, and arguments.
 // It returns a function that can be used to build a SQL string with the lookup applied.
 // The LHS will need to be either an Expression (RESOLVED ALREADY!) or a sql `table`.`column` pair.
-func GetLookup(inf *ExpressionInfo, transforms []string, lookupName string, lhs any, args []any) (func(sb *strings.Builder) []any, error) {
+func GetLookup(inf *ExpressionInfo, lookupName string, lhs any, args []any) (func(sb *strings.Builder) []any, error) {
 	if inf == nil {
 		return nil, fmt.Errorf("expression info cannot be nil")
 	}
 
-	if lookupName == "" {
+	var (
+		transforms  []string
+		lookupParts = strings.Split(lookupName, "__")
+	)
+
+	if len(lookupParts) > 1 {
+		transforms = lookupParts[:len(lookupParts)-1]
+		lookupName = lookupParts[len(lookupParts)-1]
+	}
+
+	if lookupName != "" && !lookupsRegistry.HasLookup(lookupName, inf.Driver) {
+		transforms = append(transforms, lookupName)
 		lookupName = DEFAULT_LOOKUP
 	}
 

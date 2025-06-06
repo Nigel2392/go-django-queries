@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	pg_stdlib "github.com/jackc/pgx/v5/stdlib"
 )
 
 const (
@@ -20,23 +20,23 @@ const (
 // POSTGRES TYPES
 func init() {
 	// register kinds
-	migrator.RegisterColumnKind(&pg_stdlib.Driver{}, []reflect.Kind{reflect.String}, Type__string)
-	migrator.RegisterColumnKind(&pg_stdlib.Driver{}, []reflect.Kind{reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64}, Type__int)
-	migrator.RegisterColumnKind(&pg_stdlib.Driver{}, []reflect.Kind{reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64}, Type__int)
-	migrator.RegisterColumnKind(&pg_stdlib.Driver{}, []reflect.Kind{reflect.Float32, reflect.Float64}, Type__float)
-	migrator.RegisterColumnKind(&pg_stdlib.Driver{}, []reflect.Kind{reflect.Bool}, Type__bool)
+	migrator.RegisterColumnKind(&drivers.DriverPostgres{}, []reflect.Kind{reflect.String}, Type__string)
+	migrator.RegisterColumnKind(&drivers.DriverPostgres{}, []reflect.Kind{reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64}, Type__int)
+	migrator.RegisterColumnKind(&drivers.DriverPostgres{}, []reflect.Kind{reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64}, Type__int)
+	migrator.RegisterColumnKind(&drivers.DriverPostgres{}, []reflect.Kind{reflect.Float32, reflect.Float64}, Type__float)
+	migrator.RegisterColumnKind(&drivers.DriverPostgres{}, []reflect.Kind{reflect.Bool}, Type__bool)
 
 	// register types
-	migrator.RegisterColumnType(&pg_stdlib.Driver{}, sql.NullString{}, Type__string)
-	migrator.RegisterColumnType(&pg_stdlib.Driver{}, sql.NullFloat64{}, Type__int)
-	migrator.RegisterColumnType(&pg_stdlib.Driver{}, sql.NullInt64{}, Type__int)
-	migrator.RegisterColumnType(&pg_stdlib.Driver{}, sql.NullInt32{}, Type__int)
-	migrator.RegisterColumnType(&pg_stdlib.Driver{}, sql.NullInt16{}, Type__int)
-	migrator.RegisterColumnType(&pg_stdlib.Driver{}, sql.NullBool{}, Type__bool)
-	migrator.RegisterColumnType(&pg_stdlib.Driver{}, sql.NullByte{}, Type__int)
-	migrator.RegisterColumnType(&pg_stdlib.Driver{}, sql.NullTime{}, Type__datetime)
-	migrator.RegisterColumnType(&pg_stdlib.Driver{}, time.Time{}, Type__datetime)
-	migrator.RegisterColumnType(&pg_stdlib.Driver{}, []byte{}, Type__string)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, sql.NullString{}, Type__string)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, sql.NullFloat64{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, sql.NullInt64{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, sql.NullInt32{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, sql.NullInt16{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, sql.NullBool{}, Type__bool)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, sql.NullByte{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, sql.NullTime{}, Type__datetime)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, time.Time{}, Type__datetime)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, []byte{}, Type__string)
 }
 
 func Type__string(f attrs.Field) string {

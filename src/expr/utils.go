@@ -157,12 +157,12 @@ type LookupField interface {
 type ResolvedField struct {
 	FieldPath         string
 	Field             string
-	Column            string
+	SQLText           string
 	AllowedTransforms []string
 	AllowedLookups    []string
 }
 
-func newResolvedField(fieldPath, column string, field attrs.FieldDefinition) *ResolvedField {
+func newResolvedField(fieldPath, sqlText string, field attrs.FieldDefinition) *ResolvedField {
 	var (
 		transforms []string
 		lookups    []string
@@ -174,7 +174,7 @@ func newResolvedField(fieldPath, column string, field attrs.FieldDefinition) *Re
 	return &ResolvedField{
 		FieldPath:         fieldPath,
 		Field:             field.Name(),
-		Column:            column,
+		SQLText:           sqlText,
 		AllowedTransforms: transforms,
 		AllowedLookups:    lookups,
 	}

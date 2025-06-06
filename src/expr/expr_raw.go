@@ -141,7 +141,7 @@ func (e *RawNamedExpression) Resolve(inf *ExpressionInfo) Expression {
 
 	for i, field := range nE.Fields {
 		var resolved = ResolveExpressionField(inf, field)
-		nE.Fields[i] = resolved.Column
+		nE.Fields[i] = resolved.SQLText
 	}
 
 	return nE

@@ -51,7 +51,7 @@ func (e *field) FieldName() string {
 }
 
 func (e *field) SQL(sb *strings.Builder) []any {
-	sb.WriteString(e.field.Column)
+	sb.WriteString(e.field.SQLText)
 	return []any{}
 }
 

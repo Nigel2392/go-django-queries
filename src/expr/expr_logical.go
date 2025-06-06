@@ -9,9 +9,11 @@ import (
 )
 
 func Q(fieldLookup string, value ...any) *ExprNode {
-	var split = strings.Split(fieldLookup, "__")
-	var field string
-	var lookup = DEFAULT_LOOKUP
+	var (
+		split  = strings.SplitN(fieldLookup, "__", 2)
+		lookup = DEFAULT_LOOKUP
+		field  string
+	)
 
 	if len(split) > 1 {
 		field = split[0]
@@ -36,39 +38,43 @@ type ExprNode struct {
 	args   []any
 	not    bool
 	model  attrs.Definer
-	field  string
+	field  NamedExpression
 	lookup string
 	used   bool
 }
 
-func Expr(field string, operation string, value ...any) *ExprNode {
+func Expr(field any, operation string, value ...any) *ExprNode {
+	var exprs = expressionFromInterface[NamedExpression](field)
+	if len(exprs) == 0 {
+		panic(fmt.Errorf("field must be a string or an expression, got %T", field))
+	}
+	if len(exprs) > 1 {
+		panic(fmt.Errorf("field must be a single string or expression, got %d expressions", len(exprs)))
+	}
 	return &ExprNode{
 		args:   value,
-		field:  field,
+		field:  exprs[0],
 		lookup: operation,
 	}
 }
 
 func (e *ExprNode) Resolve(inf *ExpressionInfo) Expression {
-	var nE = e.Clone().(*ExprNode)
-
 	if inf.Model == nil {
 		panic("model is nil")
 	}
 
-	if nE.used {
-		return nE
+	if e.used {
+		return e
 	}
 
+	var nE = e.Clone().(*ExprNode)
 	nE.used = true
 	nE.model = inf.Model
 
 	var err error
-	var col = ResolveExpressionField(
-		inf, nE.field,
-	)
+	nE.field = nE.field.Resolve(inf).(NamedExpression)
 	nE.sql, err = GetLookup(
-		inf, []string{}, nE.lookup, String(col.Column), nE.args,
+		inf, nE.lookup, nE.field, nE.args,
 	)
 	if err != nil {
 		panic(err)
@@ -245,10 +251,10 @@ func (l *logicalChainExpr) SQL(sb *strings.Builder) []any {
 	}
 	var args = make([]any, 0)
 	if l.field != nil {
-		if l.field.Column != "" {
-			sb.WriteString(l.field.Column)
+		if l.field.SQLText != "" {
+			sb.WriteString(l.field.SQLText)
 		}
-		if l.forUpdate && l.field.Column != "" {
+		if l.forUpdate && l.field.SQLText != "" {
 			sb.WriteString(" = ")
 		}
 	}

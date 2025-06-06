@@ -1,7 +1,6 @@
 package queries
 
 import (
-	"fmt"
 	"strings"
 
 	_ "unsafe"
@@ -88,11 +87,6 @@ func (s *subqueryExpr) Resolve(inf *expr.ExpressionInfo) expr.Expression {
 	return nE
 }
 
-//__expr_exists
-//__expr_not_exists
-//__expr_in
-//__expr_not_in
-
 func Subquery(qs *GenericQuerySet) expr.Expression {
 	q := qs.queryAll()
 	return &subqueryExpr{
@@ -117,25 +111,5 @@ func SubqueryExists(qs *GenericQuerySet) expr.Expression {
 		not:  false,
 		used: false,
 		op:   "EXISTS",
-	}
-}
-
-func SubqueryIn(field any, qs *GenericQuerySet) expr.Expression {
-	q := qs.queryAll()
-	var f expr.NamedExpression
-	switch v := field.(type) {
-	case expr.NamedExpression:
-		f = v
-	case string:
-		f = expr.Field(v)
-	default:
-		panic(fmt.Errorf("invalid type %T", v))
-	}
-	return &subqueryExpr{
-		q:     q,
-		not:   false,
-		used:  false,
-		op:    "IN",
-		field: f,
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/Nigel2392/go-django-queries/src/alias"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
@@ -49,18 +48,25 @@ const (
 	OpOr  ExprOp = "OR"
 )
 
-type ExpressionInfo struct {
-	Driver      driver.Driver
-	Model       attrs.Definer
-	AliasGen    *alias.Generator
-	FormatField func(*TableColumn) (string, []any)
-	Quote       func(string) string
+type LookupExpression = func(sb *strings.Builder) []any
 
-	// ForUpdate specifies if the expression is used in an UPDATE statement
-	// or UPDATE- like statement.
-	//
-	// This will automatically append "= ?" to the SQL TableColumn statement
-	ForUpdate bool
+type Lookup interface {
+	// returns the drivers that support this lookup
+	// if empty, the lookup is supported by all drivers
+	Drivers() []driver.Driver
+
+	// name of the lookup
+	Name() string
+
+	// number of arguments the lookup expects, or -1 for variable arguments
+	Arity() (min, max int)
+
+	// normalize the arguments for the lookup
+	NormalizeArgs(inf *ExpressionInfo, value []any) ([]any, error)
+
+	// Resolve resolves the lookup for the given field and value
+	// and generates an expression for the lookup.
+	Resolve(inf *ExpressionInfo, lhsResolved Expression, args []any) LookupExpression
 }
 
 type TableColumn struct {
@@ -117,12 +123,8 @@ func (c *TableColumn) Validate() error {
 	return nil
 }
 
-type SQLWriter interface {
-	SQL(sb *strings.Builder) []any
-}
-
 type Expression interface {
-	SQLWriter
+	SQL(sb *strings.Builder) []any
 	Clone() Expression
 	Resolve(inf *ExpressionInfo) Expression
 }

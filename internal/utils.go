@@ -2,12 +2,12 @@ package internal
 
 import (
 	"database/sql"
-	"database/sql/driver"
 	"fmt"
 	"reflect"
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/src/alias"
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -15,21 +15,6 @@ import (
 
 	_ "unsafe"
 )
-
-type SupportsReturning string
-
-const (
-	SupportsReturningNone         SupportsReturning = ""
-	SupportsReturningLastInsertId SupportsReturning = "last_insert_id"
-	SupportsReturningColumns      SupportsReturning = "columns"
-)
-
-var drivers = make(map[reflect.Type]driverData)
-
-type driverData struct {
-	name              string
-	supportsReturning SupportsReturning
-}
 
 const (
 	CACHE_TRAVERSAL_RESULTS = false
@@ -44,39 +29,6 @@ func GetRelatedName(f attrs.Field, default_ string) string {
 	}
 
 	return f.Name()
-}
-
-func RegisterDriver(driver driver.Driver, database string, supportsReturning ...SupportsReturning) {
-	var s SupportsReturning
-	if len(supportsReturning) > 0 {
-		s = supportsReturning[0]
-	}
-	drivers[reflect.TypeOf(driver)] = driverData{
-		name:              database,
-		supportsReturning: s,
-	}
-}
-
-func SqlxDriverName(db *sql.DB) string {
-	var driver = reflect.TypeOf(db.Driver())
-	if driver == nil {
-		return ""
-	}
-	if data, ok := drivers[driver]; ok {
-		return data.name
-	}
-	return ""
-}
-
-func DBSupportsReturning(db *sql.DB) SupportsReturning {
-	var driver = reflect.TypeOf(db.Driver())
-	if driver == nil {
-		return SupportsReturningNone
-	}
-	if data, ok := drivers[driver]; ok {
-		return data.supportsReturning
-	}
-	return SupportsReturningNone
 }
 
 func DefinerListToList[T attrs.Definer](list []attrs.Definer) []T {
@@ -231,6 +183,17 @@ type QueryInfo struct {
 	DB           *sql.DB
 	DBX          interface{ Rebind(string) string }
 	SqlxDriver   string
+}
+
+func SqlxDriverName(db *sql.DB) string {
+	var driver = reflect.TypeOf(db.Driver())
+	if driver == nil {
+		return ""
+	}
+	if data, ok := drivers.Drivers[driver]; ok {
+		return data.Name
+	}
+	return ""
 }
 
 func GetQueryInfo(obj attrs.Definer, dbKey string) (*QueryInfo, error) {

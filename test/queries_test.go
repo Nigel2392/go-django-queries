@@ -11,6 +11,7 @@ import (
 
 	"github.com/Nigel2392/go-django-queries/internal"
 	queries "github.com/Nigel2392/go-django-queries/src"
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/fields"
 	"github.com/Nigel2392/go-django-queries/src/models"
@@ -802,7 +803,7 @@ func TestQuerySet_Filter(t *testing.T) {
 	}
 
 	if len(todos) != 1 {
-		t.Fatalf("Expected 1 todos, got %d", len(todos))
+		t.Fatalf("Expected 1 todos, got %d: %v", len(todos), query.LatestQuery().Args())
 	}
 
 	for _, todo := range todos {
@@ -1734,7 +1735,7 @@ func TestQueryCreate(t *testing.T) {
 	}
 
 	t.Run("CreateReturningLastInsertID", func(t *testing.T) {
-		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningLastInsertId)
+		drivers.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", drivers.SupportsReturningLastInsertId)
 
 		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).Create(todo)
 		if err != nil {
@@ -1773,11 +1774,11 @@ func TestQueryCreate(t *testing.T) {
 
 		t.Logf("Created todo: %+v, %+v", tdo, tdo.User)
 
-		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningColumns)
+		drivers.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", drivers.SupportsReturningColumns)
 	})
 
 	t.Run("CreateReturningColumns", func(t *testing.T) {
-		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningColumns)
+		drivers.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", drivers.SupportsReturningColumns)
 
 		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).Create(todo)
 		if err != nil {
@@ -1818,7 +1819,7 @@ func TestQueryCreate(t *testing.T) {
 	})
 
 	t.Run("CreateReturningNone", func(t *testing.T) {
-		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningNone)
+		drivers.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", drivers.SupportsReturningNone)
 
 		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).Create(todo)
 		if err != nil {
@@ -1856,7 +1857,7 @@ func TestQueryCreate(t *testing.T) {
 
 		t.Logf("Created todo: %+v, %+v", tdo, tdo.User)
 
-		queries.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", queries.SupportsReturningColumns)
+		drivers.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", drivers.SupportsReturningColumns)
 	})
 }
 

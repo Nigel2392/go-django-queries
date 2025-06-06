@@ -11,6 +11,7 @@ import (
 
 	"github.com/Nigel2392/go-django-queries/internal"
 	"github.com/Nigel2392/go-django-queries/src/alias"
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	django "github.com/Nigel2392/go-django/src"
@@ -1816,7 +1817,7 @@ func (qs *QuerySet[T]) Create(value T) (T, error) {
 	}
 
 	var support = qs.compiler.SupportsReturning()
-	if len(result) == 0 && support != SupportsReturningNone {
+	if len(result) == 0 && support != drivers.SupportsReturningNone {
 		return *new(T), query_errors.ErrNoRows
 	}
 
@@ -1982,7 +1983,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 
 	// Check results & which returning method to use
 	switch {
-	case len(results) == 0 && support == SupportsReturningNone:
+	case len(results) == 0 && support == drivers.SupportsReturningNone:
 		for i, row := range resultList {
 			var rVal = reflect.ValueOf(objects[i])
 			if rVal.Kind() == reflect.Ptr {
@@ -1998,7 +1999,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 			}
 		}
 
-	case len(results) > 0 && support == SupportsReturningLastInsertId:
+	case len(results) > 0 && support == drivers.SupportsReturningLastInsertId:
 
 		for i, row := range resultList {
 			var id = results[i][0].(int64)
@@ -2030,7 +2031,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 			}
 		}
 
-	case len(results) > 0 && support == SupportsReturningColumns:
+	case len(results) > 0 && support == drivers.SupportsReturningColumns:
 
 		if len(results) != len(resultList) {
 			return nil, errors.Wrapf(

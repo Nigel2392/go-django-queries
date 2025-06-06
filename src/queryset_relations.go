@@ -159,7 +159,7 @@ func (t *relatedQuerySet[T, T2]) setup() {
 
 		qs.internals.Where = append(qs.internals.Where, expr.Expr(
 			targetField.Name(),
-			"exact",
+			expr.LOOKUP_EXACT,
 			t.source.Object.FieldDefs().Primary().GetValue(),
 		))
 	}
@@ -517,10 +517,11 @@ func (r *RelManyToManyQuerySet[T]) ClearTargets() (int64, error) {
 				throughModel.sourceField.Name(),
 				r.source.Object.FieldDefs().Primary().GetValue(),
 			),
-			SubqueryIn(
-				throughModel.targetField.Name(),
-				ChangeObjectsType[T, attrs.Definer](
-					r.qs.Select(r.qs.internals.Model.Primary.Name()),
+			expr.Expr(
+				throughModel.targetField.Name(), "in", Subquery(
+					ChangeObjectsType[T, attrs.Definer](
+						r.qs.Select(r.qs.internals.Model.Primary.Name()),
+					),
 				),
 			),
 		)

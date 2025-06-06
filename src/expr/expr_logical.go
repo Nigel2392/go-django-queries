@@ -11,7 +11,8 @@ import (
 func Q(fieldLookup string, value ...any) *ExprNode {
 	var split = strings.Split(fieldLookup, "__")
 	var field string
-	var lookup = "exact"
+	var lookup = DEFAULT_LOOKUP
+
 	if len(split) > 1 {
 		field = split[0]
 		lookup = split[1]
@@ -31,7 +32,7 @@ func Or(exprs ...Expression) *ExprGroup {
 }
 
 type ExprNode struct {
-	sql    string
+	sql    func(sb *strings.Builder) []any
 	args   []any
 	not    bool
 	model  attrs.Definer
@@ -62,16 +63,13 @@ func (e *ExprNode) Resolve(inf *ExpressionInfo) Expression {
 	nE.used = true
 	nE.model = inf.Model
 
-	var (
-		col = ResolveExpressionField(
-			inf, nE.field,
-		)
-		err error
+	var err error
+	var col = ResolveExpressionField(
+		inf, nE.field,
 	)
-	nE.sql, nE.args, err = typeLookups.lookup(
-		inf.Driver, col, nE.lookup, slices.Clone(nE.args),
+	nE.sql, err = GetLookup(
+		inf, nE.lookup, String(col), nE.args,
 	)
-
 	if err != nil {
 		panic(err)
 	}
@@ -82,12 +80,14 @@ func (e *ExprNode) Resolve(inf *ExpressionInfo) Expression {
 func (e *ExprNode) SQL(sb *strings.Builder) []any {
 	if e.not {
 		sb.WriteString("NOT (")
-		sb.WriteString(e.sql)
-		sb.WriteString(")")
-	} else {
-		sb.WriteString(e.sql)
 	}
-	return e.args
+
+	var args = e.sql(sb)
+
+	if e.not {
+		sb.WriteString(")")
+	}
+	return args
 }
 
 func (e *ExprNode) Not(not bool) ClauseExpression {

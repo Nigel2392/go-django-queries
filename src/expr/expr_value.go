@@ -144,3 +144,41 @@ func (e *value) Resolve(inf *ExpressionInfo) Expression {
 
 	return nE
 }
+
+type funcExpression struct {
+	inf *ExpressionInfo
+	fn  func(inf *ExpressionInfo, sb *strings.Builder) []any
+}
+
+func (e *funcExpression) SQL(sb *strings.Builder) []any {
+	if e.fn == nil {
+		panic("function expression has no function defined")
+	}
+
+	if e.inf == nil {
+		panic("function expression has no inf defined")
+	}
+
+	return e.fn(e.inf, sb)
+}
+
+func (e *funcExpression) Clone() Expression {
+	return &funcExpression{
+		inf: e.inf,
+		fn:  e.fn,
+	}
+}
+
+func (e *funcExpression) Resolve(inf *ExpressionInfo) Expression {
+	if e.inf != nil {
+		return e // already resolved
+	}
+
+	if inf.Model == nil {
+		panic("model is nil")
+	}
+
+	var nE = e.Clone().(*funcExpression)
+	nE.inf = inf
+	return nE
+}

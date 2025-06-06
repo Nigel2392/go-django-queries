@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/Nigel2392/go-django-queries/internal"
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -20,10 +21,10 @@ import (
 )
 
 func init() {
-	RegisterDriver(&mysql.MySQLDriver{}, "mysql", SupportsReturningLastInsertId)
-	RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", SupportsReturningColumns)
-	RegisterDriver(&pg_stdlib.Driver{}, "postgres", SupportsReturningColumns)
-	RegisterDriver(&pg_stdlib.Driver{}, "pgx", SupportsReturningColumns)
+	drivers.RegisterDriver(&mysql.MySQLDriver{}, "mysql", drivers.SupportsReturningLastInsertId)
+	drivers.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", drivers.SupportsReturningColumns)
+	drivers.RegisterDriver(&pg_stdlib.Driver{}, "postgres", drivers.SupportsReturningColumns)
+	drivers.RegisterDriver(&pg_stdlib.Driver{}, "pgx", drivers.SupportsReturningColumns)
 
 	RegisterCompiler(&mysql.MySQLDriver{}, NewGenericQueryBuilder)
 	RegisterCompiler(&sqlite3.SQLiteDriver{}, NewGenericQueryBuilder)

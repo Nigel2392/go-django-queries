@@ -8,16 +8,40 @@ import (
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/internal"
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/pkg/errors"
 )
 
+func newExpressionInfo(g *genericQueryBuilder, qs *QuerySet[attrs.Definer], updating bool) *expr.ExpressionInfo {
+	return &expr.ExpressionInfo{
+		Driver: g.driver,
+		Model: attrs.NewObject[attrs.Definer](
+			qs.Model(),
+		),
+		Quote:       g.QuoteString,
+		AliasGen:    qs.AliasGen,
+		FormatField: g.FormatColumn,
+		Placeholder: generic_PLACEHOLDER,
+		Lookups: expr.ExpressionLookupInfo{
+			PrepForLikeQuery: g.PrepForLikeQuery,
+			FormatLookupCol:  g.FormatLookupCol,
+			LogicalOpRHS:     g.LogicalOpRHS(),
+			OperatorsRHS:     g.LookupOperatorsRHS(),
+			PatternOpsRHS:    g.LookupPatternOperatorsRHS(),
+		},
+		ForUpdate: updating,
+	}
+}
+
+const generic_PLACEHOLDER = "?"
+
 type genericQueryBuilder struct {
 	transaction Transaction
 	queryInfo   *internal.QueryInfo
-	support     SupportsReturning
+	support     drivers.SupportsReturningType
 	quote       string
 	driver      driver.Driver
 }
@@ -40,7 +64,7 @@ func NewGenericQueryBuilder(model attrs.Definer, db string) QueryCompiler {
 
 	return &genericQueryBuilder{
 		quote:     quote,
-		support:   internal.DBSupportsReturning(q.DB),
+		support:   drivers.SupportsReturning(q.DB),
 		driver:    q.DB.Driver(),
 		queryInfo: q,
 	}
@@ -68,6 +92,161 @@ func (g *genericQueryBuilder) QuoteString(s string) string {
 	sb.WriteString(s)
 	sb.WriteString(g.quote)
 	return sb.String()
+}
+
+func (g *genericQueryBuilder) PrepForLikeQuery(v any) string {
+	// For LIKE queries, we need to escape the percent and underscore characters.
+	// This is done by replacing them with their escaped versions.
+	switch internal.SqlxDriverName(g.queryInfo.DB) {
+	case "mysql":
+		return strings.ReplaceAll(
+			strings.ReplaceAll(fmt.Sprint(v), "%", "\\%"),
+			"_", "\\_",
+		)
+
+	case "postgres", "pgx":
+		return strings.ReplaceAll(
+			strings.ReplaceAll(fmt.Sprint(v), "%", "\\%"),
+			"_", "\\_",
+		)
+
+	case "sqlite3":
+		return strings.ReplaceAll(
+			strings.ReplaceAll(fmt.Sprint(v), "%", "\\%"),
+			"_", "\\_",
+		)
+
+	default:
+		panic(fmt.Errorf("unknown database driver: %s", internal.SqlxDriverName(g.queryInfo.DB)))
+	}
+}
+
+func (g *genericQueryBuilder) FormatLookupCol(lookupName string, inner string) string {
+	switch lookupName {
+	case "iexact", "icontains", "istartswith", "iendswith":
+		switch internal.SqlxDriverName(g.queryInfo.DB) {
+		case "mysql":
+			return fmt.Sprintf("BINARY %s", inner)
+		case "postgres", "pgx":
+			return fmt.Sprintf("UPPER(%s)", inner)
+		case "sqlite3":
+			return fmt.Sprintf("UPPER(%s)", inner)
+		default:
+			panic(fmt.Errorf("unknown database driver: %s", internal.SqlxDriverName(g.queryInfo.DB)))
+		}
+	default:
+		return inner
+	}
+}
+
+func equalityFormat(op expr.LogicalOp) func(string, []any) (string, []any) {
+	return func(rhs string, value []any) (string, []any) {
+		return fmt.Sprintf("%s %s", op, rhs), []any{value[0]}
+	}
+}
+
+func mathOpFormat(op expr.LogicalOp) func(string, []any) (string, []any) {
+	return func(rhs string, value []any) (string, []any) {
+		return fmt.Sprintf("%s %s = %s", op, rhs, rhs), []any{value[0], value[0]}
+	}
+}
+
+var defaultCompilerLogicalOperators = map[expr.LogicalOp]func(rhs string, value []any) (string, []any){
+	expr.EQ:     equalityFormat(expr.EQ),   // = %s
+	expr.NE:     equalityFormat(expr.NE),   // != %s
+	expr.GT:     equalityFormat(expr.GT),   // > %s
+	expr.LT:     equalityFormat(expr.LT),   // < %s
+	expr.GTE:    equalityFormat(expr.GTE),  // >= %s
+	expr.LTE:    equalityFormat(expr.LTE),  // <= %s
+	expr.ADD:    mathOpFormat(expr.ADD),    // + %s = %s
+	expr.SUB:    mathOpFormat(expr.SUB),    // - %s = %s
+	expr.MUL:    mathOpFormat(expr.MUL),    // * %s = %s
+	expr.DIV:    mathOpFormat(expr.DIV),    // / %s = %s
+	expr.MOD:    mathOpFormat(expr.MOD),    // % %s = %s
+	expr.BITAND: mathOpFormat(expr.BITAND), // & %s = %s
+	expr.BITOR:  mathOpFormat(expr.BITOR),  // | %s = %s
+	expr.BITXOR: mathOpFormat(expr.BITXOR), // ^ %s = %s
+	expr.BITLSH: mathOpFormat(expr.BITLSH), // << %s = %s
+	expr.BITRSH: mathOpFormat(expr.BITRSH), // >> %s = %s
+	expr.BITNOT: mathOpFormat(expr.BITNOT), // ~ %s = %s
+}
+
+func (g *genericQueryBuilder) LogicalOpRHS() map[expr.LogicalOp]func(rhs string, value []any) (string, []any) {
+	return defaultCompilerLogicalOperators
+}
+
+func (g *genericQueryBuilder) LookupOperatorsRHS() map[string]string {
+	switch internal.SqlxDriverName(g.queryInfo.DB) {
+	case "mysql":
+		return map[string]string{
+			"iexact":      "LIKE %s",
+			"contains":    "LIKE BINARY %s",
+			"icontains":   "LIKE %s",
+			"regex":       "REGEXP %s",
+			"iregex":      "REGEXP BINARY %s",
+			"startswith":  "LIKE BINARY %s",
+			"endswith":    "LIKE BINARY %s",
+			"istartswith": "LIKE %s",
+			"iendswith":   "LIKE %s",
+		}
+	case "postgres", "pgx":
+		return map[string]string{
+			"iexact":      "= UPPER(%s)",
+			"contains":    "LIKE %s",
+			"icontains":   "LIKE UPPER(%s)",
+			"regex":       "~ %s",
+			"startswith":  "LIKE %s",
+			"endswith":    "LIKE %s",
+			"istartswith": "LIKE UPPER(%s)",
+			"iendswith":   "LIKE UPPER(%s)",
+		}
+	case "sqlite3":
+		return map[string]string{
+			"iexact":      "LIKE %s ESCAPE '\\'",
+			"contains":    "LIKE %s ESCAPE '\\'",
+			"icontains":   "LIKE %s ESCAPE '\\'",
+			"regex":       "REGEXP %s",
+			"iregex":      "REGEXP '(?i)' || %s",
+			"startswith":  "LIKE %s ESCAPE '\\'",
+			"endswith":    "LIKE %s ESCAPE '\\'",
+			"istartswith": "LIKE %s ESCAPE '\\'",
+			"iendswith":   "LIKE %s ESCAPE '\\'",
+		}
+	}
+	panic(fmt.Errorf("unknown database driver: %s", internal.SqlxDriverName(g.queryInfo.DB)))
+}
+
+func (g *genericQueryBuilder) LookupPatternOperatorsRHS() map[string]string {
+	switch internal.SqlxDriverName(g.queryInfo.DB) {
+	case "mysql":
+		return map[string]string{
+			"contains":    "LIKE BINARY CONCAT('%%', %s, '%%')",
+			"icontains":   "LIKE CONCAT('%%', %s, '%%')",
+			"startswith":  "LIKE BINARY CONCAT(%s, '%%')",
+			"istartswith": "LIKE CONCAT(%s, '%%')",
+			"endswith":    "LIKE BINARY CONCAT('%%', %s)",
+			"iendswith":   "LIKE CONCAT('%%', %s)",
+		}
+	case "postgres", "pgx":
+		return map[string]string{
+			"contains":    "LIKE '%%' || %s || '%%'",
+			"icontains":   "LIKE '%%' || UPPER(%s) || '%%'",
+			"startswith":  "LIKE %s || '%%'",
+			"istartswith": "LIKE UPPER(%s) || '%%'",
+			"endswith":    "LIKE '%%' || %s",
+			"iendswith":   "LIKE '%%' || UPPER(%s)",
+		}
+	case "sqlite3":
+		return map[string]string{
+			"contains":    "LIKE '%%' || %s || '%%' ESCAPE '\\'",
+			"icontains":   "LIKE '%%' || UPPER(%s) || '%%' ESCAPE '\\'",
+			"startswith":  "LIKE %s || '%%' ESCAPE '\\'",
+			"istartswith": "LIKE UPPER(%s) || '%%' ESCAPE '\\'",
+			"endswith":    "LIKE '%%' || %s ESCAPE '\\'",
+			"iendswith":   "LIKE '%%' || UPPER(%s) ESCAPE '\\'",
+		}
+	}
+	panic(fmt.Errorf("unknown database driver: %s", internal.SqlxDriverName(g.queryInfo.DB)))
 }
 
 func (g *genericQueryBuilder) FormatColumn(col *expr.TableColumn) (string, []any) {
@@ -175,7 +354,7 @@ func (g *genericQueryBuilder) InTransaction() bool {
 	return g.transaction != nil
 }
 
-func (g *genericQueryBuilder) SupportsReturning() SupportsReturning {
+func (g *genericQueryBuilder) SupportsReturning() drivers.SupportsReturningType {
 	return g.support
 }
 
@@ -187,17 +366,7 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 	var (
 		query = new(strings.Builder)
 		args  []any
-		model = qs.Model()
-		inf   = &expr.ExpressionInfo{
-			Driver: g.driver,
-			Model: attrs.NewObject[attrs.Definer](
-				model,
-			),
-			Quote:       g.QuoteString,
-			AliasGen:    qs.AliasGen,
-			FormatField: g.FormatColumn,
-			ForUpdate:   false,
-		}
+		inf   = newExpressionInfo(g, qs, false)
 	)
 
 	query.WriteString("SELECT ")
@@ -231,7 +400,7 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 
 	return &QueryObject[[][]interface{}]{
 		sql:   g.queryInfo.DBX.Rebind(query.String()),
-		model: model,
+		model: inf.Model,
 		args:  args,
 		exec: func(sql string, args ...any) ([][]interface{}, error) {
 
@@ -284,17 +453,7 @@ func (g *genericQueryBuilder) BuildCountQuery(
 	qs *GenericQuerySet,
 	internals *QuerySetInternals,
 ) CompiledQuery[int64] {
-	var model = qs.Model()
-	var inf = &expr.ExpressionInfo{
-		Driver: g.driver,
-		Model: attrs.NewObject[attrs.Definer](
-			model,
-		),
-		Quote:       g.QuoteString,
-		AliasGen:    qs.AliasGen,
-		FormatField: g.FormatColumn,
-		ForUpdate:   false,
-	}
+	var inf = newExpressionInfo(g, qs, false)
 	var query = new(strings.Builder)
 	var args = make([]any, 0)
 	query.WriteString("SELECT COUNT(*) FROM ")
@@ -307,7 +466,7 @@ func (g *genericQueryBuilder) BuildCountQuery(
 
 	return &QueryObject[int64]{
 		sql:   g.queryInfo.DBX.Rebind(query.String()),
-		model: model,
+		model: inf.Model,
 		args:  args,
 		exec: func(query string, args ...any) (int64, error) {
 			var count int64
@@ -334,7 +493,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 	var (
 		model   = attrs.NewObject[attrs.Definer](qs.Model())
 		query   = new(strings.Builder)
-		support = internal.DBSupportsReturning(
+		support = drivers.SupportsReturning(
 			g.queryInfo.DB,
 		)
 	)
@@ -389,7 +548,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 	}
 
 	switch {
-	case support == SupportsReturningLastInsertId:
+	case support == drivers.SupportsReturningLastInsertId:
 
 		if internals.Model.Primary != nil {
 			query.WriteString(" RETURNING ")
@@ -400,7 +559,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 			query.WriteString(g.quote)
 		}
 
-	case support == SupportsReturningColumns:
+	case support == drivers.SupportsReturningColumns:
 		query.WriteString(" RETURNING ")
 
 		var written = false
@@ -422,7 +581,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 			query.WriteString(g.quote)
 			written = true
 		}
-	case support == SupportsReturningNone:
+	case support == drivers.SupportsReturningNone:
 		// do nothing
 
 	default:
@@ -444,7 +603,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 		exec: func(query string, args ...any) ([][]interface{}, error) {
 			var err error
 			switch support {
-			case SupportsReturningLastInsertId:
+			case drivers.SupportsReturningLastInsertId:
 
 				if internals.Model.Primary == nil {
 					return nil, nil
@@ -473,7 +632,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 				}
 				return result, nil
 
-			case SupportsReturningColumns:
+			case drivers.SupportsReturningColumns:
 
 				var results = make([][]interface{}, 0, len(objects))
 				var rows, err = g.DB().QueryContext(ctx, query, args...)
@@ -506,7 +665,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 
 				return results, nil
 
-			case SupportsReturningNone:
+			case drivers.SupportsReturningNone:
 				_, err = g.DB().ExecContext(ctx, query, args...)
 				if err != nil {
 					return nil, errors.Wrap(err, "failed to execute query")
@@ -526,19 +685,12 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 	internals *QuerySetInternals,
 	objects []UpdateInfo, // multiple objects can be updated at once
 ) CompiledQuery[int64] {
-	var model = qs.Model()
-	var inf = &expr.ExpressionInfo{
-		Driver: g.driver,
-		Model: attrs.NewObject[attrs.Definer](
-			model,
-		),
-		Quote:       g.QuoteString,
-		AliasGen:    qs.AliasGen,
-		FormatField: g.FormatColumn,
-		ForUpdate:   true,
-	}
-
 	var (
+		inf = newExpressionInfo(
+			g,
+			qs,
+			true,
+		)
 		written bool
 		args    = make([]any, 0)
 		query   = new(strings.Builder)
@@ -601,7 +753,7 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 
 	return &QueryObject[int64]{
 		sql:   g.queryInfo.DBX.Rebind(query.String()),
-		model: model,
+		model: inf.Model,
 		args:  args,
 		exec: func(sql string, args ...any) (int64, error) {
 			result, err := g.DB().ExecContext(ctx, sql, args...)
@@ -618,17 +770,7 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 	qs *GenericQuerySet,
 	internals *QuerySetInternals,
 ) CompiledQuery[int64] {
-	var model = qs.Model()
-	var inf = &expr.ExpressionInfo{
-		Driver: g.driver,
-		Model: attrs.NewObject[attrs.Definer](
-			model,
-		),
-		Quote:       g.QuoteString,
-		AliasGen:    qs.AliasGen,
-		FormatField: g.FormatColumn,
-		ForUpdate:   false,
-	}
+	var inf = newExpressionInfo(g, qs, false)
 	var query = new(strings.Builder)
 	var args = make([]any, 0)
 	query.WriteString("DELETE FROM ")
@@ -653,7 +795,7 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 
 	return &QueryObject[int64]{
 		sql:   g.queryInfo.DBX.Rebind(query.String()),
-		model: model,
+		model: inf.Model,
 		args:  args,
 		exec: func(sql string, args ...any) (int64, error) {
 			result, err := g.DB().ExecContext(ctx, sql, args...)

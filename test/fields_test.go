@@ -842,12 +842,12 @@ func TestSubquery(t *testing.T) {
 
 	var qs = queries.
 		Objects[attrs.Definer](test).
-		Select("TestNameUpper").
+		Select("Name").
 		Filter("ID", test.ID)
 
 	var rows, err = queries.Objects[attrs.Definer](&TestStruct{}).
 		Select("*").
-		Filter(queries.SubqueryIn(expr.FuncUpper("Name"), qs)).
+		Filter("Name__in", queries.Subquery(qs)).
 		All()
 
 	if err != nil {

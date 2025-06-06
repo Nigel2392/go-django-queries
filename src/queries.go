@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -397,7 +398,7 @@ type QueryCompiler interface {
 	// - SupportsReturningNone: no returning supported
 	// - SupportsReturningLastInsertId: last insert id supported
 	// - SupportsReturningColumns: returning columns supported
-	SupportsReturning() SupportsReturning
+	SupportsReturning() drivers.SupportsReturningType
 
 	// StartTransaction starts a new transaction.
 	StartTransaction(ctx context.Context) (Transaction, error)
@@ -413,6 +414,12 @@ type QueryCompiler interface {
 
 	// InTransaction returns true if the current query compiler is in a transaction.
 	InTransaction() bool
+
+	// PrepForLikeQuery prepares a value for a LIKE query.
+	//
+	// It should return the value as a string, with values like `%` and `_` escaped
+	// according to the database's LIKE syntax.
+	PrepForLikeQuery(v any) string
 
 	// BuildSelectQuery builds a select query with the given parameters.
 	BuildSelectQuery(

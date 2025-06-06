@@ -80,9 +80,9 @@ func Chain(expr ...any) NamedExpression {
 		}
 
 		switch v := e.(type) {
-		case Expression:
-			inner = append(inner, v)
 		case LogicalOp:
+			inner = append(inner, v)
+		case Expression:
 			inner = append(inner, v)
 		case string:
 			inner = append(inner, Field(v))

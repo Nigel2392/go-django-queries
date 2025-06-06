@@ -128,9 +128,9 @@ func (g *genericQueryBuilder) FormatLookupCol(lookupName string, inner string) s
 		case "mysql":
 			return fmt.Sprintf("BINARY %s", inner)
 		case "postgres", "pgx":
-			return fmt.Sprintf("UPPER(%s)", inner)
+			return fmt.Sprintf("LOWER(%s)", inner)
 		case "sqlite3":
-			return fmt.Sprintf("UPPER(%s)", inner)
+			return fmt.Sprintf("LOWER(%s)", inner)
 		default:
 			panic(fmt.Errorf("unknown database driver: %s", internal.SqlxDriverName(g.queryInfo.DB)))
 		}
@@ -191,14 +191,14 @@ func (g *genericQueryBuilder) LookupOperatorsRHS() map[string]string {
 		}
 	case "postgres", "pgx":
 		return map[string]string{
-			"iexact":      "= UPPER(%s)",
+			"iexact":      "= LOWER(%s)",
 			"contains":    "LIKE %s",
-			"icontains":   "LIKE UPPER(%s)",
+			"icontains":   "LIKE LOWER(%s)",
 			"regex":       "~ %s",
 			"startswith":  "LIKE %s",
 			"endswith":    "LIKE %s",
-			"istartswith": "LIKE UPPER(%s)",
-			"iendswith":   "LIKE UPPER(%s)",
+			"istartswith": "LIKE LOWER(%s)",
+			"iendswith":   "LIKE LOWER(%s)",
 		}
 	case "sqlite3":
 		return map[string]string{
@@ -230,20 +230,20 @@ func (g *genericQueryBuilder) LookupPatternOperatorsRHS() map[string]string {
 	case "postgres", "pgx":
 		return map[string]string{
 			"contains":    "LIKE '%%' || %s || '%%'",
-			"icontains":   "LIKE '%%' || UPPER(%s) || '%%'",
+			"icontains":   "LIKE '%%' || LOWER(%s) || '%%'",
 			"startswith":  "LIKE %s || '%%'",
-			"istartswith": "LIKE UPPER(%s) || '%%'",
+			"istartswith": "LIKE LOWER(%s) || '%%'",
 			"endswith":    "LIKE '%%' || %s",
-			"iendswith":   "LIKE '%%' || UPPER(%s)",
+			"iendswith":   "LIKE '%%' || LOWER(%s)",
 		}
 	case "sqlite3":
 		return map[string]string{
 			"contains":    "LIKE '%%' || %s || '%%' ESCAPE '\\'",
-			"icontains":   "LIKE '%%' || UPPER(%s) || '%%' ESCAPE '\\'",
+			"icontains":   "LIKE '%%' || LOWER(%s) || '%%' ESCAPE '\\'",
 			"startswith":  "LIKE %s || '%%' ESCAPE '\\'",
-			"istartswith": "LIKE UPPER(%s) || '%%' ESCAPE '\\'",
+			"istartswith": "LIKE LOWER(%s) || '%%' ESCAPE '\\'",
 			"endswith":    "LIKE '%%' || %s ESCAPE '\\'",
-			"iendswith":   "LIKE '%%' || UPPER(%s) ESCAPE '\\'",
+			"iendswith":   "LIKE '%%' || LOWER(%s) ESCAPE '\\'",
 		}
 	}
 	panic(fmt.Errorf("unknown database driver: %s", internal.SqlxDriverName(g.queryInfo.DB)))

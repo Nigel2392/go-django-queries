@@ -18,9 +18,7 @@ func (e String) String() string {
 }
 
 func (e String) SQL(sb *strings.Builder) []any {
-	sb.WriteString(" ")
 	sb.WriteString(string(e))
-	sb.WriteString(" ")
 	return []any{}
 }
 

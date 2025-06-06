@@ -124,6 +124,8 @@ func (l *PatternLookup) Resolve(inf *ExpressionInfo, resolvedExpression Expressi
 			l.Identifier, lhsExpr.String(),
 		))
 
+		sb.WriteString(" ")
+
 		switch arg := values[0].(type) {
 		case Expression:
 			var inner strings.Builder

@@ -102,7 +102,10 @@ func RegisterLookup(Lookup Lookup) {
 	lookupsRegistry.Register(Lookup)
 }
 
-func GetLookup(inf *ExpressionInfo, lookupName string, inner Expression, args []any) (func(sb *strings.Builder) []any, error) {
+// GetLookup retrieves a lookup function based on the provided expression info, lookup name, inner expression, and arguments.
+// It returns a function that can be used to build a SQL string with the lookup applied.
+// The LHS will need to be either an Expression (RESOLVED ALREADY!) or a sql `table`.`column` pair.
+func GetLookup(inf *ExpressionInfo, lookupName string, lhs any, args []any) (func(sb *strings.Builder) []any, error) {
 	if inf == nil {
 		return nil, fmt.Errorf("expression info cannot be nil")
 	}
@@ -111,5 +114,5 @@ func GetLookup(inf *ExpressionInfo, lookupName string, inner Expression, args []
 		lookupName = DEFAULT_LOOKUP
 	}
 
-	return lookupsRegistry.Lookup(inf, lookupName, inner, args)
+	return lookupsRegistry.Lookup(inf, lookupName, lhs, args)
 }

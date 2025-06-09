@@ -82,9 +82,10 @@ func (e *field) Resolve(inf *ExpressionInfo) Expression {
 //
 // The unsafe usage allows for direct insertion of values into the SQL query, which can be dangerous if not used carefully.
 type value struct {
-	v      any
-	used   bool
-	unsafe bool
+	v           any
+	used        bool
+	unsafe      bool
+	placeholder string // Placeholder for the value, if needed
 }
 
 func Value(v any, unsafe ...bool) Expression {
@@ -100,7 +101,7 @@ func (e *value) SQL(sb *strings.Builder) []any {
 		sb.WriteString(fmt.Sprintf("%v", e.v))
 		return []any{}
 	}
-	sb.WriteString("?")
+	sb.WriteString(e.placeholder)
 	return []any{e.v}
 }
 
@@ -115,6 +116,7 @@ func (e *value) Resolve(inf *ExpressionInfo) Expression {
 
 	var nE = e.Clone().(*value)
 	nE.used = true
+	nE.placeholder = inf.Placeholder
 
 	if !nE.unsafe {
 		return nE

@@ -1,8 +1,12 @@
 package models_test
 
 import (
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
 	"testing"
 
+	"github.com/Nigel2392/go-django-queries/src/fields"
 	"github.com/Nigel2392/go-django-queries/src/models"
 	"github.com/Nigel2392/go-django-queries/src/quest"
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -23,6 +27,31 @@ func (m *ImageModel) FieldDefs() attrs.Definitions {
 	)
 }
 
+type JSONMap map[string]any
+
+func (m JSONMap) Value() (driver.Value, error) {
+	return json.Marshal(map[string]any(m))
+}
+
+func (m *JSONMap) Scan(value any) error {
+	if value == nil {
+		*m = nil
+		return nil
+	}
+
+	var data []byte
+	switch v := value.(type) {
+	case []byte:
+		data = v
+	case string:
+		data = []byte(v)
+	default:
+		return fmt.Errorf("unsupported type for JSONMap: %T", value)
+	}
+
+	return json.Unmarshal(data, m)
+}
+
 type StatefulModel struct {
 	models.Model
 	ID        int64
@@ -30,7 +59,7 @@ type StatefulModel struct {
 	LastName  string
 	Age       int
 	BinData   []byte
-	MapData   map[string]any
+	MapData   JSONMap
 	Image     *ImageModel
 }
 
@@ -42,9 +71,7 @@ func (m *StatefulModel) FieldDefs() attrs.Definitions {
 		attrs.Unbound("Age"),
 		attrs.Unbound("BinData"),
 		attrs.Unbound("MapData"),
-		attrs.Unbound("Image", &attrs.FieldConfig{
-			RelForeignKey: attrs.Relate(&ImageModel{}, "", nil),
-		}),
+		fields.ForeignKey[*ImageModel]("Image"),
 	)
 }
 
@@ -58,17 +85,15 @@ func TestState(t *testing.T) {
 	defer tables.Drop()
 
 	var model = models.Setup(&StatefulModel{
-		ID:        1,
 		FirstName: "John",
 		LastName:  "Doe",
 		Age:       30,
 		BinData:   []byte{1, 2, 3},
-		MapData: map[string]any{
+		MapData: JSONMap{
 			"key1": "value1",
 			"key2": 42,
 		},
 		Image: &ImageModel{
-			ID:         1,
 			ImageTitle: "Sample Image",
 			ImageURL:   "http://example.com/image.jpg",
 		},

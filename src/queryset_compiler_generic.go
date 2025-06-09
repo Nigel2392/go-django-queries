@@ -57,8 +57,8 @@ type genericQueryBuilder struct {
 	driver      driver.Driver
 }
 
-func NewGenericQueryBuilder(model attrs.Definer, db string) QueryCompiler {
-	var q, err = internal.GetQueryInfo(model, db)
+func NewGenericQueryBuilder(db string) QueryCompiler {
+	var q, err = internal.GetQueryInfo(db)
 	if err != nil {
 		panic(err)
 	}
@@ -94,6 +94,10 @@ func (g *genericQueryBuilder) DB() DB {
 
 func (g *genericQueryBuilder) Quote() (string, string) {
 	return g.quote, g.quote
+}
+
+func (g *genericQueryBuilder) Placeholder() string {
+	return generic_PLACEHOLDER
 }
 
 func (g *genericQueryBuilder) QuoteString(s string) string {
@@ -294,7 +298,7 @@ func (g *genericQueryBuilder) FormatColumn(col *expr.TableColumn) (string, []any
 		}
 
 	case col.Value != nil:
-		sb.WriteString("?")
+		sb.WriteString(generic_PLACEHOLDER)
 		args = append(args, col.Value)
 
 	case col.FieldAlias != "":
@@ -352,7 +356,7 @@ func (g *genericQueryBuilder) WithTransaction(t Transaction) (Transaction, error
 		return nil, query_errors.ErrTransactionNil
 	}
 
-	g.transaction = &wrappedTransaction{t, g, false}
+	g.transaction = &wrappedTransaction{t, g}
 	return g.transaction, nil
 }
 
@@ -561,7 +565,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 				query.WriteString(", ")
 			}
 
-			query.WriteString("?")
+			query.WriteString(generic_PLACEHOLDER)
 		}
 		query.WriteString(")")
 		written = true

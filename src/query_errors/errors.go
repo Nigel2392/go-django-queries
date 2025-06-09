@@ -3,6 +3,7 @@ package query_errors
 import "github.com/Nigel2392/go-django/src/core/errs"
 
 const (
+	ErrNotImplemented    errs.Error = "Not implemented"
 	ErrNoDatabase        errs.Error = "No database connection"
 	ErrUnknownDriver     errs.Error = "Unknown driver"
 	ErrNoTableName       errs.Error = "No table name"

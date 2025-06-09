@@ -1718,7 +1718,7 @@ func TestQueryCreate(t *testing.T) {
 		drivers.RegisterDriver(&drivers.DriverSQLite{}, "sqlite3", drivers.SupportsReturningLastInsertId)
 		todo.ID = 0 // Ensure ID is reset for creation
 
-		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).Create(todo)
+		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).ExplicitSave().Create(todo)
 		if err != nil {
 			t.Fatalf("Failed to create todo: %v", err)
 		}
@@ -1762,7 +1762,7 @@ func TestQueryCreate(t *testing.T) {
 		drivers.RegisterDriver(&drivers.DriverSQLite{}, "sqlite3", drivers.SupportsReturningColumns)
 		todo.ID = 0 // Ensure ID is reset for creation
 
-		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).Create(todo)
+		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).ExplicitSave().Create(todo)
 		if err != nil {
 			t.Fatalf("Failed to create todo: %v", err)
 		}
@@ -1804,7 +1804,7 @@ func TestQueryCreate(t *testing.T) {
 		drivers.RegisterDriver(&drivers.DriverSQLite{}, "sqlite3", drivers.SupportsReturningNone)
 		todo.ID = 0 // Ensure ID is reset for creation
 
-		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).Create(todo)
+		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).ExplicitSave().Create(todo)
 		if err != nil {
 			t.Fatalf("Failed to create todo: %v", err)
 		}
@@ -2729,7 +2729,13 @@ func TestRunInTransaction(t *testing.T) {
 
 	var ctx = context.Background()
 	var err = queries.RunInTransaction(ctx, func(NewQuerySet queries.ObjectsFunc[*Todo]) (bool, error) {
-		dbTodo, err := NewQuerySet(&Todo{}).Create(todo)
+		var qs = NewQuerySet(&Todo{})
+
+		if !qs.Compiler().InTransaction() {
+			return false, fmt.Errorf("expected to be in transaction, but it is not")
+		}
+
+		dbTodo, err := qs.Create(todo)
 		if err != nil {
 			return false, fmt.Errorf("failed to create todo: %w", err)
 		}

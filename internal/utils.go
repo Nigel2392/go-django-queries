@@ -196,7 +196,7 @@ func SqlxDriverName(db *sql.DB) string {
 	return ""
 }
 
-func GetQueryInfo(obj attrs.Definer, dbKey string) (*QueryInfo, error) {
+func GetQueryInfo(dbKey string) (*QueryInfo, error) {
 	var db = django.ConfigGet[*sql.DB](
 		django.Global.Settings,
 		dbKey,

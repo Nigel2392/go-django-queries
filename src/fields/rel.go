@@ -1,10 +1,12 @@
 package fields
 
 import (
+	"context"
 	"fmt"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
+	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
@@ -109,6 +111,60 @@ func (r *RelationField[T]) ColumnName() string {
 		}
 	}
 	return r.col
+}
+
+type (
+	saveableDefiner interface {
+		attrs.Definer
+		Save(ctx context.Context) error
+	}
+	saveableRelation interface {
+		queries.Relation
+		Save(ctx context.Context, parent attrs.Definer) error
+	}
+	canSetup interface {
+		Setup(def attrs.Definer) error
+	}
+)
+
+func (r *RelationField[T]) Save(ctx context.Context, parent attrs.Definer) error {
+	var val = r.GetValue()
+	if val == nil {
+		return nil
+	}
+
+	if canSetup, ok := val.(canSetup); ok {
+		if err := canSetup.Setup(val.(attrs.Definer)); err != nil {
+			return fmt.Errorf("failed to setup value for relation %s: %w", r.Name(), err)
+		}
+	}
+
+	switch r.rel.Type() {
+	case attrs.RelManyToMany, attrs.RelOneToMany:
+		return fmt.Errorf(
+			"cannot save relation %s with type %s: %w",
+			r.Name(), r.rel.Type(), query_errors.ErrNotImplemented,
+		)
+
+	case attrs.RelOneToOne:
+
+		switch v := val.(type) {
+		case saveableDefiner:
+			return v.Save(ctx)
+		case saveableRelation:
+			return v.Save(ctx, parent)
+		}
+
+	case attrs.RelManyToOne:
+		if v, ok := val.(saveableDefiner); ok {
+			return v.Save(ctx)
+		}
+	}
+
+	return fmt.Errorf(
+		"cannot save relation %s with type %s, value %T does not implement saveableDefiner or saveableRelation: %w",
+		r.Name(), r.rel.Type(), val, query_errors.ErrNotImplemented,
+	)
 }
 
 func (r *RelationField[T]) GetTargetField() attrs.FieldDefinition {

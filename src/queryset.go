@@ -16,7 +16,6 @@ import (
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/Nigel2392/go-django/src/forms/fields"
 	"github.com/Nigel2392/go-django/src/models"
 	"github.com/pkg/errors"
@@ -182,24 +181,12 @@ func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
 		panic("QuerySet: model is nil")
 	}
 
-	var defaultDb = django.APPVAR_DATABASE
 	if len(database) > 1 {
 		panic("QuerySet: too many databases provided")
 	}
 
-	// If the model implements the QuerySetDatabaseDefiner interface,
-	// it will use the QuerySetDatabase method to get the default database.
-	// Function arguments still take precedence however.
-	if m, ok := any(model).(QuerySetDatabaseDefiner); ok && len(database) == 0 {
-		defaultDb = m.QuerySetDatabase()
-	}
-
-	// Arguments take precedence over the default database
-	if len(database) == 1 {
-		defaultDb = database[0]
-	}
-
 	var (
+		defaultDb   = getDatabaseName(model, database...)
 		meta        = attrs.GetModelMeta(model)
 		definitions = meta.Definitions()
 		primary     = definitions.Primary()
@@ -236,7 +223,7 @@ func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
 		// but is generally safe to use
 		useCache: QUERYSET_USE_CACHE_DEFAULT,
 	}
-	qs.compiler = Compiler(model, defaultDb)
+	qs.compiler = Compiler(defaultDb)
 
 	// Allow the model to change the QuerySet
 	if c, ok := any(model).(QuerySetChanger); ok {
@@ -278,151 +265,6 @@ func ChangeObjectsType[OldT, NewT attrs.Definer](qs *QuerySet[OldT]) *QuerySet[N
 	}
 }
 
-type transactionContextKey struct{}
-
-type transactionContextValue struct {
-	Transaction  Transaction
-	DatabaseName string
-}
-
-func transactionFromContext(ctx context.Context) (Transaction, string, bool) {
-	var tx, ok = ctx.Value(transactionContextKey{}).(*transactionContextValue)
-	if !ok {
-		return nil, "", false
-	}
-	return tx.Transaction, tx.DatabaseName, tx.Transaction != nil
-}
-
-func transactionToContext(ctx context.Context, tx Transaction, dbName string) context.Context {
-	if tx == nil {
-		panic("transactionToContext: transaction is nil")
-	}
-	return context.WithValue(ctx, transactionContextKey{}, &transactionContextValue{
-		Transaction:  tx,
-		DatabaseName: dbName,
-	})
-}
-
-func RunInTransaction[T attrs.Definer](ctx context.Context, fn func(NewQuerySet ObjectsFunc[T]) (commit bool, err error)) error {
-	var (
-		comitted             bool
-		panicFromNewQuerySet error
-		transaction          Transaction
-		dbName               string
-	)
-
-	// If the context already has a transaction, use it.
-	if tx, databaseName, ok := transactionFromContext(ctx); ok && (dbName == "" || dbName == databaseName) {
-		transaction = tx
-		dbName = databaseName
-	}
-
-	// a constructor function to create a new QuerySet with the given model
-	// and then bind the transaction to it.
-	var newQuerySetFunc = func(model T) *QuerySet[T] {
-		var (
-			err error
-			qs  = GetQuerySet(model).WithContext(ctx)
-		)
-
-		// if there was no transaction started yet, start a new one
-		// otherwise, let the compiler wrap and handle the transaction
-		if transaction == nil {
-			// set the database name to the one used by the compiler
-			dbName = qs.compiler.DatabaseName()
-			transaction, err = qs.compiler.StartTransaction(ctx)
-		} else {
-			// a transaction cannot be started if the database name is different
-			// cross-database transactions are not supported
-			var databaseName = qs.compiler.DatabaseName()
-			if dbName != databaseName {
-				panicFromNewQuerySet = fmt.Errorf(
-					"RunInTransaction, %q != %q: %w",
-					dbName, databaseName,
-					query_errors.ErrCrossDatabaseTransaction,
-				)
-				panic(panicFromNewQuerySet)
-			}
-
-			transaction, err = qs.compiler.WithTransaction(transaction)
-		}
-
-		if err != nil {
-			panicFromNewQuerySet = fmt.Errorf(
-				"RunInTransaction: failed to start transaction: %w",
-				err,
-			)
-			panic(panicFromNewQuerySet)
-		}
-
-		return qs
-	}
-
-	// rollback the transaction if anything bad happens or the transaction is not committed.
-	// this should do nothing if the transaction is already committed.
-	defer func() {
-		if rec := recover(); rec != nil {
-			logger.Errorf("RunInTransaction: panic recovered: %v", rec)
-		}
-
-		if transaction != nil && !comitted {
-			if err := transaction.Rollback(); err != nil {
-				logger.Errorf("RunInTransaction: failed to rollback transaction: %v", err)
-			}
-		}
-	}()
-
-	// if the function returns an error, the transaction will be rolled back
-	var commit, err = fn(newQuerySetFunc)
-	if err != nil {
-		return errors.Wrap(err, "RunInTransaction: function returned an error")
-	}
-
-	// if the transaction is nil, it means that no transaction was started
-	// i.e. no newQuerySetFunc was called
-	if transaction == nil {
-		return query_errors.ErrNoTransaction
-	}
-
-	if commit {
-		// commit the transaction if everything went well
-		err = transaction.Commit()
-		if err != nil {
-			return errors.Wrap(err, "RunInTransaction: failed to commit transaction")
-		}
-		comitted = true
-	}
-
-	return nil
-}
-
-//	// GetOrCreateTransaction starts a transaction on the underlying database or returns the existing one.
-//	//
-//	// It returns a transaction object which can be used to commit or rollback the transaction.
-//	func (qs *QuerySet[T]) GetOrCreateTransaction(ctx context.Context) (context.Context, Transaction, error) {
-//		var err error
-//		var compTx = qs.compiler.Transaction()
-//		var tx, dbName, ok = transactionFromContext(ctx)
-//		if ok && dbName == qs.compiler.DatabaseName() {
-//			if compTx == nil {
-//				compTx, err = qs.compiler.WithTransaction(tx)
-//				compTx = &nullTransaction{compTx}
-//				ctx = transactionToContext(ctx, compTx, dbName)
-//				qs.context = ctx
-//			}
-//			return ctx, compTx, err
-//		}
-//
-//		compTx, err = qs.compiler.StartTransaction(ctx)
-//		if err != nil {
-//			return ctx, nil, errors.Wrap(err, "GetOrCreateTransaction: failed to start transaction")
-//		}
-//
-//		ctx = transactionToContext(ctx, compTx, qs.compiler.DatabaseName())
-//		qs.context = ctx
-//		return ctx, compTx, nil
-//	}
-
 // Return the underlying database which the compiler is using.
 func (qs *QuerySet[T]) DB() DB {
 	return qs.compiler.DB()
@@ -441,6 +283,17 @@ func (qs *QuerySet[T]) Compiler() QueryCompiler {
 // LatestQuery returns the latest query that was executed on the queryset.
 func (qs *QuerySet[T]) LatestQuery() QueryInfo {
 	return qs.latestQuery
+}
+
+// Context returns the context of the QuerySet.
+//
+// It is used to pass a context to the QuerySet, which is mainly used
+// for transaction management.
+func (qs *QuerySet[T]) Context() context.Context {
+	if qs.context == nil {
+		qs.context = context.Background()
+	}
+	return qs.context
 }
 
 // WithContext sets the context for the QuerySet.
@@ -491,6 +344,16 @@ func (qs *QuerySet[T]) WithTransaction(tx Transaction) (Transaction, error) {
 	ctx := transactionToContext(qs.context, tx, qs.compiler.DatabaseName())
 	qs.context = ctx
 	return tx, err //, nil
+}
+
+// getTransaction returns the rollback and commit functions for the current transaction
+// these will result in a no-op if the transaction was not started by the QuerySet itself.
+func (qs *QuerySet[T]) getTransaction() (tx Transaction, err error) {
+	if !qs.compiler.InTransaction() {
+		return qs.StartTransaction(qs.context)
+	}
+	tx = &nullTransaction{qs.compiler.Transaction()}
+	return tx, nil
 }
 
 // Clone creates a new QuerySet with the same parameters as the original one.
@@ -1816,27 +1679,17 @@ func (qs *QuerySet[T]) GetOrCreate(value T) (T, bool, error) {
 		panic(query_errors.ErrNoWhereClause)
 	}
 
-	// Create a new transaction if the queryset is not already in a transaction
-	//
 	// If the queryset is already in a transaction, that transaction will be used
 	// automatically.
-	var transaction Transaction
-	var commitTransaction = func() error {
-		if transaction == nil {
-			return nil
-		}
-		return transaction.Commit()
+	var tx, err = qs.getTransaction()
+	if err != nil {
+		return *new(T), false, errors.Wrapf(
+			err, "failed to get transaction for %T", qs.model,
+		)
 	}
 
-	if !qs.compiler.InTransaction() {
-		var err error
-		transaction, err = qs.StartTransaction(qs.context)
-		if err != nil {
-			return *new(T), false, err
-		}
-
-		defer transaction.Rollback()
-	}
+	// If the transaction is nil, we need to create a new transaction
+	defer tx.Rollback()
 
 	// Check if the object already exists
 	qs.useCache = false
@@ -1845,13 +1698,15 @@ func (qs *QuerySet[T]) GetOrCreate(value T) (T, bool, error) {
 		if errors.Is(err, query_errors.ErrNoRows) {
 			goto create
 		} else {
-			return *new(T), false, err
+			return *new(T), false, errors.Wrapf(
+				err, "failed to get object %T", qs.model,
+			)
 		}
 	}
 
 	// Object already exists, return it and commit the transaction
 	if row != nil {
-		return row.Object, false, commitTransaction()
+		return row.Object, false, tx.Commit()
 	}
 
 	// Object does not exist, create it
@@ -1859,11 +1714,18 @@ create:
 	obj, err := qs.Create(value)
 	// obj, err := qs.BulkCreate([]T{value})
 	if err != nil {
-		return *new(T), false, err
+		return *new(T), false, errors.Wrapf(
+			err, "failed to create object %T", qs.model,
+		)
 	}
 
 	// Object was created successfully, commit the transaction
-	return obj, true, commitTransaction()
+	if err = tx.Commit(); err != nil {
+		return *new(T), false, errors.Wrapf(
+			err, "failed to commit transaction for %T", qs.model,
+		)
+	}
+	return obj, true, nil
 	// return obj[0], true, commitTransaction()
 }
 
@@ -2429,6 +2291,14 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 		return 0, err
 	}
 
+	if len(objects) > 0 && res == 0 {
+		return 0, errors.Wrapf(
+			query_errors.ErrNoRows,
+			"no rows updated for %T",
+			qs.model,
+		)
+	}
+
 	if canAfterUpdate {
 		for _, obj := range objects {
 			if err := runActor(actsAfterUpdate, obj, ChangeObjectsType[T, attrs.Definer](qs)); err != nil {
@@ -2468,6 +2338,28 @@ func (qs *QuerySet[T]) Delete(objects ...T) (int64, error) {
 	qs.latestQuery = resultQuery
 
 	return resultQuery.Exec()
+}
+
+func getDatabaseName(model attrs.Definer, database ...string) string {
+	var defaultDb = django.APPVAR_DATABASE
+	if len(database) > 1 {
+		panic("QuerySet: too many databases provided")
+	}
+
+	if model != nil {
+		// If the model implements the QuerySetDatabaseDefiner interface,
+		// it will use the QuerySetDatabase method to get the default database.
+		if m, ok := any(model).(QuerySetDatabaseDefiner); ok && len(database) == 0 {
+			defaultDb = m.QuerySetDatabase()
+		}
+	}
+
+	// Arguments take precedence over the default database
+	if len(database) == 1 {
+		defaultDb = database[0]
+	}
+
+	return defaultDb
 }
 
 type scannableField struct {

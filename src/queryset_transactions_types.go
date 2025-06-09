@@ -16,18 +16,27 @@ func (n *nullTransaction) Commit() error {
 	return nil
 }
 
+type dbSpecificTransaction struct {
+	Transaction
+	dbName string
+}
+
+func (c *dbSpecificTransaction) DatabaseName() string {
+	return c.dbName
+}
+
 type wrappedTransaction struct {
 	Transaction
 	compiler *genericQueryBuilder
-	expired  bool
 }
 
 func (w *wrappedTransaction) Rollback() error {
 	if !w.compiler.InTransaction() {
 		return query_errors.ErrNoTransaction
 	}
-	w.expired = true
-	w.compiler.transaction = nil
+	if w.compiler != nil {
+		w.compiler.transaction = nil
+	}
 	return w.Transaction.Rollback()
 }
 
@@ -35,7 +44,8 @@ func (w *wrappedTransaction) Commit() error {
 	if !w.compiler.InTransaction() {
 		return query_errors.ErrNoTransaction
 	}
-	w.expired = true
-	w.compiler.transaction = nil
+	if w.compiler != nil {
+		w.compiler.transaction = nil
+	}
 	return w.Transaction.Commit()
 }

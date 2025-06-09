@@ -73,7 +73,7 @@ func (l *LogicalLookup) Resolve(inf *ExpressionInfo, lhsResolved ResolvedExpress
 			))
 		default:
 			var opRHS, exprArgs = inf.Lookups.FormatLogicalOpRHS(
-				l.Operator, inf.Lookups.FormatLookupCol(l.Identifier, "?"), arg,
+				l.Operator, inf.Lookups.FormatLookupCol(l.Identifier, inf.Placeholder), arg,
 			)
 			sb.WriteString(opRHS)
 			args = append(args, exprArgs...)

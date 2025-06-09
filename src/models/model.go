@@ -2,6 +2,7 @@ package models
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -9,8 +10,10 @@ import (
 
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/fields"
+	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/assert"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/Nigel2392/go-django/src/models"
 	"github.com/Nigel2392/go-signals"
 )
@@ -32,7 +35,6 @@ type modelOptions struct {
 	defs   *attrs.ObjectDefinitions
 	meta   attrs.ModelMeta
 	state  *ModelState
-	// fromDB indicates whether the model was loaded from the database
 	fromDB bool
 }
 
@@ -624,6 +626,37 @@ func (m *Model) ModelMeta() attrs.ModelMeta {
 	return m.internals.meta
 }
 
+func (m *Model) Saved() bool {
+	// if the model is not initialized, it is assumed
+	// that it is not saved, so we return false
+	if m.internals == nil ||
+		m.internals.base == nil ||
+		m.internals.object == nil {
+		return false
+	}
+
+	// if the model was loaded from the database, it is saved
+	if m.internals.fromDB {
+		return true
+	}
+
+	// if the model has a nil primary key field,
+	// we assume it is not saved.
+	var pk = m.PK()
+	if pk == nil {
+		return false
+	}
+
+	var value, err = pk.Value()
+	if err != nil {
+		// if we cannot get the value of the primary key,
+		// we assume it is not saved
+		return false
+	}
+
+	return !attrs.IsZero(value)
+}
+
 func (m *Model) AfterQuery(_ *queries.GenericQuerySet) error {
 	m.checkValid()
 	m.setupInitialState()
@@ -657,12 +690,67 @@ func (m *Model) DataStore() queries.ModelDataStore {
 	return m.data
 }
 
+type canSaveObject interface {
+	SaveObject(ctx context.Context, cnf SaveConfig) error
+}
+
+// Save saves the model to the database.
+//
+// It checks if the model is properly initialized and if the model's definitions
+// are set up. If the model is not initialized, it returns an error.
+//
+// If the model is initialized, it calls the SaveObject method on the model's
+// object, passing the current context and a SaveConfig struct that contains
+// the model's object, query set, fields to save, and a force flag.
+//
+// The object embedding the model can choose to implement the
+// [canSaveObject] interface to provide a custom save implementation.
 func (m *Model) Save(ctx context.Context) error {
 	if m.internals != nil && m.internals.defs == nil && m.internals.object != nil {
 		var obj = m.internals.object.Interface().(attrs.Definer)
 		obj.FieldDefs()
 	}
 
+	if m.internals == nil || m.internals.object == nil {
+		return errors.New("model is not properly initialized, cannot save object")
+	}
+
+	var this = m.internals.object.Interface().(attrs.Definer)
+	return this.(canSaveObject).SaveObject(ctx, SaveConfig{
+		this: this,
+	})
+}
+
+type SaveConfig struct {
+	// this should not be nil, it is the object itself.
+	//
+	// If not provided, it will be set to the model's object inside of [Model.SaveObject].
+	this attrs.Definer
+
+	// A custom queryset to use for creating or updating the model.
+	QuerySet *queries.QuerySet[attrs.Definer]
+
+	// Fields to save, if empty, all fields will be saved.
+	// If the model is not loaded from the database, all fields will be saved.
+	Fields []string
+
+	// Force indicates whether to force the save operation,
+	// even if no fields have changed.
+	Force bool
+}
+
+// SaveObject saves the model's object to the database.
+//
+// It checks if the model is properly initialized and if the model's definitions
+// are set up. If the model is not initialized, it returns an error.
+//
+// If the model is initialized, it iterates over the model's fields and checks
+// if any of the fields have changed. If any field has changed, it adds the field
+// to the list of changed fields and prepares a queryset to save the model.
+//
+// A config struct [SaveConfig] is used to pass the model's object, queryset, fields to save,
+// and a force flag to indicate whether to force the save operation.
+func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 	if m.internals == nil || m.internals.defs == nil {
 		return fmt.Errorf(
 			"model %T is not properly initialized, cannot save fields",
@@ -670,84 +758,139 @@ func (m *Model) Save(ctx context.Context) error {
 		)
 	}
 
+	// Setup the "this" object if not provided.
+	if cnf.this == nil {
+		cnf.this = m.internals.object.Interface().(attrs.Definer)
+	}
+
 	// check if anything has changed,
-	if !m.internals.state.Changed(true) && !m.internals.fromDB {
+	if !m.internals.state.Changed(true) && !m.internals.fromDB && !cnf.Force {
 		// if nothing has changed, we can skip saving
 		return nil
+	}
+
+	var fields = make(map[string]struct{}, len(cnf.Fields))
+	for _, field := range cnf.Fields {
+		fields[field] = struct{}{}
 	}
 
 	// if the model was not loaded from the database,
 	// we automatically assume all changes are to be saved
 	var anyChanges = !m.internals.fromDB
-	var changed = make([]interface{}, 0)
+	var selectFields = make([]interface{}, 0)
+	var updateFields = make([]attrs.Field, 0, m.internals.defs.ObjectFields.Len())
 	for head := m.internals.defs.ObjectFields.Front(); head != nil; head = head.Next() {
 
+		// if there was a list of fields provided and if
+		// the field is not in the list of fields to save, we skip it
+		var mustInclField bool
+		if len(cnf.Fields) > 0 {
+			if _, ok := fields[head.Value.Name()]; !ok && !cnf.Force && m.internals.fromDB {
+				continue
+			}
+			mustInclField = true
+		}
+
 		var hasChanged = m.internals.state.HasChanged(head.Value.Name())
-		if !hasChanged {
-			// if the field has not changed, we skip saving it
+		if !hasChanged && !mustInclField && !cnf.Force && !m.internals.fromDB {
+			// if the field has not changed and none of the force flags are set,
+			// we can skip saving this field
 			continue
 		}
 
-		changed = append(changed, head.Value.Name())
-		anyChanges = true
-		switch field := head.Value.(type) {
-		case models.Saver:
-			panic(fmt.Errorf(
-				"model %T field %s is a Saver, which is not supported in Save(), a ContextSaver is required to maintain transaction integrity",
-				m.internals.object.Interface(), head.Value.Name(),
-			))
-		case models.ContextSaver:
-			if err := field.Save(ctx); err != nil {
-				return fmt.Errorf(
-					"failed to save field %q in model %T: %w",
-					head.Value.Name(), m.internals.object.Interface(), err,
-				)
-			}
+		// Add the field name to the list of changed fields.
+		// This is used to determine which fields to save in the query set.
+		if queries.ForSelectAll(head.Value) {
+			selectFields = append(selectFields, head.Value.Name())
 		}
+
+		updateFields = append(updateFields, head.Value)
 	}
 
-	if !anyChanges {
-		// if no changes were made, we can skip saving
-		// this is useful for models that have no fields that changed
-		// but still need to be saved (e.g. for signals)
-		// fmt.Printf("Model %T has no changes, skipping save\n", m.internals.object.Interface())
+	// if no changes were made and the force flag is not set,
+	// we can skip saving the model
+	if (!anyChanges || len(updateFields) == 0) && !cnf.Force && len(cnf.Fields) == 0 {
 		return nil
 	}
 
-	var err error
-	var pkVal any
-	var primary = m.PK()
-	if primary != nil {
-		pkVal, err = primary.Value()
+	ctx, transaction, err := queries.StartTransaction(ctx)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to start transaction for model %T: %w",
+			m.internals.object.Interface(), err,
+		)
+	}
+	defer transaction.Rollback()
+
+	for _, field := range updateFields {
+		anyChanges = true
+
+		var err error
+		switch fld := field.(type) {
+		case models.Saver:
+			panic(fmt.Errorf(
+				"model %T field %s is a Saver, which is not supported in Save(), a ContextSaver is required to maintain transaction integrity",
+				m.internals.object.Interface(), field.Name(),
+			))
+		case models.ContextSaver:
+			err = fld.Save(ctx)
+		case queries.SaveableField:
+			err = fld.Save(ctx, cnf.this)
+		}
+		if err != nil {
+			if !errors.Is(err, query_errors.ErrNotImplemented) {
+				return fmt.Errorf(
+					"failed to save field %q in model %T: %w",
+					field.Name(), m.internals.object.Interface(), err,
+				)
+			}
+
+			logger.Warnf(
+				"field %q in model %T is not saveable, skipping: %v",
+				field.Name(), m.internals.object.Interface(), err,
+			)
+
+			continue
+		}
+	}
+
+	// Setup the query set if not provided.
+	var querySet = cnf.QuerySet
+	if querySet == nil {
+		querySet = queries.
+			Objects(cnf.this).
+			Select(selectFields...).
+			ExplicitSave()
+	}
+
+	// Add the context to the query set.
+	querySet = querySet.
+		WithContext(ctx)
+
+	var updated int64
+	var saved = m.Saved()
+	if saved {
+		updated, err = querySet.Update(cnf.this)
+	} else {
+		_, err = querySet.Create(cnf.this)
 	}
 	if err != nil {
 		return fmt.Errorf(
-			"failed to get primary key value for model %T: %w",
+			"failed to save model %T: %w",
 			m.internals.object.Interface(), err,
 		)
 	}
 
-	var this = m.internals.object.Interface().(attrs.Definer)
-	var zeroPK = attrs.IsZero(pkVal)
-	var querySet = queries.Objects(this).
-		Select(changed...).
-		WithContext(ctx).
-		ExplicitSave()
-
-	switch {
-	case (primary != nil && !zeroPK) || (primary == nil && m.internals.fromDB):
-		_, err = querySet.Update(this)
-
-	case (primary != nil && zeroPK) || (primary == nil && !m.internals.fromDB):
-		_, err = querySet.Create(this)
-
-	default:
+	if saved && updated == 0 {
 		return fmt.Errorf(
-			"model %T has an invalid state, cannot save: fromDB=%v, pkVal=%v",
+			"model %T was not updated, no rows affected",
 			m.internals.object.Interface(),
-			m.internals.fromDB, pkVal,
 		)
 	}
 
-	return err
+	// reset the state after saving
+	m.internals.state.Reset()
+	m.internals.fromDB = true
+
+	return transaction.Commit()
 }

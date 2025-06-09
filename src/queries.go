@@ -48,6 +48,13 @@ func setup[T attrs.Definer](model T) (T, error) {
 	return model, nil
 }
 
+type SaveableField interface {
+	attrs.Field
+
+	// Save is called to save the field's value to the database.
+	Save(ctx context.Context, parent attrs.Definer) error
+}
+
 // A field can adhere to this interface to indicate that the field should be
 // aliased when generating the SQL for the field.
 //
@@ -366,6 +373,12 @@ type Transaction interface {
 	Rollback() error
 }
 
+// DatabaseSpecificTransaction is an interface for transactions that are specific to a database.
+type DatabaseSpecificTransaction interface {
+	Transaction
+	DatabaseName() string
+}
+
 // A QueryInfo interface is used to retrieve information about a query.
 //
 // It is possible to introspect the queries' SQL, arguments, model, and compiler.
@@ -424,6 +437,11 @@ type QueryCompiler interface {
 	// This is used to quote table and field names.
 	// For example, MySQL uses backticks (`) and PostgreSQL uses double quotes (").
 	Quote() (front string, back string)
+
+	// Placeholder returns the placeholder used by the database for query parameters.
+	// This is used to format query parameters in the SQL query.
+	// For example, MySQL uses `?` and PostgreSQL uses `$1`, `$2` (but can support `?` as well).
+	Placeholder() string
 
 	// FormatColumn formats the given field column to be used in a query.
 	// It should return the column name with the quotes applied.
@@ -494,7 +512,7 @@ type QueryCompiler interface {
 	) CompiledQuery[int64]
 }
 
-var compilerRegistry = make(map[reflect.Type]func(model attrs.Definer, defaultDB string) QueryCompiler)
+var compilerRegistry = make(map[reflect.Type]func(defaultDB string) QueryCompiler)
 
 // RegisterCompiler registers a compiler for a given driver.
 //
@@ -505,7 +523,7 @@ var compilerRegistry = make(map[reflect.Type]func(model attrs.Definer, defaultDB
 //
 // The default database name is used to determine the database connection to use and
 // retrieve from the django.Global.Settings object.
-func RegisterCompiler(driver driver.Driver, compiler func(model attrs.Definer, defaultDB string) QueryCompiler) {
+func RegisterCompiler(driver driver.Driver, compiler func(defaultDB string) QueryCompiler) {
 	var driverType = reflect.TypeOf(driver)
 	if driverType == nil {
 		panic("driver is nil")
@@ -519,7 +537,7 @@ func RegisterCompiler(driver driver.Driver, compiler func(model attrs.Definer, d
 // If the default database name is empty, it will use the APPVAR_DATABASE setting.
 //
 // If the database is not found in the settings, it will panic.
-func Compiler(model attrs.Definer, defaultDB string) QueryCompiler {
+func Compiler(defaultDB string) QueryCompiler {
 	if defaultDB == "" {
 		defaultDB = django.APPVAR_DATABASE
 	}
@@ -549,5 +567,5 @@ func Compiler(model attrs.Definer, defaultDB string) QueryCompiler {
 		panic(fmt.Errorf("no compiler registered for driver %T", db.Driver()))
 	}
 
-	return compiler(model, defaultDB)
+	return compiler(defaultDB)
 }

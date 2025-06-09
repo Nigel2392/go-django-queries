@@ -5,7 +5,7 @@ import (
 )
 
 type nullTransaction struct {
-	Transaction
+	DB
 }
 
 func (n *nullTransaction) Rollback() error {

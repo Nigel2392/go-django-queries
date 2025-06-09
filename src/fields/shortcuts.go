@@ -77,11 +77,11 @@ func (u *unbound[T]) BindField(model attrs.Definer) (attrs.Field, error) {
 		case attrs.RelOneToOne:
 			fieldConfig.ReverseName = fmt.Sprintf("%sReverse", u.name)
 		case attrs.RelManyToOne:
-			fieldConfig.ReverseName = fmt.Sprintf("%sReverse", u.name)
+			fieldConfig.ReverseName = fmt.Sprintf("%sSet", u.name)
 		case attrs.RelManyToMany:
 			fieldConfig.ReverseName = fmt.Sprintf("%sSet", u.name)
 		case attrs.RelOneToMany:
-			fieldConfig.ReverseName = fmt.Sprintf("%sSet", u.name)
+			fieldConfig.ReverseName = fmt.Sprintf("%sReverse", u.name)
 		default:
 			return nil, fmt.Errorf("unsupported relation type %s for field %s in model %T", fieldConfig.Rel.Type(), u.name, model)
 		}
@@ -135,7 +135,14 @@ func OneToOne[T any](name string, conf ...*FieldConfig) attrs.UnboundFieldConstr
 	)
 }
 
-func ForeignKey[T any](name string, conf ...*FieldConfig) attrs.UnboundFieldConstructor {
+func ForeignKey[T any](name, columnName string, conf ...*FieldConfig) attrs.UnboundFieldConstructor {
+	if len(conf) == 0 {
+		conf = append(conf, &FieldConfig{
+			ColumnName: columnName,
+		})
+	} else if conf[0].ColumnName == "" {
+		conf[0].ColumnName = columnName
+	}
 	return fieldConstructor[*ForeignKeyField[T], T](
 		name, attrs.RelManyToOne, NewForeignKeyField[T], conf...,
 	)

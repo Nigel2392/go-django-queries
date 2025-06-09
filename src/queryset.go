@@ -1687,8 +1687,6 @@ func (qs *QuerySet[T]) GetOrCreate(value T) (T, bool, error) {
 			err, "failed to get transaction for %T", qs.model,
 		)
 	}
-
-	// If the transaction is nil, we need to create a new transaction
 	defer tx.Rollback()
 
 	// Check if the object already exists
@@ -1720,12 +1718,7 @@ create:
 	}
 
 	// Object was created successfully, commit the transaction
-	if err = tx.Commit(); err != nil {
-		return *new(T), false, errors.Wrapf(
-			err, "failed to commit transaction for %T", qs.model,
-		)
-	}
-	return obj, true, nil
+	return obj, true, tx.Commit()
 	// return obj[0], true, commitTransaction()
 }
 
@@ -1806,6 +1799,14 @@ func (qs *QuerySet[T]) Count() (int64, error) {
 // without calling the `Save()` method on the model.
 func (qs *QuerySet[T]) Create(value T) (T, error) {
 
+	var tx, err = qs.getTransaction()
+	if err != nil {
+		return *new(T), errors.Wrapf(
+			err, "failed to get transaction for %T", qs.model,
+		)
+	}
+	defer tx.Rollback()
+
 	// Check if the object is a saver
 	// If it is, we can use the Save method to save the object
 	if saver, ok := any(value).(models.ContextSaver); ok && !qs.explicitSave {
@@ -1841,7 +1842,7 @@ func (qs *QuerySet[T]) Create(value T) (T, error) {
 			)
 		}
 
-		return saver.(T), nil
+		return saver.(T), tx.Commit()
 	}
 
 	result, err := qs.BulkCreate([]T{value})
@@ -1854,7 +1855,7 @@ func (qs *QuerySet[T]) Create(value T) (T, error) {
 		return *new(T), query_errors.ErrNoRows
 	}
 
-	return result[0], nil
+	return result[0], tx.Commit()
 }
 
 // Update is used to update an object in the database.
@@ -1867,6 +1868,14 @@ func (qs *QuerySet[T]) Create(value T) (T, error) {
 // If the model adheres to django's `models.Saver` interface, no where clause is provided
 // and ExplicitSave() was not called, the `Save()` method will be called on the model
 func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int64, error) {
+	var tx, err = qs.getTransaction()
+	if err != nil {
+		return 0, errors.Wrapf(
+			err, "failed to get transaction for %T", qs.model,
+		)
+	}
+	defer tx.Rollback()
+
 	if len(qs.internals.Where) == 0 && !qs.explicitSave {
 
 		if _, err := setup(value); err != nil {
@@ -1903,11 +1912,18 @@ func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int
 			if err := sendSignal(SignalPostModelSave, value, qs.compiler); err != nil {
 				return 0, err
 			}
-			return 1, nil
+			return 1, tx.Commit()
 		}
 	}
 
-	return qs.BulkUpdate([]T{value}, expressions...)
+	c, err := qs.BulkUpdate([]T{value}, expressions...)
+	if err != nil {
+		return 0, errors.Wrapf(
+			err, "failed to update object %T", qs.model,
+		)
+	}
+
+	return c, tx.Commit()
 }
 
 // BulkCreate is used to create multiple objects in the database.
@@ -1915,6 +1931,14 @@ func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int
 // It takes a list of definer objects as arguments and returns a Query that can be executed
 // to get the result, which is a slice of the created objects.
 func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
+	var tx, err = qs.getTransaction()
+	if err != nil {
+		return nil, errors.Wrapf(
+			err, "failed to get transaction for %T", qs.model,
+		)
+	}
+	defer tx.Rollback()
+
 	var (
 		values     = make([]any, 0, len(objects))
 		attrFields = make([][]attrs.Field, 0, len(objects))
@@ -2003,7 +2027,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 	// Set the old values on the new object
 
 	// Execute the create query
-	var results, err = resultQuery.Exec()
+	results, err := resultQuery.Exec()
 	if err != nil {
 		return nil, err
 	}
@@ -2135,7 +2159,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 		)
 	}
 
-	return objects, nil
+	return objects, tx.Commit()
 }
 
 // BulkUpdate is used to update multiple objects in the database.
@@ -2143,6 +2167,14 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 // It takes a list of definer objects as arguments and any possible NamedExpressions.
 // It does not try to call any save methods on the objects.
 func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpression) (int64, error) {
+
+	var tx, err = qs.getTransaction()
+	if err != nil {
+		return 0, errors.Wrapf(
+			err, "failed to get transaction for %T", qs.model,
+		)
+	}
+	defer tx.Rollback()
 
 	var exprMap = make(map[string]expr.NamedExpression, len(expressions))
 	for _, expr := range expressions {
@@ -2286,7 +2318,7 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 	)
 	qs.latestQuery = resultQuery
 
-	var res, err = resultQuery.Exec()
+	res, err := resultQuery.Exec()
 	if err != nil {
 		return 0, err
 	}
@@ -2311,13 +2343,21 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 		}
 	}
 
-	return res, nil
+	return res, tx.Commit()
 }
 
 // Delete is used to delete an object from the database.
 //
 // It returns a CountQuery that can be executed to get the result, which is the number of rows affected.
 func (qs *QuerySet[T]) Delete(objects ...T) (int64, error) {
+
+	var tx, err = qs.getTransaction()
+	if err != nil {
+		return 0, errors.Wrapf(
+			err, "failed to get transaction for %T", qs.model,
+		)
+	}
+	defer tx.Rollback()
 
 	if len(objects) > 0 {
 		var where, err = GenerateObjectsWhereClause(objects...)
@@ -2337,7 +2377,12 @@ func (qs *QuerySet[T]) Delete(objects ...T) (int64, error) {
 	)
 	qs.latestQuery = resultQuery
 
-	return resultQuery.Exec()
+	res, err := resultQuery.Exec()
+	if err != nil {
+		return 0, err
+	}
+
+	return res, tx.Commit()
 }
 
 func getDatabaseName(model attrs.Definer, database ...string) string {

@@ -71,7 +71,7 @@ func (m *StatefulModel) FieldDefs() attrs.Definitions {
 		attrs.Unbound("Age"),
 		attrs.Unbound("BinData"),
 		attrs.Unbound("MapData"),
-		fields.ForeignKey[*ImageModel]("Image"),
+		fields.ForeignKey[*ImageModel]("Image", "image_id"),
 	)
 }
 

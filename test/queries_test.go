@@ -397,6 +397,9 @@ func (t *ModelManyToMany) FieldDefs() attrs.Definitions {
 		// attrs.AttrReverseAliasKey: "TargetReverse",
 		// },
 		// }),
+		// fields.ForeignKey[*User]("User", "user_id", &fields.FieldConfig{
+		// ReverseName: "ModelManyToManySet",
+		// }),
 		attrs.NewField(t, "User", &attrs.FieldConfig{
 			Null:          true,
 			Column:        "user_id",

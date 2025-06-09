@@ -12,6 +12,7 @@ import (
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/pkg/errors"
 )
 
@@ -343,6 +344,8 @@ func (g *genericQueryBuilder) StartTransaction(ctx context.Context) (Transaction
 	if err != nil {
 		return nil, query_errors.ErrFailedStartTransaction
 	}
+
+	logger.Debugf("Starting transaction for %s", g.DatabaseName())
 
 	return g.WithTransaction(tx)
 }

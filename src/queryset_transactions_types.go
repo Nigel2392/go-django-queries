@@ -2,10 +2,15 @@ package queries
 
 import (
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
+	"github.com/Nigel2392/go-django/src/core/logger"
 )
 
 type nullTransaction struct {
 	DB
+}
+
+func NullTransction() Transaction {
+	return &nullTransaction{DB: nil}
 }
 
 func (n *nullTransaction) Rollback() error {
@@ -37,6 +42,7 @@ func (w *wrappedTransaction) Rollback() error {
 	if w.compiler != nil {
 		w.compiler.transaction = nil
 	}
+	logger.Debugf("Rolling back transaction for %s", w.compiler.DatabaseName())
 	return w.Transaction.Rollback()
 }
 
@@ -47,5 +53,6 @@ func (w *wrappedTransaction) Commit() error {
 	if w.compiler != nil {
 		w.compiler.transaction = nil
 	}
+	logger.Debugf("Committing transaction for %s", w.compiler.DatabaseName())
 	return w.Transaction.Commit()
 }

@@ -813,13 +813,19 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 		return nil
 	}
 
-	ctx, transaction, err := queries.StartTransaction(ctx)
-	if err != nil {
-		return fmt.Errorf(
-			"failed to start transaction for model %T: %w",
-			m.internals.object.Interface(), err,
-		)
+	var transaction queries.Transaction
+	if queries.CREATE_IMPLICIT_TRANSACTION {
+		ctx, transaction, err = queries.StartTransaction(ctx)
+		if err != nil {
+			return fmt.Errorf(
+				"failed to start transaction for model %T: %w",
+				m.internals.object.Interface(), err,
+			)
+		}
+	} else {
+		transaction = queries.NullTransction()
 	}
+
 	defer transaction.Rollback()
 
 	for _, field := range updateFields {

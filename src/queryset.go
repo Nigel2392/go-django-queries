@@ -44,6 +44,9 @@ var QUERYSET_USE_CACHE_DEFAULT = true
 
 // CREATE_IMPLICIT_TRANSACTION is a constant that determines whether
 // the QuerySet should create a transaction implicitly each time a query is executed.
+//
+// If false, the queryset will not automatically start a transaction
+// on each write / update / delete operation to the database.
 var CREATE_IMPLICIT_TRANSACTION = true
 
 // Basic information about the model used in the QuerySet.

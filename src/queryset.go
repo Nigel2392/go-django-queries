@@ -82,7 +82,7 @@ type QuerySetInternals struct {
 	annotations *FieldInfo[attrs.FieldDefinition]
 }
 
-func (i *QuerySetInternals) addJoin(join JoinDef) {
+func (i *QuerySetInternals) AddJoin(join JoinDef) {
 	if i.joinsMap == nil {
 		i.joinsMap = make(map[string]bool)
 	}
@@ -126,6 +126,7 @@ type GenericQuerySet = QuerySet[attrs.Definer]
 //
 // Queries are built internally with the help of the QueryCompiler interface, which is responsible for generating the SQL queries for the database.
 type QuerySet[T attrs.Definer] struct {
+	context      context.Context
 	internals    *QuerySetInternals
 	model        attrs.Definer
 	compiler     QueryCompiler
@@ -147,7 +148,7 @@ type QuerySet[T attrs.Definer] struct {
 // See [Objects] for more details.
 func GetQuerySet[T attrs.Definer](model T) *QuerySet[T] {
 	if m, ok := any(model).(QuerySetDefiner); ok {
-
+		_ = m.FieldDefs() // ensure the model is initialized
 		var qs = m.GetQuerySet()
 		qs = qs.Clone()
 		return ChangeObjectsType[attrs.Definer, T](qs)
@@ -212,6 +213,7 @@ func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
 	var qs = &QuerySet[T]{
 		model:    model,
 		AliasGen: alias.NewGenerator(),
+		context:  context.Background(),
 		internals: &QuerySetInternals{
 			Model: modelInfo{
 				Meta:      meta,
@@ -272,10 +274,36 @@ func ChangeObjectsType[OldT, NewT attrs.Definer](qs *QuerySet[OldT]) *QuerySet[N
 		useCache:     qs.useCache,
 		cached:       qs.cached,
 		internals:    qs.internals,
+		context:      qs.context,
 	}
 }
 
-func RunInTransaction[T attrs.Definer](ctx context.Context, fn func(NewQuerySet ObjectsFunc[T]) error) error {
+type transactionContextKey struct{}
+
+type transactionContextValue struct {
+	Transaction  Transaction
+	DatabaseName string
+}
+
+func transactionFromContext(ctx context.Context) (Transaction, string, bool) {
+	var tx, ok = ctx.Value(transactionContextKey{}).(*transactionContextValue)
+	if !ok {
+		return nil, "", false
+	}
+	return tx.Transaction, tx.DatabaseName, tx.Transaction != nil
+}
+
+func transactionToContext(ctx context.Context, tx Transaction, dbName string) context.Context {
+	if tx == nil {
+		panic("transactionToContext: transaction is nil")
+	}
+	return context.WithValue(ctx, transactionContextKey{}, &transactionContextValue{
+		Transaction:  tx,
+		DatabaseName: dbName,
+	})
+}
+
+func RunInTransaction[T attrs.Definer](ctx context.Context, fn func(NewQuerySet ObjectsFunc[T]) (commit bool, err error)) error {
 	var (
 		comitted             bool
 		panicFromNewQuerySet error
@@ -283,12 +311,18 @@ func RunInTransaction[T attrs.Definer](ctx context.Context, fn func(NewQuerySet 
 		dbName               string
 	)
 
+	// If the context already has a transaction, use it.
+	if tx, databaseName, ok := transactionFromContext(ctx); ok && (dbName == "" || dbName == databaseName) {
+		transaction = tx
+		dbName = databaseName
+	}
+
 	// a constructor function to create a new QuerySet with the given model
 	// and then bind the transaction to it.
 	var newQuerySetFunc = func(model T) *QuerySet[T] {
 		var (
 			err error
-			qs  = GetQuerySet(model)
+			qs  = GetQuerySet(model).WithContext(ctx)
 		)
 
 		// if there was no transaction started yet, start a new one
@@ -339,7 +373,7 @@ func RunInTransaction[T attrs.Definer](ctx context.Context, fn func(NewQuerySet 
 	}()
 
 	// if the function returns an error, the transaction will be rolled back
-	var err = fn(newQuerySetFunc)
+	var commit, err = fn(newQuerySetFunc)
 	if err != nil {
 		return errors.Wrap(err, "RunInTransaction: function returned an error")
 	}
@@ -350,15 +384,44 @@ func RunInTransaction[T attrs.Definer](ctx context.Context, fn func(NewQuerySet 
 		return query_errors.ErrNoTransaction
 	}
 
-	// commit the transaction if everything went well
-	err = transaction.Commit()
-	if err != nil {
-		return errors.Wrap(err, "RunInTransaction: failed to commit transaction")
+	if commit {
+		// commit the transaction if everything went well
+		err = transaction.Commit()
+		if err != nil {
+			return errors.Wrap(err, "RunInTransaction: failed to commit transaction")
+		}
+		comitted = true
 	}
-	comitted = true
 
 	return nil
 }
+
+//	// GetOrCreateTransaction starts a transaction on the underlying database or returns the existing one.
+//	//
+//	// It returns a transaction object which can be used to commit or rollback the transaction.
+//	func (qs *QuerySet[T]) GetOrCreateTransaction(ctx context.Context) (context.Context, Transaction, error) {
+//		var err error
+//		var compTx = qs.compiler.Transaction()
+//		var tx, dbName, ok = transactionFromContext(ctx)
+//		if ok && dbName == qs.compiler.DatabaseName() {
+//			if compTx == nil {
+//				compTx, err = qs.compiler.WithTransaction(tx)
+//				compTx = &nullTransaction{compTx}
+//				ctx = transactionToContext(ctx, compTx, dbName)
+//				qs.context = ctx
+//			}
+//			return ctx, compTx, err
+//		}
+//
+//		compTx, err = qs.compiler.StartTransaction(ctx)
+//		if err != nil {
+//			return ctx, nil, errors.Wrap(err, "GetOrCreateTransaction: failed to start transaction")
+//		}
+//
+//		ctx = transactionToContext(ctx, compTx, qs.compiler.DatabaseName())
+//		qs.context = ctx
+//		return ctx, compTx, nil
+//	}
 
 // Return the underlying database which the compiler is using.
 func (qs *QuerySet[T]) DB() DB {
@@ -380,16 +443,54 @@ func (qs *QuerySet[T]) LatestQuery() QueryInfo {
 	return qs.latestQuery
 }
 
+// WithContext sets the context for the QuerySet.
+//
+// If a transaction is present in the context for the current database,
+// it will be used for the QuerySet.
+//
+// It panics if the context is nil.
+// This is used to pass a context to the QuerySet, which is mainly used
+// for transaction management.
+func (qs *QuerySet[T]) WithContext(ctx context.Context) *QuerySet[T] {
+	if ctx == nil {
+		panic("QuerySet: context cannot be nil")
+	}
+
+	var tx, dbName, ok = transactionFromContext(ctx)
+	if ok && dbName == qs.compiler.DatabaseName() {
+		// if the context already has a transaction, use it
+		qs.compiler.WithTransaction(tx)
+	}
+
+	qs.context = ctx
+	return qs
+}
+
 // StartTransaction starts a transaction on the underlying database.
 //
 // It returns a transaction object which can be used to commit or rollback the transaction.
 func (qs *QuerySet[T]) StartTransaction(ctx context.Context) (Transaction, error) {
-	return qs.compiler.StartTransaction(ctx)
+	var tx, err = qs.compiler.StartTransaction(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "StartTransaction: failed to start transaction")
+	}
+	// bind the transaction to the queryset context
+	ctx = transactionToContext(ctx, tx, qs.compiler.DatabaseName())
+	qs.context = ctx
+	return tx, err //, nil
 }
 
 // WithTransaction wraps the transaction and binds it to the QuerySet compiler.
 func (qs *QuerySet[T]) WithTransaction(tx Transaction) (Transaction, error) {
-	return qs.compiler.WithTransaction(tx)
+	var err error
+	tx, err = qs.compiler.WithTransaction(tx)
+	if err != nil {
+		return nil, errors.Wrap(err, "WithTransaction: failed to bind transaction to QuerySet")
+	}
+	// bind the transaction to the queryset context
+	ctx := transactionToContext(qs.context, tx, qs.compiler.DatabaseName())
+	qs.context = ctx
+	return tx, err //, nil
 }
 
 // Clone creates a new QuerySet with the same parameters as the original one.
@@ -424,6 +525,7 @@ func (qs *QuerySet[T]) Clone() *QuerySet[T] {
 		explicitSave: qs.explicitSave,
 		useCache:     qs.useCache,
 		compiler:     qs.compiler,
+		context:      qs.context,
 
 		// do not copy the cached value
 		// changing the queryset should automatically
@@ -702,7 +804,8 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 		relField    = foreignKey.Field()
 		targetDefs  = target.FieldDefs()
 		targetTable = targetDefs.TableName()
-		condA_Alias = parentDefs.TableName()
+		parentTable = parentDefs.TableName()
+		condA_Alias = parentTable
 		condB_Alias = targetTable
 	)
 
@@ -715,15 +818,6 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 	} else if len(aliases) > 1 {
 		condA_Alias = aliases[len(aliases)-2]
 		condB_Alias = aliases[len(aliases)-1]
-	}
-
-	var condA = expr.TableColumn{
-		TableOrAlias: condA_Alias,
-		FieldColumn:  parentField,
-	}
-	var condB = expr.TableColumn{
-		TableOrAlias: condB_Alias,
-		FieldColumn:  relField,
 	}
 
 	var includedFields []attrs.FieldDefinition
@@ -740,34 +834,61 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 		SourceField: field,
 		Table: Table{
 			Name:  targetTable,
-			Alias: aliases[len(aliases)-1],
+			Alias: condB_Alias,
 		},
 		Model:  target,
 		Fields: includedFields,
 		Chain:  chain,
 	}
 
-	var joinCond = &JoinDefCondition{
-		ConditionA: condA,
-		Operator:   expr.EQ,
-		ConditionB: condB,
+	var join JoinDef
+	if clause, ok := parentField.(TargetClauseField); ok {
+		var lhs = ClauseTarget{
+			Table: Table{
+				Name:  parentTable,
+				Alias: condA_Alias,
+			},
+			Model: parentDefs.Instance(),
+		}
+		var rhs = ClauseTarget{
+			Table: Table{
+				Name:  targetTable,
+				Alias: condB_Alias,
+			},
+			Model: target,
+		}
+		join = clause.GenerateTargetClause(
+			ChangeObjectsType[T, attrs.Definer](qs),
+			qs.internals,
+			lhs, rhs,
+		)
+	} else {
+		join = JoinDef{
+			TypeJoin: TypeJoinLeft,
+			Table: Table{
+				Name:  targetTable,
+				Alias: condB_Alias,
+			},
+			JoinDefCondition: &JoinDefCondition{
+				ConditionA: expr.TableColumn{
+					TableOrAlias: condA_Alias,
+					FieldColumn:  parentField,
+				},
+				Operator: expr.EQ,
+				ConditionB: expr.TableColumn{
+					TableOrAlias: condB_Alias,
+					FieldColumn:  relField,
+				},
+			},
+		}
 	}
 
-	var key = joinCond.String()
+	var key = join.JoinDefCondition.String()
 	if _, ok := joinM[key]; ok {
 		return []*FieldInfo[attrs.FieldDefinition]{info}, nil
 	}
 
 	joinM[key] = true
-
-	var join = JoinDef{
-		TypeJoin: TypeJoinLeft,
-		Table: Table{
-			Name:  targetTable,
-			Alias: aliases[len(aliases)-1],
-		},
-		JoinDefCondition: joinCond,
-	}
 
 	return []*FieldInfo[attrs.FieldDefinition]{info}, []JoinDef{join}
 }
@@ -801,10 +922,11 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 	}
 
 	var parentAlias string
+	var parentTable = parentDefs.TableName()
 	if len(aliases) > 1 {
 		parentAlias = aliases[len(aliases)-2]
 	} else {
-		parentAlias = parentDefs.TableName()
+		parentAlias = parentTable
 	}
 
 	var (
@@ -816,44 +938,77 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 		)
 	)
 
-	// JOIN through table
-	var join1 = JoinDef{
-		TypeJoin: TypeJoinLeft,
-		Table: Table{
-			Name:  throughTable,
-			Alias: aliasThrough,
-		},
-		JoinDefCondition: &JoinDefCondition{
-			Operator: expr.EQ,
-			ConditionA: expr.TableColumn{
-				TableOrAlias: parentAlias,
-				FieldColumn:  parentField,
+	var (
+		join1 JoinDef
+		join2 JoinDef
+	)
+	if clause, ok := parentField.(TargetClauseThroughField); ok {
+		var lhs = ClauseTarget{
+			Table: Table{
+				Name:  parentTable,
+				Alias: parentAlias,
 			},
-			ConditionB: expr.TableColumn{
-				TableOrAlias: aliasThrough,
-				FieldColumn:  throughSourceField,
+			Model: parentDefs.Instance(),
+		}
+		var through = ClauseTarget{
+			Table: Table{
+				Name:  throughTable,
+				Alias: aliasThrough,
 			},
-		},
-	}
+			Model: throughModel,
+		}
+		var rhs = ClauseTarget{
+			Table: Table{
+				Name:  targetTable,
+				Alias: alias,
+			},
+			Model: target,
+		}
+		join1, join2 = clause.GenerateTargetClause(
+			ChangeObjectsType[T, attrs.Definer](qs),
+			qs.internals,
+			lhs, through, rhs,
+		)
+	} else {
+		// JOIN through table
+		join1 = JoinDef{
+			TypeJoin: TypeJoinLeft,
+			Table: Table{
+				Name:  throughTable,
+				Alias: aliasThrough,
+			},
+			JoinDefCondition: &JoinDefCondition{
+				Operator: expr.EQ,
+				ConditionA: expr.TableColumn{
+					TableOrAlias: parentAlias,
+					FieldColumn:  parentField,
+				},
+				ConditionB: expr.TableColumn{
+					TableOrAlias: aliasThrough,
+					FieldColumn:  throughSourceField,
+				},
+			},
+		}
 
-	// JOIN target table
-	var join2 = JoinDef{
-		TypeJoin: TypeJoinLeft,
-		Table: Table{
-			Name:  targetTable,
-			Alias: alias,
-		},
-		JoinDefCondition: &JoinDefCondition{
-			Operator: expr.EQ,
-			ConditionA: expr.TableColumn{
-				TableOrAlias: aliasThrough,
-				FieldColumn:  throughTargetField,
+		// JOIN target table
+		join2 = JoinDef{
+			TypeJoin: TypeJoinLeft,
+			Table: Table{
+				Name:  targetTable,
+				Alias: alias,
 			},
-			ConditionB: expr.TableColumn{
-				TableOrAlias: alias,
-				FieldColumn:  targetField,
+			JoinDefCondition: &JoinDefCondition{
+				Operator: expr.EQ,
+				ConditionA: expr.TableColumn{
+					TableOrAlias: aliasThrough,
+					FieldColumn:  throughTargetField,
+				},
+				ConditionB: expr.TableColumn{
+					TableOrAlias: alias,
+					FieldColumn:  targetField,
+				},
 			},
-		},
+		}
 	}
 
 	// Prevent duplicate joins
@@ -1232,9 +1387,8 @@ func (qs *QuerySet[T]) Distinct() *QuerySet[T] {
 // I.E. when using the `Create` method after calling `qs.ExplicitSave()`, it will **not** automatically
 // save the model to the database using the model's own `Save` method.
 func (qs *QuerySet[T]) ExplicitSave() *QuerySet[T] {
-	var nqs = qs.Clone()
-	nqs.explicitSave = true
-	return nqs
+	qs.explicitSave = true
+	return qs
 }
 
 func (qs *QuerySet[T]) annotate(alias string, expr expr.Expression) {
@@ -1305,13 +1459,13 @@ func (qs *QuerySet[T]) Annotate(aliasOrAliasMap interface{}, exprs ...expr.Expre
 // It takes a function that modifies the QuerySet as an argument and returns a QuerySet with the applied scope.
 //
 // The queryset is modified in place, so the original QuerySet is changed.
-func (qs *QuerySet[T]) Scope(scopes ...func(*QuerySet[T]) *QuerySet[T]) *QuerySet[T] {
+func (qs *QuerySet[T]) Scope(scopes ...func(*QuerySet[T], *QuerySetInternals) *QuerySet[T]) *QuerySet[T] {
 	var (
 		newQs   = qs.Clone()
 		changed bool
 	)
 	for _, scopeFunc := range scopes {
-		newQs = scopeFunc(newQs)
+		newQs = scopeFunc(newQs, newQs.internals)
 		if newQs != nil {
 			changed = true
 		}
@@ -1335,7 +1489,7 @@ func (qs *QuerySet[T]) queryAll(fields ...any) CompiledQuery[[][]interface{}] {
 	}
 
 	var query = qs.compiler.BuildSelectQuery(
-		context.Background(),
+		qs.context,
 		ChangeObjectsType[T, attrs.Definer](qs),
 		qs.internals,
 	)
@@ -1352,7 +1506,7 @@ func (qs *QuerySet[T]) queryAggregate() CompiledQuery[[][]interface{}] {
 	dereferenced.ForUpdate = false // no for update for aggregates
 	dereferenced.Distinct = false  // no distinct for aggregates
 	var query = qs.compiler.BuildSelectQuery(
-		context.Background(),
+		qs.context,
 		ChangeObjectsType[T, attrs.Definer](qs),
 		&dereferenced,
 	)
@@ -1362,7 +1516,7 @@ func (qs *QuerySet[T]) queryAggregate() CompiledQuery[[][]interface{}] {
 
 func (qs *QuerySet[T]) queryCount() CompiledQuery[int64] {
 	var q = qs.compiler.BuildCountQuery(
-		context.Background(),
+		qs.context,
 		ChangeObjectsType[T, attrs.Definer](qs),
 		qs.internals,
 	)
@@ -1675,12 +1829,8 @@ func (qs *QuerySet[T]) GetOrCreate(value T) (T, bool, error) {
 	}
 
 	if !qs.compiler.InTransaction() {
-		var (
-			err error
-			ctx = context.Background()
-		)
-
-		transaction, err = qs.compiler.StartTransaction(ctx)
+		var err error
+		transaction, err = qs.StartTransaction(qs.context)
 		if err != nil {
 			return *new(T), false, err
 		}
@@ -1707,12 +1857,14 @@ func (qs *QuerySet[T]) GetOrCreate(value T) (T, bool, error) {
 	// Object does not exist, create it
 create:
 	obj, err := qs.Create(value)
+	// obj, err := qs.BulkCreate([]T{value})
 	if err != nil {
 		return *new(T), false, err
 	}
 
 	// Object was created successfully, commit the transaction
 	return obj, true, commitTransaction()
+	// return obj[0], true, commitTransaction()
 }
 
 // First is used to retrieve the first row from the database.
@@ -1753,7 +1905,7 @@ func (qs *QuerySet[T]) Exists() (bool, error) {
 	dereferenced.Limit = 1  // limit to 1 row
 	dereferenced.Offset = 0 // no offset for exists
 	var resultQuery = qs.compiler.BuildCountQuery(
-		context.Background(),
+		qs.context,
 		ChangeObjectsType[T, attrs.Definer](qs),
 		&dereferenced,
 	)
@@ -1795,23 +1947,42 @@ func (qs *QuerySet[T]) Create(value T) (T, error) {
 	// Check if the object is a saver
 	// If it is, we can use the Save method to save the object
 	if saver, ok := any(value).(models.ContextSaver); ok && !qs.explicitSave {
-		if err := sendSignal(SignalPreModelSave, value, qs.compiler); err != nil {
-			return *new(T), err
-		}
-
-		var err = saver.Save(context.Background())
+		var err error
+		value, err = setup(value)
 		if err != nil {
-			return *new(T), err
+			return *new(T), errors.Wrapf(
+				err, "failed to setup object %T", value,
+			)
 		}
 
-		if err := sendSignal(SignalPostModelSave, value, qs.compiler); err != nil {
-			return *new(T), err
+		if err = sendSignal(SignalPreModelSave, value, qs.compiler); err != nil {
+			return *new(T), errors.Wrapf(
+				err, "failed to send pre save signal for %T", value,
+			)
+		}
+
+		var ctx = qs.context
+		if qs.compiler.InTransaction() {
+			ctx = transactionToContext(ctx, qs.compiler.Transaction(), qs.compiler.DatabaseName())
+		}
+
+		err = saver.Save(ctx)
+		if err != nil {
+			return *new(T), errors.Wrapf(
+				err, "failed to save object %T", value,
+			)
+		}
+
+		if err = sendSignal(SignalPostModelSave, value, qs.compiler); err != nil {
+			return *new(T), errors.Wrapf(
+				err, "failed to send post save signal for %T", value,
+			)
 		}
 
 		return saver.(T), nil
 	}
 
-	var result, err = qs.BulkCreate([]T{value})
+	result, err := qs.BulkCreate([]T{value})
 	if err != nil {
 		return *new(T), err
 	}
@@ -1835,6 +2006,13 @@ func (qs *QuerySet[T]) Create(value T) (T, error) {
 // and ExplicitSave() was not called, the `Save()` method will be called on the model
 func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int64, error) {
 	if len(qs.internals.Where) == 0 && !qs.explicitSave {
+
+		if _, err := setup(value); err != nil {
+			return 0, errors.Wrapf(
+				err, "failed to setup object %T", value,
+			)
+		}
+
 		var (
 			defs            = value.FieldDefs()
 			primary         = defs.Primary()
@@ -1850,7 +2028,12 @@ func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int
 				return 0, err
 			}
 
-			var err = saver.Save(context.Background())
+			var ctx = qs.context
+			if qs.compiler.InTransaction() {
+				ctx = transactionToContext(ctx, qs.compiler.Transaction(), qs.compiler.DatabaseName())
+			}
+
+			var err = saver.Save(ctx)
 			if err != nil {
 				return 0, err
 			}
@@ -1879,7 +2062,15 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 
 	for _, object := range objects {
 
-		if err := runActor(actsBeforeCreate, object, ChangeObjectsType[T, attrs.Definer](qs)); err != nil {
+		var err error
+		object, err = setup(object)
+		if err != nil {
+			return nil, errors.Wrapf(
+				err, "failed to setup object %T", object,
+			)
+		}
+
+		if err = runActor(actsBeforeCreate, object, ChangeObjectsType[T, attrs.Definer](qs)); err != nil {
 			return nil, errors.Wrapf(
 				err,
 				"failed to run ActsBeforeCreate for %T",
@@ -1939,7 +2130,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 
 	var support = qs.compiler.SupportsReturning()
 	var resultQuery = qs.compiler.BuildCreateQuery(
-		context.Background(),
+		qs.context,
 		ChangeObjectsType[T, attrs.Definer](qs),
 		qs.internals,
 		infos,
@@ -1948,32 +2139,6 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 	qs.latestQuery = resultQuery
 
 	// Set the old values on the new object
-	var resultList = make([]T, 0, len(objects))
-	for _, fieldRow := range attrFields {
-		var newObj = internal.NewObjectFromIface(qs.model)
-		var newDefs = newObj.FieldDefs()
-
-		for _, field := range fieldRow {
-			var (
-				n     = field.Name()
-				f, ok = newDefs.Field(n)
-			)
-			if !ok {
-				panic(fmt.Errorf("field %q not found in %T", n, newObj))
-			}
-
-			var val = field.GetValue()
-			if err := f.SetValue(val, true); err != nil {
-				return nil, errors.Wrapf(
-					err,
-					"failed to set field %q in %T",
-					f.Name(), newObj,
-				)
-			}
-		}
-
-		resultList = append(resultList, newObj.(T))
-	}
 
 	// Execute the create query
 	var results, err = resultQuery.Exec()
@@ -1983,12 +2148,17 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 
 	// Check results & which returning method to use
 	switch {
-	case len(results) == 0 && support == drivers.SupportsReturningNone:
-		for i, row := range resultList {
-			var rVal = reflect.ValueOf(objects[i])
-			if rVal.Kind() == reflect.Ptr {
-				rVal.Elem().Set(reflect.ValueOf(row).Elem())
-			}
+	case support == drivers.SupportsReturningNone:
+
+		if len(results) > 0 {
+			return nil, errors.Wrapf(
+				query_errors.ErrLastInsertId,
+				"expected no results returned after insert, got %d",
+				len(results),
+			)
+		}
+
+		for _, row := range objects {
 
 			if err := runActor(actsAfterCreate, row, ChangeObjectsType[T, attrs.Definer](qs)); err != nil {
 				return nil, errors.Wrapf(
@@ -1999,9 +2169,17 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 			}
 		}
 
-	case len(results) > 0 && support == drivers.SupportsReturningLastInsertId:
+	case support == drivers.SupportsReturningLastInsertId:
 
-		for i, row := range resultList {
+		if len(results) != len(objects) {
+			return nil, errors.Wrapf(
+				query_errors.ErrLastInsertId,
+				"expected %d results returned after insert, got %d",
+				len(objects), len(results),
+			)
+		}
+
+		for i, row := range objects {
 			var id = results[i][0].(int64)
 			var rowDefs = row.FieldDefs()
 			var prim = rowDefs.Primary()
@@ -2017,11 +2195,6 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 			//		row = Setup[T](row)
 			//	}
 
-			var rVal = reflect.ValueOf(objects[i])
-			if rVal.Kind() == reflect.Ptr {
-				rVal.Elem().Set(reflect.ValueOf(row).Elem())
-			}
-
 			if err := runActor(actsAfterCreate, row, ChangeObjectsType[T, attrs.Definer](qs)); err != nil {
 				return nil, errors.Wrapf(
 					err,
@@ -2031,17 +2204,17 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 			}
 		}
 
-	case len(results) > 0 && support == drivers.SupportsReturningColumns:
+	case support == drivers.SupportsReturningColumns:
 
-		if len(results) != len(resultList) {
+		if len(results) != len(objects) {
 			return nil, errors.Wrapf(
 				query_errors.ErrLastInsertId,
 				"expected %d results returned after insert, got %d",
-				len(resultList), len(results),
+				len(objects), len(results),
 			)
 		}
 
-		for i, row := range resultList {
+		for i, row := range objects {
 			var (
 				scannables = getScannableFields([]*FieldInfo[attrs.Field]{infos[i]}, row)
 				resLen     = len(results[i])
@@ -2084,13 +2257,6 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 				}
 			}
 
-			//	if prim != nil {
-			//		row = Setup[T](row)
-			//	}
-
-			var rVal = reflect.ValueOf(objects[i])
-			rVal.Elem().Set(reflect.ValueOf(row).Elem())
-
 			if err := runActor(actsAfterCreate, row, ChangeObjectsType[T, attrs.Definer](qs)); err != nil {
 				return nil, errors.Wrapf(
 					err,
@@ -2099,10 +2265,15 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 				)
 			}
 		}
+	default:
+		return nil, errors.Wrapf(
+			query_errors.ErrLastInsertId,
+			"unsupported returning method %q for %T",
+			support, qs.model,
+		)
 	}
 
-	return resultList, nil
-
+	return objects, nil
 }
 
 // BulkUpdate is used to update multiple objects in the database.
@@ -2148,6 +2319,14 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 
 	var typ reflect.Type
 	for _, obj := range objects {
+
+		var err error
+		obj, err = setup(obj)
+		if err != nil {
+			return 0, errors.Wrapf(
+				err, "failed to setup object %T", obj,
+			)
+		}
 
 		if typ == nil {
 			typ = reflect.TypeOf(obj)
@@ -2238,7 +2417,7 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 	}
 
 	var resultQuery = qs.compiler.BuildUpdateQuery(
-		context.Background(),
+		qs.context,
 		ChangeObjectsType[T, attrs.Definer](qs),
 		qs.internals,
 		infos,
@@ -2282,7 +2461,7 @@ func (qs *QuerySet[T]) Delete(objects ...T) (int64, error) {
 	}
 
 	var resultQuery = qs.compiler.BuildDeleteQuery(
-		context.Background(),
+		qs.context,
 		ChangeObjectsType[T, attrs.Definer](qs),
 		qs.internals,
 	)

@@ -28,6 +28,26 @@ const (
 	MetaUniqueTogetherKey = "unique_together"
 )
 
+// CanSetup is an interface that can be implemented by models to indicate that
+// the model can be set up with a the given model value.
+//
+// This is mainly useful for embedded models, where the embedded model needs a
+// reference to the parent model to be able to set up the relation properly.
+type CanSetup interface {
+	// Setup is called to set up the model with the given value.
+	Setup(value attrs.Definer) error
+}
+
+// Setup allows a model to be setup properly if it adheres to the CanSetup interface.
+func setup[T attrs.Definer](model T) (T, error) {
+	if setupModel, ok := any(model).(CanSetup); ok {
+		if err := setupModel.Setup(model); err != nil {
+			return model, fmt.Errorf("error setting up model %T: %w", model, err)
+		}
+	}
+	return model, nil
+}
+
 // A field can adhere to this interface to indicate that the field should be
 // aliased when generating the SQL for the field.
 //
@@ -75,6 +95,19 @@ retTarget:
 	return targetDefs.Primary()
 }
 
+type ClauseTarget struct {
+	Model attrs.Definer
+	Table Table
+}
+
+type TargetClauseField interface {
+	GenerateTargetClause(qs *QuerySet[attrs.Definer], internals *QuerySetInternals, lhs ClauseTarget, rhs ClauseTarget) JoinDef
+}
+
+type TargetClauseThroughField interface {
+	GenerateTargetClause(qs *QuerySet[attrs.Definer], internals *QuerySetInternals, lhs ClauseTarget, through ClauseTarget, rhs ClauseTarget) (JoinDef, JoinDef)
+}
+
 // ForUseInQueriesField is an interface that can be implemented by fields to indicate
 // that the field should be included in the query.
 //
@@ -100,6 +133,11 @@ type ForUseInQueriesField interface {
 func ForSelectAll(f attrs.FieldDefinition) bool {
 	if f == nil {
 		return false
+	}
+	if f.ColumnName() == "" { // dont select fields without a column name
+		if _, ok := f.(AliasField); !ok {
+			return false
+		}
 	}
 	if f, ok := f.(ForUseInQueriesField); ok {
 		return f.ForSelectAll()
@@ -406,11 +444,8 @@ type QueryCompiler interface {
 	// WithTransaction wraps the transaction and binds it to the compiler.
 	WithTransaction(tx Transaction) (Transaction, error)
 
-	// CommitTransaction commits the current ongoing transaction.
-	CommitTransaction() error
-
-	// RollbackTransaction rolls back the current ongoing transaction.
-	RollbackTransaction() error
+	// Transaction returns the current transaction if one is active.
+	Transaction() Transaction
 
 	// InTransaction returns true if the current query compiler is in a transaction.
 	InTransaction() bool
@@ -487,6 +522,10 @@ func RegisterCompiler(driver driver.Driver, compiler func(model attrs.Definer, d
 func Compiler(model attrs.Definer, defaultDB string) QueryCompiler {
 	if defaultDB == "" {
 		defaultDB = django.APPVAR_DATABASE
+	}
+
+	if django.Global == nil || django.Global.Settings == nil {
+		panic("django.Global or django.Global.Settings is nil")
 	}
 
 	var db = django.ConfigGet[interface{ Driver() driver.Driver }](

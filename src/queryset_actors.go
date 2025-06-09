@@ -9,8 +9,8 @@ import (
 type actorFlag int
 
 const (
-	acts_INVALID actorFlag = iota
-	actsAfterQuery
+	acts_INVALID   actorFlag = 0
+	actsAfterQuery actorFlag = 1 << iota
 	actsBeforeSave
 	actsAfterSave
 	actsBeforeCreate
@@ -62,7 +62,7 @@ func runActor(which actorFlag, targetObj attrs.Definer, qs *QuerySet[attrs.Defin
 			return s.AfterSave(qs)
 		}
 	case which&actsBeforeCreate != 0:
-		if err := runActor(actsAfterSave, targetObj, qs); err != nil {
+		if err := runActor(actsBeforeSave, targetObj, qs); err != nil {
 			return err
 		}
 		if s, ok := targetObj.(ActsBeforeCreate); ok {
@@ -76,7 +76,7 @@ func runActor(which actorFlag, targetObj attrs.Definer, qs *QuerySet[attrs.Defin
 			return s.AfterCreate(qs)
 		}
 	case which&actsBeforeUpdate != 0:
-		if err := runActor(actsAfterSave, targetObj, qs); err != nil {
+		if err := runActor(actsBeforeSave, targetObj, qs); err != nil {
 			return err
 		}
 		if s, ok := targetObj.(ActsBeforeUpdate); ok {

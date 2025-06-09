@@ -27,6 +27,10 @@ type tableTypeTest[T any] struct {
 	Expect      string
 }
 
+func (t *tableTypeTest[T]) FieldDefs() attrs.Definitions {
+	return nil
+}
+
 func (t *tableTypeTest[T]) getField() attrs.Field {
 	return attrs.NewField(t, "Val", &t.fieldConfig)
 }
@@ -95,7 +99,8 @@ func TestTableTypes(t *testing.T) {
 			var field = test.getField()
 			var expect = test.expected()
 
-			var typ = migrator.GetFieldType(driver, field)
+			var col = migrator.NewTableColumn(nil, field)
+			var typ = migrator.GetFieldType(driver, &col)
 			if typ != expect {
 				t.Errorf("expected %q, got %q for %T", expect, typ, test.getValue())
 			}

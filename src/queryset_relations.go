@@ -150,7 +150,7 @@ func (t *relatedQuerySet[T, T2]) setup() {
 			JoinDefCondition: condition,
 		}
 
-		qs.internals.addJoin(join)
+		qs.internals.AddJoin(join)
 	} else {
 		var targetField = t.rel.Field()
 		if targetField == nil {

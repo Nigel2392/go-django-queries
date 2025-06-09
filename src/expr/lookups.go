@@ -17,18 +17,18 @@ func init() {
 	RegisterLookup(logicalLookup(LOOKUP_GTE, GTE, nil))
 	RegisterLookup(logicalLookup(LOOKUP_LTE, LTE, nil))
 
-	RegisterLookup(logicalLookup(LOOKUP_ADD, ADD, nil))
-	RegisterLookup(logicalLookup(LOOKUP_SUB, SUB, nil))
-	RegisterLookup(logicalLookup(LOOKUP_MUL, MUL, nil))
-	RegisterLookup(logicalLookup(LOOKUP_DIV, DIV, nil))
-	RegisterLookup(logicalLookup(LOOKUP_MOD, MOD, nil))
+	//	RegisterLookup(logicalLookup(LOOKUP_ADD, ADD, nil))
+	//	RegisterLookup(logicalLookup(LOOKUP_SUB, SUB, nil))
+	//	RegisterLookup(logicalLookup(LOOKUP_MUL, MUL, nil))
+	//	RegisterLookup(logicalLookup(LOOKUP_DIV, DIV, nil))
+	//	RegisterLookup(logicalLookup(LOOKUP_MOD, MOD, nil))
 
-	RegisterLookup(logicalLookup(LOOKUP_BITAND, BITAND, nil))
-	RegisterLookup(logicalLookup(LOOKUP_BITOR, BITOR, nil))
-	RegisterLookup(logicalLookup(LOOKUP_BITXOR, BITXOR, nil))
-	RegisterLookup(logicalLookup(LOOKUP_BITLSH, BITLSH, nil))
-	RegisterLookup(logicalLookup(LOOKUP_BITRSH, BITRSH, nil))
-	RegisterLookup(logicalLookup(LOOKUP_BITNOT, BITNOT, nil))
+	//	RegisterLookup(logicalLookup(LOOKUP_BITAND, BITAND, nil))
+	//	RegisterLookup(logicalLookup(LOOKUP_BITOR, BITOR, nil))
+	//	RegisterLookup(logicalLookup(LOOKUP_BITXOR, BITXOR, nil))
+	//	RegisterLookup(logicalLookup(LOOKUP_BITLSH, BITLSH, nil))
+	//	RegisterLookup(logicalLookup(LOOKUP_BITRSH, BITRSH, nil))
+	//	RegisterLookup(logicalLookup(LOOKUP_BITNOT, BITNOT, nil))
 
 	RegisterLookup(patternLookup(LOOKUP_IEXACT, "%s"))
 	RegisterLookup(patternLookup(LOOKUP_CONTAINS, "%%%s%%"))
@@ -129,13 +129,13 @@ const (
 	LOOKUP_ENDSWITH    = "endswith"
 	LOOKUP_IN          = "in"
 	LOOKUP_ISNULL      = "isnull"
+	LOOKUP_RANGE       = "range"
 
 	DEFAULT_LOOKUP = LOOKUP_EXACT
 
 	// NYI
-	LOOKUP_RANGE  = "range"
-	LOOKUP_REGEX  = "regex"
-	LOOKUP_IREGEX = "iregex"
+	// LOOKUP_REGEX  = "regex"
+	// LOOKUP_IREGEX = "iregex"
 )
 
 var lookupsRegistry = &lookupRegistry{

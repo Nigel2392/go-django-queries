@@ -4,23 +4,21 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
-
-	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
 var (
-	drivers_to_kinds = make(map[reflect.Type]map[reflect.Kind]func(f attrs.Field) string)
-	drivers_to_types = make(map[reflect.Type]map[reflect.Type]func(f attrs.Field) string)
+	drivers_to_kinds = make(map[reflect.Type]map[reflect.Kind]func(c *Column) string)
+	drivers_to_types = make(map[reflect.Type]map[reflect.Type]func(c *Column) string)
 )
 
 // RegisterColumnKind registers a function to convert a field to a database type for a specific driver and kind.
 //
 // The function will be called with the field as an argument and should return the database type as a string.
-func RegisterColumnKind(driver driver.Driver, typ []reflect.Kind, fn func(f attrs.Field) string) {
+func RegisterColumnKind(driver driver.Driver, typ []reflect.Kind, fn func(c *Column) string) {
 	t := reflect.TypeOf(driver)
 	m, ok := drivers_to_kinds[t]
 	if !ok || m == nil {
-		m = make(map[reflect.Kind]func(f attrs.Field) string)
+		m = make(map[reflect.Kind]func(c *Column) string)
 		drivers_to_kinds[t] = m
 	}
 
@@ -32,15 +30,20 @@ func RegisterColumnKind(driver driver.Driver, typ []reflect.Kind, fn func(f attr
 // RegisterColumnType registers a function to convert a field to a database type for a specific driver and type.
 //
 // The function will be called with the field as an argument and should return the database type as a string.
-func RegisterColumnType(driver driver.Driver, typ interface{}, fn func(f attrs.Field) string) {
+func RegisterColumnType(driver driver.Driver, typ interface{}, fn func(c *Column) string) {
 	t := reflect.TypeOf(driver)
 	m, ok := drivers_to_types[t]
 	if !ok || m == nil {
-		m = make(map[reflect.Type]func(f attrs.Field) string)
+		m = make(map[reflect.Type]func(c *Column) string)
 		drivers_to_types[t] = m
 	}
 
 	var typType = reflect.TypeOf(typ)
+
+	if typType.Kind() == reflect.Ptr {
+		typType = typType.Elem()
+	}
+
 	m[typType] = fn
 }
 
@@ -48,8 +51,8 @@ func RegisterColumnType(driver driver.Driver, typ interface{}, fn func(f attrs.F
 //
 // It first checks if the field has a custom database type defined in its attributes referenced by [AttrDBTypeKey],
 // and if not, it uses the registered functions to determine the type.
-func GetFieldType(driver driver.Driver, f attrs.Field) string {
-	var typ = f.Type()
+func GetFieldType(driver driver.Driver, c *Column) string {
+	var typ = c.FieldType()
 	if typ.Kind() == reflect.Ptr {
 		typ = typ.Elem()
 	}
@@ -61,10 +64,10 @@ func GetFieldType(driver driver.Driver, f attrs.Field) string {
 		))
 	}
 
-	return fn(f)
+	return fn(c)
 }
 
-func getType(driver driver.Driver, typ reflect.Type) func(f attrs.Field) string {
+func getType(driver driver.Driver, typ reflect.Type) func(c *Column) string {
 	t := reflect.TypeOf(driver)
 
 	// First: absolute type match
@@ -84,18 +87,18 @@ func getType(driver driver.Driver, typ reflect.Type) func(f attrs.Field) string 
 	return nil
 }
 
-func checkDBType(fn func(f attrs.Field) string) func(f attrs.Field) string {
+func checkDBType(fn func(c *Column) string) func(c *Column) string {
 	if fn == nil {
 		return nil
 	}
 
-	return func(f attrs.Field) string {
-		var atts = f.Attrs()
+	return func(c *Column) string {
+		var atts = c.Field.Attrs()
 		var dbType = atts[AttrDBTypeKey]
 		if dbType != nil {
 			return dbType.(string)
 		}
 
-		return fn(f)
+		return fn(c)
 	}
 }

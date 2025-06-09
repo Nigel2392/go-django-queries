@@ -17,10 +17,20 @@ func (f ModelSignalFlag) True(flag ModelSignalFlag) bool {
 
 const (
 	ModelSignalFlagNone ModelSignalFlag = 0
-	FlagModelReset      ModelSignalFlag = iota
+	FlagModelReset      ModelSignalFlag = 1 << iota
 	FlagModelSetup
+	FlagFieldChanged
 	FlagProxySetup
+	FlagProxyChanged
 )
+
+type ModelChangeSignal struct {
+	Next   *ModelChangeSignal
+	Flags  ModelSignalFlag
+	Model  *Model
+	Object attrs.Definer
+	Field  attrs.Field
+}
 
 type ModelSignalInfo struct {
 	Flags ModelSignalFlag

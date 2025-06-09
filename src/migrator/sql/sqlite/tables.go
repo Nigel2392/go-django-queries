@@ -9,6 +9,7 @@ import (
 
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	django "github.com/Nigel2392/go-django/src"
+	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/mattn/go-sqlite3"
 )
@@ -51,11 +52,34 @@ func NewSQLiteSchemaEditor(db *sql.DB) *SQLiteSchemaEditor {
 	return &SQLiteSchemaEditor{db: db}
 }
 
+func (m *SQLiteSchemaEditor) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	logger.Debugf("SQLiteSchemaEditor.QueryContext:\n%s", query)
+	rows, err := m.db.QueryContext(ctx, query, args...)
+	return rows, err
+}
+
+func (m *SQLiteSchemaEditor) queryRow(ctx context.Context, query string, args ...any) *sql.Row {
+	logger.Debugf("SQLiteSchemaEditor.QueryRowContext:\n%s", query)
+	return m.db.QueryRowContext(ctx, query, args...)
+}
+
+func (m *SQLiteSchemaEditor) Execute(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	logger.Debugf("SQLiteSchemaEditor.ExecContext:\n%s", query)
+	result, err := m.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (m *SQLiteSchemaEditor) Setup() error {
 	if m.tablesCreated {
 		return nil
 	}
-	_, err := m.db.Exec(createTableMigrations)
+	_, err := m.Execute(
+		context.Background(),
+		createTableMigrations,
+	)
 	if err != nil {
 		return err
 	}
@@ -64,7 +88,7 @@ func (m *SQLiteSchemaEditor) Setup() error {
 }
 
 func (m *SQLiteSchemaEditor) StoreMigration(appName string, modelName string, migrationName string) error {
-	_, err := m.db.Exec(insertTableMigrations, appName, modelName, migrationName)
+	_, err := m.Execute(context.Background(), insertTableMigrations, appName, modelName, migrationName)
 	if err != nil {
 		return err
 	}
@@ -73,7 +97,7 @@ func (m *SQLiteSchemaEditor) StoreMigration(appName string, modelName string, mi
 
 func (m *SQLiteSchemaEditor) HasMigration(appName string, modelName string, migrationName string) (bool, error) {
 	var count int
-	err := m.db.QueryRow(selectTableMigrations, appName, modelName, migrationName).Scan(&count)
+	err := m.queryRow(context.Background(), selectTableMigrations, appName, modelName, migrationName).Scan(&count)
 	if err != nil {
 		return false, err
 	}
@@ -81,19 +105,11 @@ func (m *SQLiteSchemaEditor) HasMigration(appName string, modelName string, migr
 }
 
 func (m *SQLiteSchemaEditor) RemoveMigration(appName string, modelName string, migrationName string) error {
-	_, err := m.db.Exec(deleteTableMigrations, appName, modelName, migrationName)
+	_, err := m.Execute(context.Background(), deleteTableMigrations, appName, modelName, migrationName)
 	if err != nil {
 		return err
 	}
 	return nil
-}
-
-func (m *SQLiteSchemaEditor) Execute(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	result, err := m.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
 }
 
 func (m *SQLiteSchemaEditor) CreateTable(table migrator.Table) error {
@@ -125,7 +141,7 @@ func (m *SQLiteSchemaEditor) CreateTable(table migrator.Table) error {
 	w.WriteString("\n")
 
 	// Execute the query
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -137,7 +153,7 @@ func (m *SQLiteSchemaEditor) DropTable(table migrator.Table) error {
 	w.WriteString("\n")
 
 	// Execute the query
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -151,7 +167,7 @@ func (m *SQLiteSchemaEditor) RenameTable(table migrator.Table, newName string) e
 	w.WriteString("\n")
 
 	// Execute the query
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -197,7 +213,7 @@ func (m *SQLiteSchemaEditor) DropIndex(table migrator.Table, index migrator.Inde
 	w.WriteString("\n")
 
 	// Execute the query
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -211,7 +227,7 @@ func (m *SQLiteSchemaEditor) RenameIndex(table migrator.Table, oldName string, n
 	w.WriteString("\n")
 
 	// Execute the query
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -282,7 +298,7 @@ func (m *SQLiteSchemaEditor) AddField(table migrator.Table, col migrator.Column)
 	w.WriteString("\n")
 
 	// Execute the query
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -296,7 +312,7 @@ func (m *SQLiteSchemaEditor) RemoveField(table migrator.Table, col migrator.Colu
 	w.WriteString("\n")
 
 	// Execute the query
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 func (m *SQLiteSchemaEditor) AlterField(
@@ -357,7 +373,7 @@ func (m *SQLiteSchemaEditor) AlterField(
 	}
 
 	// Step 2: Fetch related schema (indexes, triggers)
-	var rows, err = m.db.Query(`
+	var rows, err = m.query(ctx, `
 		SELECT type, name, sql FROM sqlite_schema
 		WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL;
 	`, tableName)
@@ -366,7 +382,7 @@ func (m *SQLiteSchemaEditor) AlterField(
 	}
 	defer rows.Close()
 
-	_, err = m.db.ExecContext(ctx, fmt.Sprintf(
+	_, err = m.Execute(ctx, fmt.Sprintf(
 		"DROP TABLE IF EXISTS `%s`;", tempTableName,
 	))
 	if err != nil {
@@ -415,7 +431,7 @@ func (m *SQLiteSchemaEditor) AlterField(
 
 	// Check if the original table was dropped
 	var count int
-	err = m.db.QueryRowContext(ctx, `
+	err = m.queryRow(ctx, `
 		SELECT COUNT(*) FROM sqlite_schema
 		WHERE name = ? AND type = 'table';
 	`, tableName).Scan(&count)
@@ -456,21 +472,26 @@ func (m *SQLiteSchemaEditor) WriteColumn(w *strings.Builder, col migrator.Column
 	w.WriteString(col.Column)
 	w.WriteString("` ")
 	w.WriteString(migrator.GetFieldType(
-		&sqlite3.SQLiteDriver{}, col.Field,
+		&sqlite3.SQLiteDriver{}, &col,
 	))
-	if col.Nullable {
-		w.WriteString(" NULL")
-	} else {
-		w.WriteString(" NOT NULL")
+
+	if col.Primary {
+		w.WriteString(" PRIMARY KEY")
 	}
+
 	if col.Auto {
 		w.WriteString(" AUTOINCREMENT")
 	}
+
+	if !col.Nullable {
+		w.WriteString(" NOT NULL")
+	}
+
 	if col.Unique {
 		w.WriteString(" UNIQUE")
 	}
 
-	if col.Default != nil {
+	if col.HasDefault() {
 		w.WriteString(" DEFAULT ")
 
 		switch v := col.Default.(type) {
@@ -491,7 +512,7 @@ func (m *SQLiteSchemaEditor) WriteColumn(w *strings.Builder, col migrator.Column
 			}
 		default:
 			panic(fmt.Errorf(
-				"unsupported default value type %T", v,
+				"unsupported default value type %T (%v)", v, v,
 			))
 		}
 	}

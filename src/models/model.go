@@ -1,30 +1,39 @@
 package models
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"reflect"
+	"strings"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/fields"
 	"github.com/Nigel2392/go-django/src/core/assert"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/models"
+	"github.com/Nigel2392/go-signals"
 )
 
 var (
+	// _ models.ContextSaver                  = &Model{}
+	_ queries.CanSetup                     = &Model{}
 	_ queries.DataModel                    = &Model{}
 	_ queries.Annotator                    = &Model{}
 	_ queries.ThroughModelSetter           = &Model{}
 	_ attrs.CanCreateObject[attrs.Definer] = &Model{}
+	_ attrs.CanSignalChanged               = &Model{}
 )
 
 type modelOptions struct {
-	// base model information, used to extract the model / proxy chain
+	// base model information, used to  extract the model / proxy chain
 	base   *BaseModelInfo
 	object *reflect.Value
 	defs   *attrs.ObjectDefinitions
 	meta   attrs.ModelMeta
+	state  *ModelState
+	// fromDB indicates whether the model was loaded from the database
+	fromDB bool
 }
 
 type proxyModel struct {
@@ -37,6 +46,13 @@ type Model struct {
 	// the model's base information, object, definitions, etc.
 	// this is set to nil if the model is not setup yet
 	internals *modelOptions
+
+	// changed is a signal which gets emitted when the
+	// model is changed (e.g. fields are set, saved, etc.)
+	//
+	// it is a loose signal, not bound to any specific
+	// signal pool. this means it is used only for this model.
+	changed signals.Signal[ModelChangeSignal]
 
 	// next model in the chain, used for embedding models
 	// if not nil, this references a proxy model.
@@ -57,6 +73,31 @@ type Model struct {
 	data queries.ModelDataStore
 }
 
+// Setup sets up a [attrs.Definer] object so that it's model is properly initialized.
+//
+// This method is normally called automatically, but when manually defining a struct
+// as a model, this method should be called to ensure the model is properly initialized.
+//
+// In short, this must be called if the model is not created using [attrs.NewObject].
+func Setup[T attrs.Definer](def T) T {
+	var model, err = ExtractModel(def)
+	assert.True(
+		err == nil,
+		"failed to extract model from definer %T: %v", def, err,
+	)
+	assert.False(
+		model == nil,
+		"model is nil, cannot setup model for definer %T", def,
+	)
+
+	err = model.Setup(def)
+	assert.True(
+		err == nil,
+		"failed to setup model %T: %v", def, err,
+	)
+	return def
+}
+
 func (m *Model) __Model() private { return private{} }
 
 // checkValid checks if the model is valid and initialized.
@@ -70,6 +111,118 @@ func (m *Model) checkValid() {
 	assert.False(m.internals.object == nil,
 		"model object is not set, model is improperly initialized",
 	)
+}
+
+func (m *Model) setupInitialState() {
+	if m.internals.defs == nil {
+		// if the model definitions are not set, we cannot setup the state
+		// a nil state assumes that the model is always changed.
+		return
+	}
+
+	m.internals.state = initState(m)
+}
+
+// onChange is a callback that is called when the model changes.
+// It is used to handle changes in the model's fields to update the model's state
+// when the signal is emitted.
+func (m *Model) onChange(s signals.Signal[ModelChangeSignal], ms ModelChangeSignal) error {
+	m.checkValid()
+
+	if ms.Model != m {
+		panic(fmt.Errorf(
+			"model signal %T is not for model %T (%p != %p)",
+			ms.Model, m, ms.Model, m,
+		))
+	}
+
+	//	fmt.Printf(
+	//		"[onChange] Model %T received signal %s with flags %v\n",
+	//		m.internals.object.Interface(),
+	//		s.Name(), ms.Flags,
+	//	)
+
+	if m.internals.state == nil {
+		m.setupInitialState()
+	}
+
+	//	fmt.Printf(
+	//		"[onChange] Model %T received signal %s with flags %v\n",
+	//		m.internals.object.Interface(),
+	//		s.Name(), ms.Flags,
+	//	)
+
+	switch {
+	case ms.Flags.True(FlagModelReset), ms.Flags.True(FlagModelSetup):
+		// set the model's initial state
+		m.setupInitialState()
+		//	fmt.Printf(
+		//		"Proxy model %T has been reset or setup, initial state is now set\n",
+		//		m.internals.object.Interface(),
+		//	)
+
+	case ms.Flags.True(FlagFieldChanged):
+		m.internals.state.change(ms.Field.Name())
+
+		//	fmt.Printf(
+		//		"Model %T field %s changed to %v\n",
+		//		m.internals.object.Interface(),
+		//		ms.Field.Name(), ms.Field.GetValue(),
+		//	)
+
+	case ms.Flags.True(FlagProxySetup), ms.Flags.True(FlagProxyChanged):
+		var fieldName = proxyFieldName(ms.Model.internals.base.proxy.rootField.Name)
+		m.internals.state.change(fieldName)
+
+		//	fmt.Printf(
+		//		"Model %T proxy field %s changed to %v\n",
+		//		m.internals.object.Interface(),
+		//		fieldName, ms.Model.internals.object.Interface(),
+		//	)
+	default:
+		// if the signal is not for a field change, we can skip it
+		panic(fmt.Errorf(
+			"model signal %T is not for a field change, flags: %v",
+			ms.Model, ms.Flags,
+		))
+	}
+
+	return nil
+}
+
+// SignalChanged sends a signal that the model has changed.
+//
+// This is used to allow the [attrs.Definitions] to callback to the model
+// and notify it that the model has changed, so it can update its internal state
+// and trigger any necessary updates.
+func (m *Model) SignalChange(fa attrs.Field, value interface{}) {
+	m.checkValid()
+
+	//	fmt.Printf(
+	//		"[SignalChange] Model %T field %s changed to %v\n",
+	//		m.internals.object.Interface(),
+	//		fa.Name(), value,
+	//	)
+
+	m.changed.Send(ModelChangeSignal{
+		Model:  m,
+		Field:  fa,
+		Flags:  FlagFieldChanged,
+		Object: m.internals.object.Interface().(attrs.Definer),
+	})
+}
+
+// State returns the current state of the model.
+//
+// The state is initialized when the model is setup,
+// and it contains the initial values of the model's fields
+// as well as the changed fields.
+func (m *Model) State() *ModelState {
+	m.checkValid()
+	if m.internals.state == nil {
+		m.setupInitialState()
+	}
+	return m.internals.state
 }
 
 // CreateObject creates a new object of the model type
@@ -164,6 +317,7 @@ func (m *Model) Setup(def attrs.Definer) error {
 		sig.SignalInfo.Flags.set(FlagProxySetup)
 		m.internals.object = nil
 		m.internals.defs = nil
+		m.changed = nil
 	}
 
 	// validate if it is the same object
@@ -175,6 +329,12 @@ func (m *Model) Setup(def attrs.Definer) error {
 		sig.SignalInfo.Data["new"] = def
 		m.internals.defs = nil
 		m.internals.object = nil
+		m.changed = nil
+	}
+
+	if m.changed == nil {
+		m.changed = signals.New[ModelChangeSignal]("model.changed")
+		m.changed.Listen(m.onChange)
 	}
 
 	// if the model is not setup, we need to initialize it
@@ -234,6 +394,13 @@ func (m *Model) setupProxy(base *BaseModelInfo, parent reflect.Value) (changed b
 		changed = true
 	}
 
+	if rVal.IsNil() && changed && !nextNil {
+		changed = true
+		m.proxy.object = nil
+		m.internals.defs = nil
+		return changed, nil
+	}
+
 	// if there is a difference in the pointer or one of
 	// the pointers is nil, we need to reset the proxy
 	if !rVal.IsNil() && changed {
@@ -261,9 +428,60 @@ func (m *Model) setupProxy(base *BaseModelInfo, parent reflect.Value) (changed b
 				base.proxy.rootField.Name, err,
 			)
 		}
+
+		m.proxy.object.changed.Listen(func(s signals.Signal[ModelChangeSignal], ms ModelChangeSignal) error {
+			//	fmt.Printf(
+			//		"Proxy model %T changed\n",
+			//		m.proxy.object.internals.object.Interface(),
+			//	)
+			m.changed.Send(ModelChangeSignal{
+				Flags: FlagProxyChanged,
+				Next:  &ms,
+				Model: m,
+			})
+			return nil
+		})
 	}
 
 	return changed, err
+}
+
+func (m *Model) proxyScope(qs *queries.QuerySet[attrs.Definer], internals *queries.QuerySetInternals) *queries.QuerySet[attrs.Definer] {
+	var (
+		newObj     = reflect.New(m.internals.object.Type().Elem()).Interface().(attrs.Definer)
+		chain      = NewProxyChain(newObj, true)
+		embedder   = chain
+		proxy      = chain.Next()
+		fieldNames = make([]any, 0)
+		fieldChain = make([]string, 0)
+	)
+
+	// make sure to select all fields from the root model
+	fieldNames = append(fieldNames, "*")
+
+	for proxy != nil {
+		var (
+			sourceProxyField = embedder.ProxyField()
+		)
+
+		if sourceProxyField == nil {
+			panic(fmt.Errorf(
+				"proxy field is nil in model %T, a proxy field is required for proxy joins",
+				embedder.object,
+			))
+		}
+
+		// apppend the field name to the field chain (this does not include the astrix)
+		fieldChain = append(fieldChain, sourceProxyField.Name())
+		// if the field is a proxy field, we need to append the field name with an astrix to select all fields
+		fieldNames = append(fieldNames, fmt.Sprintf("%s.*", strings.Join(fieldChain, ".")))
+		// move down the chain
+		embedder = proxy
+		proxy = proxy.Next()
+
+	}
+
+	return qs.Select(fieldNames...)
 }
 
 // Define defines the fields of the model based on the provided definer
@@ -276,7 +494,7 @@ func (m *Model) Define(def attrs.Definer, flds ...any) *attrs.ObjectDefinitions 
 		panic("failed to setup model: " + err.Error())
 	}
 
-	var f, err = attrs.UnpackFieldsFromArgs(def, flds...)
+	var _fields, err = attrs.UnpackFieldsFromArgs(def, flds...)
 	assert.True(
 		err == nil,
 		"failed to unpack fields from args: %v", err,
@@ -297,6 +515,13 @@ func (m *Model) Define(def attrs.Definer, flds ...any) *attrs.ObjectDefinitions 
 				fromModelField = from.Field()
 			)
 
+			if fromModelField == nil {
+				panic(fmt.Errorf(
+					"reverse relation %q in model %T does not have a field defined",
+					key, def,
+				))
+			}
+
 			switch typ {
 			case attrs.RelOneToOne: // OneToOne
 				if head.Value.Through() == nil {
@@ -315,11 +540,31 @@ func (m *Model) Define(def attrs.Definer, flds ...any) *attrs.ObjectDefinitions 
 			}
 
 			if field != nil {
-				f = append(f, field)
+				_fields = append(_fields, field)
 			}
 		}
 
-		m.internals.defs = attrs.Define(def, f...)
+		if m.internals.base.proxy != nil {
+			var (
+				rootName         = m.internals.base.proxy.rootField.Name
+				proxyDirectField = m.internals.base.proxy.directField
+				proxyName        = proxyFieldName(rootName)
+
+				// create a new plain proxy object to use as target in the relation
+				rNewProxyObj = reflect.New(proxyDirectField.Type.Elem())
+				newProxyObj  = rNewProxyObj.Interface().(attrs.Definer)
+			)
+
+			// add the proxy field to the model definitions
+			_fields = append(_fields, newProxyField(
+				m, def, rootName, proxyName,
+				&ProxyFieldConfig{
+					Proxy: newProxyObj,
+				},
+			))
+		}
+
+		m.internals.defs = attrs.Define(def, _fields...)
 	}
 
 	if tableName != "" && m.internals.defs.Table == "" {
@@ -329,17 +574,26 @@ func (m *Model) Define(def attrs.Definer, flds ...any) *attrs.ObjectDefinitions 
 	return m.internals.defs
 }
 
-func (m *Model) Object() attrs.Definer {
+func (m *Model) GetQuerySet() *queries.QuerySet[attrs.Definer] {
 	m.checkValid()
-	return m.internals.object.Interface().(attrs.Definer)
+
+	var qs = queries.Objects(m.Object())
+
+	if m.internals.base.proxy != nil {
+		qs = qs.Scope(m.proxyScope)
+	}
+
+	return qs
 }
 
-func (m *Model) ModelMeta() attrs.ModelMeta {
+func (m *Model) PK() attrs.Field {
 	m.checkValid()
-	if m.internals.meta == nil {
-		m.internals.meta = attrs.GetModelMeta(*m.internals.object)
+
+	if m.internals.defs == nil {
+		return nil
 	}
-	return m.internals.meta
+
+	return m.internals.defs.Primary()
 }
 
 func (m *Model) RelatedField(name string) (attrs.Field, bool) {
@@ -357,16 +611,43 @@ func (m *Model) RelatedField(name string) (attrs.Field, bool) {
 	return nil, false
 }
 
+func (m *Model) Object() attrs.Definer {
+	m.checkValid()
+	return m.internals.object.Interface().(attrs.Definer)
+}
+
+func (m *Model) ModelMeta() attrs.ModelMeta {
+	m.checkValid()
+	if m.internals.meta == nil {
+		m.internals.meta = attrs.GetModelMeta(*m.internals.object)
+	}
+	return m.internals.meta
+}
+
+func (m *Model) AfterQuery(_ *queries.GenericQuerySet) error {
+	m.checkValid()
+	m.setupInitialState()
+	m.internals.fromDB = true
+	return nil
+}
+
+func (m *Model) AfterSave(_ *queries.GenericQuerySet) error {
+	m.checkValid()
+	m.setupInitialState()
+	m.internals.fromDB = true
+	return nil
+}
+
+func (m *Model) SetThroughModel(throughModel attrs.Definer) {
+	m.ThroughModel = throughModel
+}
+
 func (m *Model) Annotate(annotations map[string]any) {
 	if m.Annotations == nil {
 		m.Annotations = make(map[string]any)
 	}
 
 	maps.Copy(m.Annotations, annotations)
-}
-
-func (m *Model) SetThroughModel(throughModel attrs.Definer) {
-	m.ThroughModel = throughModel
 }
 
 func (m *Model) DataStore() queries.ModelDataStore {
@@ -376,18 +657,97 @@ func (m *Model) DataStore() queries.ModelDataStore {
 	return m.data
 }
 
-func (m *Model) SaveFields() error {
-	if m.internals.defs == nil {
+func (m *Model) Save(ctx context.Context) error {
+	if m.internals != nil && m.internals.defs == nil && m.internals.object != nil {
+		var obj = m.internals.object.Interface().(attrs.Definer)
+		obj.FieldDefs()
+	}
+
+	if m.internals == nil || m.internals.defs == nil {
+		return fmt.Errorf(
+			"model %T is not properly initialized, cannot save fields",
+			m.internals.object.Interface(),
+		)
+	}
+
+	// check if anything has changed,
+	if !m.internals.state.Changed(true) && !m.internals.fromDB {
+		// if nothing has changed, we can skip saving
 		return nil
 	}
 
-	for _, field := range m.internals.defs.Fields() {
-		if saver, ok := field.(models.Saver); ok {
-			if err := saver.Save(); err != nil {
-				return err
+	// if the model was not loaded from the database,
+	// we automatically assume all changes are to be saved
+	var anyChanges = !m.internals.fromDB
+	var changed = make([]interface{}, 0)
+	for head := m.internals.defs.ObjectFields.Front(); head != nil; head = head.Next() {
+
+		var hasChanged = m.internals.state.HasChanged(head.Value.Name())
+		if !hasChanged {
+			// if the field has not changed, we skip saving it
+			continue
+		}
+
+		changed = append(changed, head.Value.Name())
+		anyChanges = true
+		switch field := head.Value.(type) {
+		case models.Saver:
+			panic(fmt.Errorf(
+				"model %T field %s is a Saver, which is not supported in Save(), a ContextSaver is required to maintain transaction integrity",
+				m.internals.object.Interface(), head.Value.Name(),
+			))
+		case models.ContextSaver:
+			if err := field.Save(ctx); err != nil {
+				return fmt.Errorf(
+					"failed to save field %q in model %T: %w",
+					head.Value.Name(), m.internals.object.Interface(), err,
+				)
 			}
 		}
 	}
 
-	return nil
+	if !anyChanges {
+		// if no changes were made, we can skip saving
+		// this is useful for models that have no fields that changed
+		// but still need to be saved (e.g. for signals)
+		// fmt.Printf("Model %T has no changes, skipping save\n", m.internals.object.Interface())
+		return nil
+	}
+
+	var err error
+	var pkVal any
+	var primary = m.PK()
+	if primary != nil {
+		pkVal, err = primary.Value()
+	}
+	if err != nil {
+		return fmt.Errorf(
+			"failed to get primary key value for model %T: %w",
+			m.internals.object.Interface(), err,
+		)
+	}
+
+	var this = m.internals.object.Interface().(attrs.Definer)
+	var zeroPK = attrs.IsZero(pkVal)
+	var querySet = queries.Objects(this).
+		Select(changed...).
+		WithContext(ctx).
+		ExplicitSave()
+
+	switch {
+	case (primary != nil && !zeroPK) || (primary == nil && m.internals.fromDB):
+		_, err = querySet.Update(this)
+
+	case (primary != nil && zeroPK) || (primary == nil && !m.internals.fromDB):
+		_, err = querySet.Create(this)
+
+	default:
+		return fmt.Errorf(
+			"model %T has an invalid state, cannot save: fromDB=%v, pkVal=%v",
+			m.internals.object.Interface(),
+			m.internals.fromDB, pkVal,
+		)
+	}
+
+	return err
 }

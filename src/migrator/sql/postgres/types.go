@@ -10,6 +10,7 @@ import (
 	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/Nigel2392/go-django/src/core/contenttypes"
 )
 
 const (
@@ -25,8 +26,11 @@ func init() {
 	migrator.RegisterColumnKind(&drivers.DriverPostgres{}, []reflect.Kind{reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64}, Type__int)
 	migrator.RegisterColumnKind(&drivers.DriverPostgres{}, []reflect.Kind{reflect.Float32, reflect.Float64}, Type__float)
 	migrator.RegisterColumnKind(&drivers.DriverPostgres{}, []reflect.Kind{reflect.Bool}, Type__bool)
+	migrator.RegisterColumnKind(&drivers.DriverPostgres{}, []reflect.Kind{reflect.Array, reflect.Slice, reflect.Map}, Type__string)
 
 	// register types
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, (*contenttypes.ContentType)(nil), Type__string)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, contenttypes.BaseContentType[attrs.Definer]{}, Type__string)
 	migrator.RegisterColumnType(&drivers.DriverPostgres{}, sql.NullString{}, Type__string)
 	migrator.RegisterColumnType(&drivers.DriverPostgres{}, sql.NullFloat64{}, Type__int)
 	migrator.RegisterColumnType(&drivers.DriverPostgres{}, sql.NullInt64{}, Type__int)
@@ -39,13 +43,8 @@ func init() {
 	migrator.RegisterColumnType(&drivers.DriverPostgres{}, []byte{}, Type__string)
 }
 
-func Type__string(f attrs.Field) string {
-	var atts = f.Attrs()
-	var max int64
-	var max_len = atts[attrs.AttrMaxLengthKey]
-	if max_len != nil {
-		max = max_len.(int64)
-	}
+func Type__string(c *migrator.Column) string {
+	var max int64 = c.MaxLength
 
 	if max == 0 {
 		return "TEXT"
@@ -58,8 +57,8 @@ func Type__string(f attrs.Field) string {
 	return sb.String()
 }
 
-func Type__float(f attrs.Field) string {
-	switch f.Type().Kind() {
+func Type__float(c *migrator.Column) string {
+	switch c.FieldType().Kind() {
 	case reflect.Float32:
 		return "REAL"
 	case reflect.Float64:
@@ -68,15 +67,9 @@ func Type__float(f attrs.Field) string {
 	return "DOUBLE PRECISION"
 }
 
-func Type__int(f attrs.Field) string {
-	var atts = f.Attrs()
-	var max float64
-	var max_val = atts[attrs.AttrMaxValueKey]
-	if max_val != nil {
-		max = max_val.(float64)
-	}
-
-	switch f.Type().Kind() {
+func Type__int(c *migrator.Column) string {
+	var max float64 = c.MaxValue
+	switch c.FieldType().Kind() {
 	case reflect.Int8:
 		return "SMALLINT"
 	case reflect.Int16:
@@ -96,10 +89,10 @@ func Type__int(f attrs.Field) string {
 	return "BIGINT"
 }
 
-func Type__bool(f attrs.Field) string {
+func Type__bool(c *migrator.Column) string {
 	return "BOOLEAN"
 }
 
-func Type__datetime(f attrs.Field) string {
+func Type__datetime(c *migrator.Column) string {
 	return "TIMESTAMP"
 }

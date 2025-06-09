@@ -9,18 +9,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Nigel2392/go-django-queries/internal"
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/fields"
 	"github.com/Nigel2392/go-django-queries/src/models"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
+	"github.com/Nigel2392/go-django-queries/src/quest"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/Nigel2392/go-django/src/forms/widgets"
-	"github.com/mattn/go-sqlite3"
 )
 
 const (
@@ -135,6 +134,7 @@ func (m *Profile) FieldDefs() attrs.Definitions {
 		attrs.NewField(m, "Name", &attrs.FieldConfig{}),
 		attrs.NewField(m, "Email", &attrs.FieldConfig{}),
 		attrs.NewField(m, "Image", &attrs.FieldConfig{
+			Null:          true,
 			RelForeignKey: attrs.Relate(&Image{}, "", nil),
 			Column:        "image_id",
 		}),
@@ -157,6 +157,7 @@ func (m *User) FieldDefs() attrs.Definitions {
 		}),
 		attrs.NewField(m, "Name", &attrs.FieldConfig{}),
 		attrs.NewField(m, "Profile", &attrs.FieldConfig{
+			Null:        true,
 			RelOneToOne: attrs.Relate(&Profile{}, "", nil),
 			Column:      "profile_id",
 			Attributes: map[string]interface{}{
@@ -206,6 +207,7 @@ func (m *Todo) FieldDefs() attrs.Definitions {
 		}),
 		attrs.NewField(m, "Done", &attrs.FieldConfig{}),
 		attrs.NewField(m, "User", &attrs.FieldConfig{
+			Null:        true,
 			Column:      "user_id",
 			RelOneToOne: attrs.Relate(&User{}, "", nil),
 		}),
@@ -225,6 +227,7 @@ func (m *ObjectWithMultipleRelations) FieldDefs() attrs.Definitions {
 			ReadOnly: true,
 		}),
 		attrs.NewField(m, "Obj1", &attrs.FieldConfig{
+			Null:          true,
 			RelForeignKey: attrs.Relate(&User{}, "", nil),
 			Column:        "obj1_id",
 			Attributes: map[string]any{
@@ -232,6 +235,7 @@ func (m *ObjectWithMultipleRelations) FieldDefs() attrs.Definitions {
 			},
 		}),
 		attrs.NewField(m, "Obj2", &attrs.FieldConfig{
+			Null:          true,
 			RelForeignKey: attrs.Relate(&User{}, "", nil),
 			Column:        "obj2_id",
 			Attributes: map[string]any{
@@ -256,6 +260,7 @@ func (m *Category) FieldDefs() attrs.Definitions {
 		}),
 		attrs.NewField(m, "Name", &attrs.FieldConfig{}),
 		attrs.NewField(m, "Parent", &attrs.FieldConfig{
+			Null:          true,
 			Column:        "parent_id",
 			RelForeignKey: attrs.Relate(&Category{}, "", nil),
 		}),
@@ -288,6 +293,7 @@ func (t *OneToOneWithThrough) FieldDefs() attrs.Definitions {
 			},
 		)),
 		attrs.NewField(t, "User", &attrs.FieldConfig{
+			Null:          true,
 			Column:        "user_id",
 			RelForeignKey: attrs.Relate(&User{}, "", nil),
 		}),
@@ -392,6 +398,7 @@ func (t *ModelManyToMany) FieldDefs() attrs.Definitions {
 		// },
 		// }),
 		attrs.NewField(t, "User", &attrs.FieldConfig{
+			Null:          true,
 			Column:        "user_id",
 			RelForeignKey: attrs.Relate(&User{}, "", nil),
 		}),
@@ -480,69 +487,57 @@ func init() {
 		django.APPVAR_DATABASE: db,
 	}
 
-	// create tables
-	if _, err = db.Exec(createTableImages); err != nil {
-		panic(fmt.Sprint("failed to create table images ", err))
-	}
-
-	if _, err = db.Exec(createTableProfiles); err != nil {
-		panic(fmt.Sprint("failed to create table profiles ", err))
-	}
-
-	if _, err = db.Exec(createTableUsers); err != nil {
-		panic(fmt.Sprint("failed to create table todos ", err))
-	}
-
-	if _, err = db.Exec(createTableObjectWithMultipleRelations); err != nil {
-		panic(fmt.Sprint("failed to create table object_with_multiple_relations ", err))
-	}
-
-	if _, err = db.Exec(createTableCategories); err != nil {
-		panic(fmt.Sprint("failed to create table categories ", err))
-	}
-
-	if _, err = db.Exec(createTableTodos); err != nil {
-		panic(fmt.Sprint("failed to create table todos ", err))
-	}
-
-	if _, err = db.Exec(createTableOneToOneWithThrough); err != nil {
-		panic(fmt.Sprint("failed to create table onetoonewiththrough ", err))
-	}
-
-	if _, err = db.Exec(createTableOneToOneWithThrough_target); err != nil {
-		panic(fmt.Sprint("failed to create table onetoonewiththrough_target ", err))
-	}
-
-	if _, err = db.Exec(createTableOneToOneWithThrough_through); err != nil {
-		panic(fmt.Sprint("failed to create table onetoonewiththrough_through ", err))
-	}
-
-	if _, err = db.Exec(createTableModelManyToMany); err != nil {
-		panic(fmt.Sprint("failed to create table model_manytomany ", err))
-	}
-
-	if _, err = db.Exec(createTableModelManyToMany_target); err != nil {
-		panic(fmt.Sprint("failed to create table model_manytomany_target ", err))
-	}
-
-	if _, err = db.Exec(createTableModelManyToMany_through); err != nil {
-		panic(fmt.Sprint("failed to create table model_manytomany_through ", err))
-	}
-
-	attrs.RegisterModel(&User{})
-	attrs.RegisterModel(&Todo{})
-	attrs.RegisterModel(&Profile{})
-	attrs.RegisterModel(&Image{})
-	attrs.RegisterModel(&ObjectWithMultipleRelations{})
-	attrs.RegisterModel(&Category{})
-
-	attrs.RegisterModel(&OneToOneWithThrough{})
-	attrs.RegisterModel(&OneToOneWithThrough_Through{})
-	attrs.RegisterModel(&OneToOneWithThrough_Target{})
-
-	attrs.RegisterModel(&ModelManyToMany{})
-	attrs.RegisterModel(&ModelManyToMany_Through{})
-	attrs.RegisterModel(&ModelManyToMany_Target{})
+	//	if _, err = db.Exec(createTableImages); err != nil {
+	//		panic(fmt.Sprint("failed to create table images ", err))
+	//	}
+	//	if _, err = db.Exec(createTableProfiles); err != nil {
+	//		panic(fmt.Sprint("failed to create table profiles ", err))
+	//	}
+	//	if _, err = db.Exec(createTableUsers); err != nil {
+	//		panic(fmt.Sprint("failed to create table todos ", err))
+	//	}
+	//	if _, err = db.Exec(createTableObjectWithMultipleRelations); err != nil {
+	//		panic(fmt.Sprint("failed to create table object_with_multiple_relations ", err))
+	//	}
+	//	if _, err = db.Exec(createTableCategories); err != nil {
+	//		panic(fmt.Sprint("failed to create table categories ", err))
+	//	}
+	//	if _, err = db.Exec(createTableTodos); err != nil {
+	//		panic(fmt.Sprint("failed to create table todos ", err))
+	//	}
+	//	if _, err = db.Exec(createTableOneToOneWithThrough); err != nil {
+	//		panic(fmt.Sprint("failed to create table onetoonewiththrough ", err))
+	//	}
+	//	if _, err = db.Exec(createTableOneToOneWithThrough_target); err != nil {
+	//		panic(fmt.Sprint("failed to create table onetoonewiththrough_target ", err))
+	//	}
+	//	if _, err = db.Exec(createTableOneToOneWithThrough_through); err != nil {
+	//		panic(fmt.Sprint("failed to create table onetoonewiththrough_through ", err))
+	//	}
+	//	if _, err = db.Exec(createTableModelManyToMany); err != nil {
+	//		panic(fmt.Sprint("failed to create table model_manytomany ", err))
+	//	}
+	//	if _, err = db.Exec(createTableModelManyToMany_target); err != nil {
+	//		panic(fmt.Sprint("failed to create table model_manytomany_target ", err))
+	//	}
+	//	if _, err = db.Exec(createTableModelManyToMany_through); err != nil {
+	//		panic(fmt.Sprint("failed to create table model_manytomany_through ", err))
+	//	}
+	//
+	//	attrs.RegisterModel(&User{})
+	//	attrs.RegisterModel(&Todo{})
+	//	attrs.RegisterModel(&Profile{})
+	//	attrs.RegisterModel(&Image{})
+	//	attrs.RegisterModel(&ObjectWithMultipleRelations{})
+	//	attrs.RegisterModel(&Category{})
+	//
+	//	attrs.RegisterModel(&OneToOneWithThrough{})
+	//	attrs.RegisterModel(&OneToOneWithThrough_Through{})
+	//	attrs.RegisterModel(&OneToOneWithThrough_Target{})
+	//
+	//	attrs.RegisterModel(&ModelManyToMany{})
+	//	attrs.RegisterModel(&ModelManyToMany_Through{})
+	//	attrs.RegisterModel(&ModelManyToMany_Target{})
 
 	logger.Setup(&logger.Logger{
 		Level:       logger.DBG,
@@ -554,41 +549,25 @@ func init() {
 	})
 
 	django.App(django.Configure(settings))
-}
 
-func createObjects[T attrs.Definer](t *testing.T, objects ...T) (created []T, delete func(alreadyDeleted int) error) {
-	//var err error
-	//created, err = queries.GetQuerySet[T](objects[0]).BulkCreate(objects)
-	//if err != nil {
-	//	t.Fatalf("Failed to create objects: %v", err)
-	//	return nil, nil
-	//}
-	for _, obj := range objects {
-		if err := queries.CreateObject(obj); err != nil {
-			t.Fatalf("Failed to create object: %v", err)
-			return nil, nil
-		}
-		created = append(created, obj)
-	}
+	// create tables
+	var tables = quest.Table(nil,
+		&Image{},
+		&Profile{},
+		&User{},
+		&ObjectWithMultipleRelations{},
+		&Category{},
+		&Todo{},
+		&OneToOneWithThrough{},
+		&OneToOneWithThrough_Target{},
+		&OneToOneWithThrough_Through{},
+		&ModelManyToMany{},
+		&ModelManyToMany_Target{},
+		&ModelManyToMany_Through{},
+	)
 
-	return created, func(alreadyDeleted int) error {
-		var newObj = internal.NewDefiner[T]()
-		var deleted, err = queries.GetQuerySet[attrs.Definer](newObj).Delete(
-			attrs.DefinerList(created)...,
-		)
+	tables.Create()
 
-		if err != nil {
-			t.Fatalf("Failed to delete objects: %v", err)
-			return err
-		}
-
-		if int(deleted) != len(created)-alreadyDeleted {
-			t.Fatalf("Expected %d objects to be deleted, got %d", len(created), deleted)
-			return nil
-		}
-
-		return nil
-	}
 }
 
 func TestTodoInsert(t *testing.T) {
@@ -1736,7 +1715,8 @@ func TestQueryCreate(t *testing.T) {
 	}
 
 	t.Run("CreateReturningLastInsertID", func(t *testing.T) {
-		drivers.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", drivers.SupportsReturningLastInsertId)
+		drivers.RegisterDriver(&drivers.DriverSQLite{}, "sqlite3", drivers.SupportsReturningLastInsertId)
+		todo.ID = 0 // Ensure ID is reset for creation
 
 		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).Create(todo)
 		if err != nil {
@@ -1775,11 +1755,12 @@ func TestQueryCreate(t *testing.T) {
 
 		t.Logf("Created todo: %+v, %+v", tdo, tdo.User)
 
-		drivers.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", drivers.SupportsReturningColumns)
+		drivers.RegisterDriver(&drivers.DriverSQLite{}, "sqlite3", drivers.SupportsReturningColumns)
 	})
 
 	t.Run("CreateReturningColumns", func(t *testing.T) {
-		drivers.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", drivers.SupportsReturningColumns)
+		drivers.RegisterDriver(&drivers.DriverSQLite{}, "sqlite3", drivers.SupportsReturningColumns)
+		todo.ID = 0 // Ensure ID is reset for creation
 
 		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).Create(todo)
 		if err != nil {
@@ -1820,7 +1801,8 @@ func TestQueryCreate(t *testing.T) {
 	})
 
 	t.Run("CreateReturningNone", func(t *testing.T) {
-		drivers.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", drivers.SupportsReturningNone)
+		drivers.RegisterDriver(&drivers.DriverSQLite{}, "sqlite3", drivers.SupportsReturningNone)
+		todo.ID = 0 // Ensure ID is reset for creation
 
 		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).Create(todo)
 		if err != nil {
@@ -1858,7 +1840,7 @@ func TestQueryCreate(t *testing.T) {
 
 		t.Logf("Created todo: %+v, %+v", tdo, tdo.User)
 
-		drivers.RegisterDriver(&sqlite3.SQLiteDriver{}, "sqlite3", drivers.SupportsReturningColumns)
+		drivers.RegisterDriver(&drivers.DriverSQLite{}, "sqlite3", drivers.SupportsReturningColumns)
 	})
 }
 
@@ -1880,15 +1862,18 @@ func TestQueryGetOrCreate(t *testing.T) {
 		User:        &_user,
 	}
 
-	var _todo = *todo
-	_todo.User.Name = ""
+	todo.User.Name = ""
 
-	var dbTodo, _, err = queries.GetQuerySet[attrs.Definer](&Todo{}).
+	var dbTodo, created, err = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
 		Filter("Title", todo.Title).
-		GetOrCreate(&_todo)
+		GetOrCreate(todo)
 	if err != nil {
 		t.Fatalf("Failed to get or create todo: %v", err)
+	}
+
+	if !created {
+		t.Fatalf("Expected todo to be created, got false")
 	}
 
 	if dbTodo == nil {
@@ -1898,7 +1883,7 @@ func TestQueryGetOrCreate(t *testing.T) {
 	var tdo = dbTodo.(*Todo)
 
 	if tdo.ID == 0 {
-		t.Fatalf("Expected todo ID to be not 0, got %d", tdo.ID)
+		t.Fatalf("Expected todo ID to be not 0, got %d (dbTodo: %d, %+v)", tdo.ID, dbTodo.(*Todo).ID, dbTodo)
 	}
 
 	if tdo.Title != todo.Title {
@@ -2171,7 +2156,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 			Filter("Title__icontains", "test")
 
 		var todo = &Todo{Title: "TestCreate"}
-		var _, err = query.Create(todo)
+		var _, err = query.ExplicitSave().Create(todo)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 			return
@@ -2743,33 +2728,33 @@ func TestRunInTransaction(t *testing.T) {
 	}
 
 	var ctx = context.Background()
-	var err = queries.RunInTransaction(ctx, func(NewQuerySet queries.ObjectsFunc[*Todo]) error {
+	var err = queries.RunInTransaction(ctx, func(NewQuerySet queries.ObjectsFunc[*Todo]) (bool, error) {
 		dbTodo, err := NewQuerySet(&Todo{}).Create(todo)
 		if err != nil {
-			return fmt.Errorf("failed to create todo: %w", err)
+			return false, fmt.Errorf("failed to create todo: %w", err)
 		}
 		if dbTodo == nil {
-			return fmt.Errorf("expected a todo, got nil")
+			return false, fmt.Errorf("expected a todo, got nil")
 		}
 
 		var tdo = dbTodo
 		if tdo.ID == 0 {
-			return fmt.Errorf("expected todo ID to be not 0, got %d", tdo.ID)
+			return false, fmt.Errorf("expected todo ID to be not 0, got %d", tdo.ID)
 		}
 
 		if tdo.Title != todo.Title {
-			return fmt.Errorf("expected todo title %q, got %q", todo.Title, tdo.Title)
+			return false, fmt.Errorf("expected todo title %q, got %q", todo.Title, tdo.Title)
 		}
 
 		if tdo.Description != todo.Description {
-			return fmt.Errorf("expected todo description %q, got %q", todo.Description, tdo.Description)
+			return false, fmt.Errorf("expected todo description %q, got %q", todo.Description, tdo.Description)
 		}
 
 		if tdo.Done != todo.Done {
-			return fmt.Errorf("expected todo done %v, got %v", todo.Done, tdo.Done)
+			return false, fmt.Errorf("expected todo done %v, got %v", todo.Done, tdo.Done)
 		}
 
-		return nil
+		return true, nil
 	})
 	if err != nil {
 		t.Fatalf("Failed to run transaction: %v", err)
@@ -2783,37 +2768,37 @@ func TestGetOrCreateInTransaction(t *testing.T) {
 		Done:        false,
 	}
 
-	var err = queries.RunInTransaction(context.Background(), func(NewQuerySet queries.ObjectsFunc[*Todo]) error {
+	var err = queries.RunInTransaction(context.Background(), func(NewQuerySet queries.ObjectsFunc[*Todo]) (bool, error) {
 		var todo, created, err = NewQuerySet(&Todo{}).
 			Select("ID", "Title", "Description", "Done", "User").
 			Filter("Title", todo.Title).
 			GetOrCreate(todo)
 		if err != nil {
-			return fmt.Errorf("failed to get or create todo: %w", err)
+			return false, fmt.Errorf("failed to get or create todo: %w", err)
 		}
 
 		if !created {
-			return fmt.Errorf("expected todo to be created, but it already exists")
+			return false, fmt.Errorf("expected todo to be created, but it already exists")
 		}
 
 		if todo.ID == 0 {
-			return fmt.Errorf("expected todo ID to be not 0, got %d", todo.ID)
+			return false, fmt.Errorf("expected todo ID to be not 0, got %d", todo.ID)
 		}
 
 		if todo.Title != "TestGetOrCreateInTransaction" {
-			return fmt.Errorf("expected todo title %q, got %q", "TestGetOrCreateInTransaction", todo.Title)
+			return false, fmt.Errorf("expected todo title %q, got %q", "TestGetOrCreateInTransaction", todo.Title)
 		}
 
 		if todo.Description != "This is a new test todo" {
-			return fmt.Errorf("expected todo description %q, got %q", "This is a new test todo", todo.Description)
+			return false, fmt.Errorf("expected todo description %q, got %q", "This is a new test todo", todo.Description)
 		}
 
 		if todo.Done != false {
-			return fmt.Errorf("expected todo done %v, got %v", false, todo.Done)
+			return false, fmt.Errorf("expected todo done %v, got %v", false, todo.Done)
 		}
 
 		t.Logf("Created or retrieved todo: %+v", todo)
-		return nil
+		return true, nil
 	})
 	if err != nil {
 		t.Fatalf("Failed to run transaction: %v", err)

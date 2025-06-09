@@ -163,23 +163,23 @@ func mathOpFormat(op expr.LogicalOp) func(string, []any) (string, []any) {
 }
 
 var defaultCompilerLogicalOperators = map[expr.LogicalOp]func(rhs string, value []any) (string, []any){
-	expr.EQ:     equalityFormat(expr.EQ),   // = %s
-	expr.NE:     equalityFormat(expr.NE),   // != %s
-	expr.GT:     equalityFormat(expr.GT),   // > %s
-	expr.LT:     equalityFormat(expr.LT),   // < %s
-	expr.GTE:    equalityFormat(expr.GTE),  // >= %s
-	expr.LTE:    equalityFormat(expr.LTE),  // <= %s
-	expr.ADD:    mathOpFormat(expr.ADD),    // + %s = %s
-	expr.SUB:    mathOpFormat(expr.SUB),    // - %s = %s
-	expr.MUL:    mathOpFormat(expr.MUL),    // * %s = %s
-	expr.DIV:    mathOpFormat(expr.DIV),    // / %s = %s
-	expr.MOD:    mathOpFormat(expr.MOD),    // % %s = %s
-	expr.BITAND: mathOpFormat(expr.BITAND), // & %s = %s
-	expr.BITOR:  mathOpFormat(expr.BITOR),  // | %s = %s
-	expr.BITXOR: mathOpFormat(expr.BITXOR), // ^ %s = %s
-	expr.BITLSH: mathOpFormat(expr.BITLSH), // << %s = %s
-	expr.BITRSH: mathOpFormat(expr.BITRSH), // >> %s = %s
-	expr.BITNOT: mathOpFormat(expr.BITNOT), // ~ %s = %s
+	expr.EQ:  equalityFormat(expr.EQ),  // = %s
+	expr.NE:  equalityFormat(expr.NE),  // != %s
+	expr.GT:  equalityFormat(expr.GT),  // > %s
+	expr.LT:  equalityFormat(expr.LT),  // < %s
+	expr.GTE: equalityFormat(expr.GTE), // >= %s
+	expr.LTE: equalityFormat(expr.LTE), // <= %s
+	//expr.ADD:    mathOpFormat(expr.ADD),    // + %s = %s
+	//expr.SUB:    mathOpFormat(expr.SUB),    // - %s = %s
+	//expr.MUL:    mathOpFormat(expr.MUL),    // * %s = %s
+	//expr.DIV:    mathOpFormat(expr.DIV),    // / %s = %s
+	//expr.MOD:    mathOpFormat(expr.MOD),    // % %s = %s
+	//expr.BITAND: mathOpFormat(expr.BITAND), // & %s = %s
+	//expr.BITOR:  mathOpFormat(expr.BITOR),  // | %s = %s
+	//expr.BITXOR: mathOpFormat(expr.BITXOR), // ^ %s = %s
+	//expr.BITLSH: mathOpFormat(expr.BITLSH), // << %s = %s
+	//expr.BITRSH: mathOpFormat(expr.BITRSH), // >> %s = %s
+	//expr.BITNOT: mathOpFormat(expr.BITNOT), // ~ %s = %s
 }
 
 func (g *genericQueryBuilder) LogicalOpRHS() map[expr.LogicalOp]func(rhs string, value []any) (string, []any) {
@@ -193,8 +193,6 @@ func (g *genericQueryBuilder) LookupOperatorsRHS() map[string]string {
 			"iexact":      "LIKE %s",
 			"contains":    "LIKE BINARY %s",
 			"icontains":   "LIKE %s",
-			"regex":       "REGEXP %s",
-			"iregex":      "REGEXP BINARY %s",
 			"startswith":  "LIKE BINARY %s",
 			"endswith":    "LIKE BINARY %s",
 			"istartswith": "LIKE %s",
@@ -281,8 +279,12 @@ func (g *genericQueryBuilder) FormatColumn(col *expr.TableColumn) (string, []any
 	var aliasWritten bool
 	switch {
 	case col.FieldColumn != nil:
+		var colName = col.FieldColumn.ColumnName()
+		if colName == "" {
+			panic(fmt.Errorf("cannot format column with empty column name: %+v (%s)", col, col.FieldColumn.Name()))
+		}
 		sb.WriteString(g.quote)
-		sb.WriteString(col.FieldColumn.ColumnName())
+		sb.WriteString(colName)
 		sb.WriteString(g.quote)
 
 	case col.RawSQL != "":
@@ -302,7 +304,7 @@ func (g *genericQueryBuilder) FormatColumn(col *expr.TableColumn) (string, []any
 		sb.WriteString(g.quote)
 
 	default:
-		panic(fmt.Errorf("cannot format column, no field, value or raw SQL provided: %v", col))
+		panic(fmt.Errorf("cannot format column, no field, value or raw SQL provided: %+v", col))
 	}
 
 	if col.FieldAlias != "" && !aliasWritten {
@@ -321,9 +323,16 @@ func (g *genericQueryBuilder) FormatColumn(col *expr.TableColumn) (string, []any
 	return sb.String(), args
 }
 
+func (g *genericQueryBuilder) Transaction() Transaction {
+	if g.InTransaction() {
+		return g.transaction
+	}
+	return nil
+}
+
 func (g *genericQueryBuilder) StartTransaction(ctx context.Context) (Transaction, error) {
 	if g.InTransaction() {
-		return nil, query_errors.ErrTransactionStarted
+		return g.transaction, nil
 	}
 
 	var tx, err = g.queryInfo.DB.BeginTx(ctx, nil)
@@ -343,7 +352,7 @@ func (g *genericQueryBuilder) WithTransaction(t Transaction) (Transaction, error
 		return nil, query_errors.ErrTransactionNil
 	}
 
-	g.transaction = &wrappedTransaction{t, g}
+	g.transaction = &wrappedTransaction{t, g, false}
 	return g.transaction, nil
 }
 

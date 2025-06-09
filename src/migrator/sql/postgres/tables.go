@@ -200,8 +200,8 @@ func (m *PostgresSchemaEditor) AlterField(table migrator.Table, oldCol migrator.
 	// Alter column type
 
 	var (
-		aTyp = migrator.GetFieldType(&drivers.DriverPostgres{}, oldCol.Field)
-		bTyp = migrator.GetFieldType(&drivers.DriverPostgres{}, newCol.Field)
+		aTyp = migrator.GetFieldType(&drivers.DriverPostgres{}, &oldCol)
+		bTyp = migrator.GetFieldType(&drivers.DriverPostgres{}, &newCol)
 	)
 
 	if aTyp != bTyp {
@@ -291,14 +291,14 @@ func (m *PostgresSchemaEditor) WriteColumn(w *strings.Builder, col migrator.Colu
 	w.WriteString(`"`)
 	w.WriteString(col.Field.ColumnName())
 	w.WriteString(`" `)
-	w.WriteString(migrator.GetFieldType(&drivers.DriverPostgres{}, col.Field))
+	w.WriteString(migrator.GetFieldType(&drivers.DriverPostgres{}, &col))
 	if !col.Nullable {
 		w.WriteString(" NOT NULL")
 	}
 	if col.Unique {
 		w.WriteString(" UNIQUE")
 	}
-	if col.Default != nil {
+	if col.HasDefault() {
 		w.WriteString(" DEFAULT ")
 		switch v := col.Default.(type) {
 		case string:

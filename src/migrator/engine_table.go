@@ -2,10 +2,11 @@ package migrator
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 
-	"github.com/Nigel2392/go-django-queries/internal"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/core/contenttypes"
 	"github.com/elliotchance/orderedmap/v2"
@@ -41,6 +42,22 @@ type Index struct {
 	Comment string   `json:"comment,omitempty"`
 }
 
+func (i Index) String() string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Index{Name: %s, Type: %s, Unique: %t, Columns: [", i.Name, i.Type, i.Unique))
+	for _, col := range i.Columns {
+		sb.WriteString(fmt.Sprintf("%s, ", col))
+	}
+	sb.WriteString("], Comment: ")
+	if i.Comment != "" {
+		sb.WriteString(fmt.Sprintf("%q", i.Comment))
+	} else {
+		sb.WriteString("''")
+	}
+	sb.WriteString("}")
+	return sb.String()
+}
+
 type ModelTable struct {
 	Object attrs.Definer
 	Table  string
@@ -49,11 +66,33 @@ type ModelTable struct {
 	Index  []Index
 }
 
-func NewModelTable(object attrs.Definer) *ModelTable {
+func (t *ModelTable) String() string {
+	var sb strings.Builder
+	sb.WriteString("ModelTable{\n")
+	sb.WriteString(fmt.Sprintf("  Table: %s,\n", t.TableName()))
+	sb.WriteString(fmt.Sprintf("  Model: %s,\n", t.ModelName()))
+	sb.WriteString(fmt.Sprintf("  Comment: %s,\n", t.Comment()))
+	sb.WriteString("  Fields: [\n")
+	for head := t.Fields.Front(); head != nil; head = head.Next() {
+		sb.WriteString(fmt.Sprintf("    %s,\n", head.Value.String()))
+	}
+	sb.WriteString("  ],\n")
+	sb.WriteString("  Indexes: [\n")
+	for _, idx := range t.Indexes() {
+		sb.WriteString(fmt.Sprintf("    %s,\n", idx.String()))
+	}
+	sb.WriteString("  ],\n")
+	sb.WriteString("}\n")
+	return sb.String()
+}
+
+func NewModelTable(obj attrs.Definer) *ModelTable {
 
 	var (
-		defs   = object.FieldDefs()
-		fields = defs.Fields()
+		newObjV = reflect.New(reflect.TypeOf(obj).Elem())
+		object  = newObjV.Interface().(attrs.Definer)
+		defs    = object.FieldDefs()
+		fields  = defs.Fields()
 	)
 
 	var t = ModelTable{
@@ -74,67 +113,8 @@ func NewModelTable(object attrs.Definer) *ModelTable {
 	})
 
 	for _, field := range fields {
-		var atts = field.Attrs()
-
-		attrUseInDB, ok := internal.GetFromAttrs[bool](atts, AttrUseInDBKey)
-		if !ok {
-			attrUseInDB = true
-		}
-
-		attrMaxLength, _ := internal.GetFromAttrs[int64](atts, attrs.AttrMaxLengthKey)
-		attrMinLength, _ := internal.GetFromAttrs[int64](atts, attrs.AttrMinLengthKey)
-		attrMinValue, _ := internal.GetFromAttrs[float64](atts, attrs.AttrMinValueKey)
-		attrMaxValue, _ := internal.GetFromAttrs[float64](atts, attrs.AttrMaxValueKey)
-		attrAutoIncrement, _ := internal.GetFromAttrs[bool](atts, attrs.AttrAutoIncrementKey)
-		attrUnique, _ := internal.GetFromAttrs[bool](atts, attrs.AttrUniqueKey)
-		attrReverseAlias, _ := internal.GetFromAttrs[string](atts, attrs.AttrReverseAliasKey)
-		attrOnDelete, _ := internal.GetFromAttrs[Action](atts, AttrOnDeleteKey)
-		attrOnUpdate, _ := internal.GetFromAttrs[Action](atts, AttrOnUpdateKey)
-
-		var rel *MigrationRelation
-		var fRel = field.Rel()
-		if fRel != nil {
-
-			var cType = contenttypes.NewContentType(
-				fRel.Model(),
-			)
-
-			rel = &MigrationRelation{
-				Type:        fRel.Type(),
-				TargetModel: cType,
-				TargetField: fRel.Field(),
-				OnDelete:    attrOnDelete,
-				OnUpdate:    attrOnUpdate,
-			}
-
-			var through = fRel.Through()
-			if through != nil {
-				rel.Through = &MigrationRelationThrough{
-					Model:       contenttypes.NewContentType(through.Model()),
-					SourceField: through.SourceField(),
-					TargetField: through.TargetField(),
-				}
-			}
-		}
-
-		t.Fields.Set(field.Name(), Column{
-			Table:        &t,
-			Field:        field,
-			Name:         field.Name(),
-			Column:       field.ColumnName(),
-			UseInDB:      attrUseInDB,
-			MinLength:    attrMinLength,
-			MaxLength:    attrMaxLength,
-			MinValue:     attrMinValue,
-			MaxValue:     attrMaxValue,
-			Unique:       attrUnique,
-			Auto:         attrAutoIncrement,
-			Nullable:     field.AllowNull(),
-			Primary:      field.IsPrimary(),
-			Default:      field.GetDefault(),
-			ReverseAlias: attrReverseAlias,
-			Rel:          rel,
-		})
+		var col = NewTableColumn(&t, field)
+		t.Fields.Set(field.Name(), col)
 	}
 
 	return &t

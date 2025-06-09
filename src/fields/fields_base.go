@@ -20,6 +20,9 @@ type DataModelField[T any] struct {
 	// model is the model that this field belongs to
 	Model attrs.Definer
 
+	// defs is the definitions of the model
+	defs attrs.Definitions
+
 	// dataModel is the model that contains the data for this field
 	//
 	// it should be embedded in the attrs.Definer type which this virtual field is for
@@ -245,6 +248,14 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref 
 	}
 
 	return f
+}
+
+func (f *DataModelField[T]) FieldDefinitions() attrs.Definitions {
+	return f.defs
+}
+
+func (f *DataModelField[T]) BindToDefinitions(defs attrs.Definitions) {
+	f.defs = defs
 }
 
 func (f *DataModelField[T]) setupInitialVal() {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
+	"github.com/Nigel2392/go-django-queries/src/quest"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
@@ -1472,7 +1473,7 @@ func TestManyToMany(t *testing.T) {
 
 	for _, test := range manyToManyTests {
 		t.Run(test.Name, func(t *testing.T) {
-			var profiles, profile_delete = createObjects[*Profile](t,
+			var profiles, profile_delete = quest.CreateObjects[*Profile](t,
 				&Profile{
 					Name: "TestManyToManyProfile1",
 				},
@@ -1481,7 +1482,7 @@ func TestManyToMany(t *testing.T) {
 				},
 			)
 
-			var users, user_delete = createObjects[*User](t,
+			var users, user_delete = quest.CreateObjects[*User](t,
 				&User{
 					Name:    "TestManyToManyUser1",
 					Profile: profiles[0],
@@ -1492,7 +1493,7 @@ func TestManyToMany(t *testing.T) {
 				},
 			)
 
-			var m2m_sources, m2m_source_delete = createObjects[*ModelManyToMany](t,
+			var m2m_sources, m2m_source_delete = quest.CreateObjects[*ModelManyToMany](t,
 				&ModelManyToMany{
 					Title: "TestManyToMany1",
 					User:  &User{ID: int(users[0].ID)},
@@ -1507,7 +1508,7 @@ func TestManyToMany(t *testing.T) {
 				},
 			)
 
-			var m2m_targets, m2m_target_delete = createObjects[*ModelManyToMany_Target](t,
+			var m2m_targets, m2m_target_delete = quest.CreateObjects[*ModelManyToMany_Target](t,
 				&ModelManyToMany_Target{
 					Name: "TestManyToMany_Target1",
 					Age:  25,
@@ -1526,7 +1527,7 @@ func TestManyToMany(t *testing.T) {
 				},
 			)
 
-			var m2m_throughs, m2m_through_delete = createObjects[*ModelManyToMany_Through](t,
+			var m2m_throughs, m2m_through_delete = quest.CreateObjects[*ModelManyToMany_Through](t,
 				&ModelManyToMany_Through{
 					SourceModel: &ModelManyToMany{
 						ID: m2m_sources[0].ID,

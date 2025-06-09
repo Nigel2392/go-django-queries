@@ -186,22 +186,8 @@ func sendSignal(s signals.Signal[SignalSave], obj attrs.Definer, q QueryCompiler
 //
 // If the object implements the models.Saver interface, it will call the Save method instead of executing a query.
 func CreateObject[T attrs.Definer](obj T) error {
-	var (
-		err error
-		qs  = GetQuerySet(obj).ExplicitSave()
-	)
-
-	_, err = qs.BulkCreate([]T{obj})
-	if err != nil {
-		return err
-	}
-
-	//var rVal = reflect.ValueOf(obj)
-	//if rVal.Kind() == reflect.Ptr {
-	//	rVal.Elem().Set(reflect.ValueOf(d).Elem())
-	//}
-
-	return nil
+	var _, err = GetQuerySet(obj).Create(obj)
+	return err
 }
 
 // UpdateObject updates an existing object in the database.

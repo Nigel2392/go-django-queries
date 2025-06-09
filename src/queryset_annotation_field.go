@@ -28,6 +28,19 @@ func newQueryField[T any](name string, expr expr.Expression) *queryField[T] {
 	return &queryField[T]{name: name, expr: expr}
 }
 
+func (q *queryField[T]) BindToDefinitions(defs attrs.Definitions) {
+	// this is a no-op, as query fields are not bound to definitions
+	// they are used directly in expressions and queries, not anywhere external
+	// or as part of a model definition.
+}
+
+func (q *queryField[T]) FieldDefinitions() attrs.Definitions {
+	// query fields do not have field definitions, as they are not part of a model
+	// they are used directly in expressions and queries, not anywhere external
+	// or as part of a model definition.
+	return nil
+}
+
 // VirtualField
 
 func (q *queryField[T]) Alias() string { return q.name }

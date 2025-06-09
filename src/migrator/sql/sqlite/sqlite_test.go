@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -43,6 +44,10 @@ type tableTypeTest[T any] struct {
 	Expect      string
 }
 
+func (t *tableTypeTest[T]) FieldDefs() attrs.Definitions {
+	return nil
+}
+
 func (t *tableTypeTest[T]) getField() attrs.Field {
 	return attrs.NewField(t, "Val", &t.fieldConfig)
 }
@@ -61,16 +66,16 @@ func (t *tableTypeTest[T]) expected() string {
 
 var sqliteTests = []test{
 	&tableTypeTest[int8]{
-		Expect: "SMALLINT",
+		Expect: "INTEGER",
 	},
 	&tableTypeTest[int16]{
-		Expect: "INT",
+		Expect: "INTEGER",
 	},
 	&tableTypeTest[int32]{
-		Expect: "BIGINT",
+		Expect: "INTEGER",
 	},
 	&tableTypeTest[int64]{
-		Expect: "BIGINT",
+		Expect: "INTEGER",
 	},
 	&tableTypeTest[float32]{
 		Expect: "REAL",
@@ -104,6 +109,12 @@ var sqliteTests = []test{
 	&tableTypeTest[time.Time]{
 		Expect: "TIMESTAMP",
 	},
+	&tableTypeTest[[]byte]{
+		Expect: "BLOB",
+	},
+	&tableTypeTest[json.RawMessage]{
+		Expect: "TEXT", // SQLite does not have a native JSON type, so we use TEXT for JSON
+	},
 }
 
 func TestTableTypes(t *testing.T) {
@@ -113,8 +124,8 @@ func TestTableTypes(t *testing.T) {
 		t.Run(fmt.Sprintf("%T.%s", driver, rT.Name()), func(t *testing.T) {
 			var field = test.getField()
 			var expect = test.expected()
-
-			var typ = migrator.GetFieldType(driver, field)
+			var col = migrator.NewTableColumn(nil, field)
+			var typ = migrator.GetFieldType(driver, &col)
 			if typ != expect {
 				t.Errorf("expected %q, got %q for %T", expect, typ, test.getValue())
 			}

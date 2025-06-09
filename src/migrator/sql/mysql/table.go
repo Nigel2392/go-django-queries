@@ -185,7 +185,7 @@ func WriteColumn(w *strings.Builder, col migrator.Column) {
 	w.WriteString(col.Column)
 	w.WriteString("` ")
 	w.WriteString(migrator.GetFieldType(
-		&mysql.MySQLDriver{}, col.Field,
+		&mysql.MySQLDriver{}, &col,
 	))
 	if col.Nullable {
 		w.WriteString(" NULL")
@@ -198,7 +198,7 @@ func WriteColumn(w *strings.Builder, col migrator.Column) {
 	if col.Unique {
 		w.WriteString(" UNIQUE")
 	}
-	if col.Default != nil {
+	if col.HasDefault() {
 		w.WriteString(" DEFAULT ")
 		switch v := col.Default.(type) {
 		case string:

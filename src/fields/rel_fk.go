@@ -8,18 +8,24 @@ type ForeignKeyField[T any] struct {
 	*RelationField[T]
 }
 
-func NewForeignKeyField[T any](forModel attrs.Definer, dst any, name string, reverseName string, columnName string, rel attrs.Relation) *ForeignKeyField[T] {
+func NewForeignKeyField[T any](forModel attrs.Definer, name string, conf *FieldConfig) *ForeignKeyField[T] {
+
+	if conf == nil {
+		panic("NewForeignKeyField: config is nil")
+	}
+
+	if conf.Rel != nil {
+		conf.Rel = &typedRelation{
+			Relation: conf.Rel,
+			typ:      attrs.RelManyToOne,
+		}
+	}
+
 	var f = &ForeignKeyField[T]{
 		RelationField: NewRelatedField[T](
 			forModel,
-			dst,
 			name,
-			reverseName,
-			columnName,
-			&typedRelation{
-				Relation: rel,
-				typ:      attrs.RelManyToOne,
-			},
+			conf,
 		),
 	}
 	f.DataModelField.fieldRef = f // Set the field reference to itself
@@ -31,18 +37,23 @@ type ForeignKeyReverseField[T any] struct {
 	*RelationField[T]
 }
 
-func NewForeignKeyReverseField[T any](forModel attrs.Definer, dst any, name string, reverseName string, columnName string, rel attrs.Relation) *ForeignKeyReverseField[T] {
+func NewForeignKeyReverseField[T any](forModel attrs.Definer, name string, conf *FieldConfig) *ForeignKeyReverseField[T] {
+	if conf == nil {
+		panic("NewForeignKeyField: config is nil")
+	}
+
+	if conf.Rel != nil {
+		conf.Rel = &typedRelation{
+			Relation: conf.Rel,
+			typ:      attrs.RelOneToMany,
+		}
+	}
+
 	var f = &ForeignKeyReverseField[T]{
 		RelationField: NewRelatedField[T](
 			forModel,
-			dst,
 			name,
-			reverseName,
-			columnName,
-			&typedRelation{
-				Relation: rel,
-				typ:      attrs.RelOneToMany,
-			},
+			conf,
 		),
 	}
 	f.DataModelField.fieldRef = f // Set the field reference to itself

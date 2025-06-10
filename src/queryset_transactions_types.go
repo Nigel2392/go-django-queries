@@ -1,6 +1,10 @@
 package queries
 
 import (
+	"database/sql"
+	"errors"
+	"fmt"
+
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/logger"
 )
@@ -42,8 +46,15 @@ func (w *wrappedTransaction) Rollback() error {
 	if w.compiler != nil {
 		w.compiler.transaction = nil
 	}
-	logger.Debugf("Rolling back transaction for %s", w.compiler.DatabaseName())
-	return w.Transaction.Rollback()
+	var err = w.Transaction.Rollback()
+	if errors.Is(err, sql.ErrTxDone) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to rollback transaction for %s: %w", w.compiler.DatabaseName(), err)
+	}
+	logger.Warnf("Rolling back transaction for %s", w.compiler.DatabaseName())
+	return nil
 }
 
 func (w *wrappedTransaction) Commit() error {
@@ -53,6 +64,13 @@ func (w *wrappedTransaction) Commit() error {
 	if w.compiler != nil {
 		w.compiler.transaction = nil
 	}
+	var err = w.Transaction.Commit()
+	if errors.Is(err, sql.ErrTxDone) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction for %s: %w", w.compiler.DatabaseName(), err)
+	}
 	logger.Debugf("Committing transaction for %s", w.compiler.DatabaseName())
-	return w.Transaction.Commit()
+	return nil
 }

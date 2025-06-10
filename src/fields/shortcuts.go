@@ -8,20 +8,19 @@ import (
 )
 
 type FieldConfig struct {
-	Dst         any
-	ForModel    attrs.Definer
+	ScanTo      any
+	Nullable    bool
 	ReverseName string
 	ColumnName  string
-	RelType     attrs.RelationType
-	Rel         attrs.Relation
 	TargetField string
 	Through     attrs.Through
+	Rel         attrs.Relation
 }
 
 type unbound[T attrs.Field] struct {
 	name   string
 	config *FieldConfig
-	field  func(attrs.Definer, any, string, string, string, attrs.Relation) T
+	field  func(attrs.Definer, string, *FieldConfig) T
 }
 
 // Name returns the name of the field.
@@ -36,18 +35,16 @@ func (u *unbound[T]) BindField(model attrs.Definer) (attrs.Field, error) {
 	}
 
 	var fieldConfig = &FieldConfig{
-		Dst:         u.config.Dst,
-		ForModel:    model,
+		ScanTo:      u.config.ScanTo,
+		Nullable:    u.config.Nullable,
 		ReverseName: u.config.ReverseName,
 		ColumnName:  u.config.ColumnName,
+		TargetField: u.config.TargetField,
+		Through:     u.config.Through,
 		Rel:         u.config.Rel,
 	}
 
-	if fieldConfig.ForModel == nil {
-		return nil, fmt.Errorf("model cannot be nil for field %s", u.name)
-	}
-
-	if fieldConfig.Dst == nil {
+	if fieldConfig.ScanTo == nil {
 		var (
 			rVal = reflect.ValueOf(model)
 			rTyp = reflect.TypeOf(model)
@@ -65,61 +62,32 @@ func (u *unbound[T]) BindField(model attrs.Definer) (attrs.Field, error) {
 			return nil, fmt.Errorf("field %s not found in model %s", u.name, rTyp.Name())
 		}
 
-		fieldConfig.Dst = field.Addr().Interface()
-	}
-
-	if fieldConfig.Rel == nil {
-		return nil, fmt.Errorf("relation cannot be nil for field %s in model %T", u.name, model)
-	}
-
-	if fieldConfig.ReverseName == "" {
-		switch fieldConfig.Rel.Type() {
-		case attrs.RelOneToOne:
-			fieldConfig.ReverseName = fmt.Sprintf("%sReverse", u.name)
-		case attrs.RelManyToOne:
-			fieldConfig.ReverseName = fmt.Sprintf("%sSet", u.name)
-		case attrs.RelManyToMany:
-			fieldConfig.ReverseName = fmt.Sprintf("%sSet", u.name)
-		case attrs.RelOneToMany:
-			fieldConfig.ReverseName = fmt.Sprintf("%sReverse", u.name)
-		default:
-			return nil, fmt.Errorf("unsupported relation type %s for field %s in model %T", fieldConfig.Rel.Type(), u.name, model)
-		}
+		fieldConfig.ScanTo = field.Addr().Interface()
 	}
 
 	var field = u.field(
-		fieldConfig.ForModel,
-		fieldConfig.Dst,
+		model,
 		u.name,
-		fieldConfig.ReverseName,
-		fieldConfig.ColumnName,
-		fieldConfig.Rel,
+		fieldConfig,
 	)
 
 	return field, nil
 }
 
-func fieldConstructor[FieldT attrs.Field, T any](name string, relTyp attrs.RelationType, fieldFunc func(attrs.Definer, any, string, string, string, attrs.Relation) FieldT, conf ...*FieldConfig) attrs.UnboundFieldConstructor {
+func fieldConstructor[FieldT attrs.Field, T any](name string, fieldFunc func(attrs.Definer, string, *FieldConfig) FieldT, conf ...*FieldConfig) attrs.UnboundFieldConstructor {
 	var cnf = &FieldConfig{}
 	if len(conf) > 0 {
 		cnf = conf[0]
 	}
 
-	if cnf.Rel != nil {
-		cnf.Rel = &typedRelation{
-			Relation: cnf.Rel,
-			typ:      relTyp,
-		}
-	} else {
+	if cnf.Rel == nil {
 		var rV = reflect.New(reflect.TypeOf(new(T)).Elem().Elem())
-		cnf.Rel = &typedRelation{
-			Relation: attrs.Relate(
-				rV.Interface().(attrs.Definer),
-				cnf.TargetField,
-				cnf.Through,
-			),
-			typ: relTyp,
-		}
+		var newObject = rV.Interface().(attrs.Definer)
+		cnf.Rel = attrs.Relate(
+			newObject,
+			cnf.TargetField,
+			cnf.Through,
+		)
 	}
 
 	return &unbound[FieldT]{
@@ -131,7 +99,7 @@ func fieldConstructor[FieldT attrs.Field, T any](name string, relTyp attrs.Relat
 
 func OneToOne[T any](name string, conf ...*FieldConfig) attrs.UnboundFieldConstructor {
 	return fieldConstructor[*OneToOneField[T], T](
-		name, attrs.RelOneToOne, NewOneToOneField[T], conf...,
+		name, NewOneToOneField[T], conf...,
 	)
 }
 
@@ -144,7 +112,7 @@ func ForeignKey[T any](name, columnName string, conf ...*FieldConfig) attrs.Unbo
 		conf[0].ColumnName = columnName
 	}
 	return fieldConstructor[*ForeignKeyField[T], T](
-		name, attrs.RelManyToOne, NewForeignKeyField[T], conf...,
+		name, NewForeignKeyField[T], conf...,
 	)
 }
 
@@ -158,6 +126,6 @@ func ManyToMany[T any](name string, conf ...*FieldConfig) attrs.UnboundFieldCons
 	}
 
 	return fieldConstructor[*ManyToManyField[T], T](
-		name, attrs.RelManyToMany, NewManyToManyField[T], conf...,
+		name, NewManyToManyField[T], conf...,
 	)
 }

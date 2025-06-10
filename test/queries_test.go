@@ -284,14 +284,28 @@ func (t *OneToOneWithThrough) FieldDefs() attrs.Definitions {
 		attrs.NewField(t, "Title", &attrs.FieldConfig{
 			Column: "title",
 		}),
-		fields.NewOneToOneField[*queries.RelO2O[*OneToOneWithThrough_Target, *OneToOneWithThrough_Through]](t, &t.Through, "Target", "TargetReverse", "id", attrs.Relate(
-			&OneToOneWithThrough_Target{},
-			"", &attrs.ThroughModel{
-				This:   &OneToOneWithThrough_Through{},
-				Source: "SourceModel",
-				Target: "TargetModel",
-			},
-		)),
+		//  fields.NewOneToOneField[*queries.RelO2O[*OneToOneWithThrough_Target, *OneToOneWithThrough_Through]](t, &t.Through, "Target", "TargetReverse", "id", attrs.Relate(
+		//  	&OneToOneWithThrough_Target{},
+		//  	"", &attrs.ThroughModel{
+		//  		This:   &OneToOneWithThrough_Through{},
+		//  		Source: "SourceModel",
+		//  		Target: "TargetModel",
+		//  	},
+		//  )),
+		fields.NewOneToOneField[*queries.RelO2O[*OneToOneWithThrough_Target, *OneToOneWithThrough_Through]](t, "Target", &fields.FieldConfig{
+			ScanTo:      &t.Through,
+			ReverseName: "TargetReverse",
+			ColumnName:  "id",
+			Rel: attrs.Relate(
+				&OneToOneWithThrough_Target{},
+				"", &attrs.ThroughModel{
+					This:   &OneToOneWithThrough_Through{},
+					Source: "SourceModel",
+					Target: "TargetModel",
+				},
+			),
+		}),
+
 		attrs.NewField(t, "User", &attrs.FieldConfig{
 			Null:          true,
 			Column:        "user_id",
@@ -379,14 +393,27 @@ func (t *ModelManyToMany) FieldDefs() attrs.Definitions {
 				attrs.AttrUniqueKey: true,
 			},
 		}),
-		fields.NewManyToManyField[*queries.RelM2M[*ModelManyToMany_Target, *ModelManyToMany_Through]](t, &t.Target, "Target", "TargetReverse", "id", attrs.Relate(
-			&ModelManyToMany_Target{},
-			"", &attrs.ThroughModel{
-				This:   &ModelManyToMany_Through{},
-				Source: "SourceModel",
-				Target: "TargetModel",
-			},
-		)),
+		//	//)),fields.NewManyToManyField[*queries.RelM2M[*ModelManyToMany_Target, *ModelManyToMany_Through]](t, &t.Target, "Target", "TargetReverse", "id", attrs.Relate(
+		//	//)),	&ModelManyToMany_Target{},
+		//	//)),	"", &attrs.ThroughModel{
+		//	//)),		This:   &ModelManyToMany_Through{},
+		//	//)),		Source: "SourceModel",
+		//	//)),		Target: "TargetModel",
+		//	//)),	},
+		//	//)),
+		fields.NewManyToManyField[*queries.RelM2M[*ModelManyToMany_Target, *ModelManyToMany_Through]](t, "Target", &fields.FieldConfig{
+			ScanTo:      &t.Target,
+			ReverseName: "TargetReverse",
+			ColumnName:  "id",
+			Rel: attrs.Relate(
+				&ModelManyToMany_Target{},
+				"", &attrs.ThroughModel{
+					This:   &ModelManyToMany_Through{},
+					Source: "SourceModel",
+					Target: "TargetModel",
+				},
+			),
+		}),
 		// attrs.NewField(t, "Target", &attrs.FieldConfig{
 		// RelManyToMany: attrs.Relate(&ModelManyToMany_Target{}, "", &attrs.ThroughModel{
 		// This:   &ModelManyToMany_Through{},

@@ -17,9 +17,7 @@ var (
 
 type RelationField[T any] struct {
 	*DataModelField[T]
-	rel  attrs.Relation
-	name string
-	col  string
+	cnf *FieldConfig
 }
 
 type typedRelation struct {
@@ -78,17 +76,41 @@ func (r *relationTarget) Field() attrs.FieldDefinition {
 	return r.field
 }
 
-func NewRelatedField[T any](forModel attrs.Definer, dst any, name string, reverseName string, columnName string, rel attrs.Relation) *RelationField[T] {
+func NewRelatedField[T any](forModel attrs.Definer, name string, cnf *FieldConfig) *RelationField[T] {
 	//var (
 	//	inst = field.Instance()
 	//	defs = inst.FieldDefs()
 	//)
 
+	if cnf == nil {
+		panic(fmt.Sprintf("NewRelatedField: config is nil for field %s in model %T", name, forModel))
+	}
+
+	if cnf.Rel == nil {
+		panic(fmt.Sprintf("NewRelatedField: relation is nil for field %s in model %T", name, forModel))
+	}
+
+	if cnf.ReverseName == "" {
+		switch cnf.Rel.Type() {
+		case attrs.RelOneToOne:
+			cnf.ReverseName = fmt.Sprintf("%sReverse", name)
+		case attrs.RelManyToOne:
+			cnf.ReverseName = fmt.Sprintf("%sSet", name)
+		case attrs.RelManyToMany:
+			cnf.ReverseName = fmt.Sprintf("%sSet", name)
+		case attrs.RelOneToMany:
+			cnf.ReverseName = fmt.Sprintf("%sReverse", name)
+		default:
+			panic(fmt.Sprintf(
+				"NewRelatedField: unsupported relation type %s for field %s in model %T",
+				cnf.Rel.Type(), name, forModel,
+			))
+		}
+	}
+
 	var f = &RelationField[T]{
-		DataModelField: NewDataModelField[T](forModel, dst, name),
-		col:            columnName,
-		name:           reverseName,
-		rel:            rel,
+		DataModelField: NewDataModelField[T](forModel, cnf.ScanTo, name),
+		cnf:            cnf,
 	}
 	f.DataModelField.fieldRef = f // Set the field reference to itself
 	f.DataModelField.setupInitialVal()
@@ -99,18 +121,24 @@ func (m *RelationField[T]) Name() string {
 	return m.DataModelField.Name()
 }
 
+func (m *RelationField[T]) AllowNull() bool {
+	// Relations are never nullable, they always have a value
+	// even if it's an empty slice or nil for one-to-one relations.
+	return m.cnf.Nullable
+}
+
 func (m *RelationField[T]) ForSelectAll() bool {
 	return false
 }
 
 func (r *RelationField[T]) ColumnName() string {
-	if r.col == "" {
-		var from = r.rel.From()
+	if r.cnf.ColumnName == "" {
+		var from = r.cnf.Rel.From()
 		if from != nil {
 			return from.Field().ColumnName()
 		}
 	}
-	return r.col
+	return r.cnf.ColumnName
 }
 
 type (
@@ -139,11 +167,11 @@ func (r *RelationField[T]) Save(ctx context.Context, parent attrs.Definer) error
 		}
 	}
 
-	switch r.rel.Type() {
+	switch r.cnf.Rel.Type() {
 	case attrs.RelManyToMany, attrs.RelOneToMany:
 		return fmt.Errorf(
 			"cannot save relation %s with type %s: %w",
-			r.Name(), r.rel.Type(), query_errors.ErrNotImplemented,
+			r.Name(), r.cnf.Rel.Type(), query_errors.ErrNotImplemented,
 		)
 
 	case attrs.RelOneToOne:
@@ -163,14 +191,14 @@ func (r *RelationField[T]) Save(ctx context.Context, parent attrs.Definer) error
 
 	return fmt.Errorf(
 		"cannot save relation %s with type %s, value %T does not implement saveableDefiner or saveableRelation: %w",
-		r.Name(), r.rel.Type(), val, query_errors.ErrNotImplemented,
+		r.Name(), r.cnf.Rel.Type(), val, query_errors.ErrNotImplemented,
 	)
 }
 
 func (r *RelationField[T]) GetTargetField() attrs.FieldDefinition {
-	var targetField = r.rel.Field()
+	var targetField = r.cnf.Rel.Field()
 	if targetField == nil {
-		var defs = r.rel.Model().FieldDefs()
+		var defs = r.cnf.Rel.Model().FieldDefs()
 		return defs.Primary()
 	}
 	return targetField
@@ -187,17 +215,17 @@ func (r *RelationField[T]) IsReverse() bool {
 func (r *RelationField[T]) Attrs() map[string]any {
 	var atts = make(map[string]any)
 	atts[attrs.AttrNameKey] = r.Name()
-	atts[migrator.AttrUseInDBKey] = r.rel.Through() == nil && !r.IsReverse()
+	atts[migrator.AttrUseInDBKey] = r.cnf.Rel.Through() == nil && !r.IsReverse()
 	return atts
 }
 
 func (r *RelationField[T]) RelatedName() string {
-	return r.name
+	return r.cnf.ReverseName
 }
 
 func (r *RelationField[T]) Rel() attrs.Relation {
 	return &wrappedRelation{
-		Relation: r.rel,
+		Relation: r.cnf.Rel,
 		from: &relationTarget{
 			model: r.Instance(),
 			field: r,

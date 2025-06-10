@@ -524,19 +524,26 @@ func (m *Model) Define(def attrs.Definer, flds ...any) *attrs.ObjectDefinitions 
 				))
 			}
 
+			var conf = &fields.FieldConfig{
+				ScanTo:      def,
+				ReverseName: key,
+				ColumnName:  fromModelField.ColumnName(),
+				Rel:         value,
+			}
+
 			switch typ {
 			case attrs.RelOneToOne: // OneToOne
 				if head.Value.Through() == nil {
-					field = fields.NewOneToOneReverseField[attrs.Definer](def, def, key, key, fromModelField.ColumnName(), value)
+					field = fields.NewOneToOneReverseField[attrs.Definer](def, key, conf)
 				} else {
-					field = fields.NewOneToOneReverseField[queries.Relation](def, def, key, key, fromModelField.ColumnName(), value)
+					field = fields.NewOneToOneReverseField[queries.Relation](def, key, conf)
 				}
 			case attrs.RelManyToOne: // ManyToOne, ForeignKey
-				field = fields.NewForeignKeyField[attrs.Definer](def, def, key, key, fromModelField.ColumnName(), value)
+				field = fields.NewForeignKeyField[attrs.Definer](def, key, conf)
 			case attrs.RelOneToMany: // OneToMany, ForeignKeyReverse
-				field = fields.NewForeignKeyReverseField[*queries.RelRevFK[attrs.Definer]](def, def, key, key, fromModelField.ColumnName(), value)
+				field = fields.NewForeignKeyReverseField[*queries.RelRevFK[attrs.Definer]](def, key, conf)
 			case attrs.RelManyToMany: // ManyToMany
-				field = fields.NewManyToManyField[*queries.RelM2M[attrs.Definer, attrs.Definer]](def, def, key, key, fromModelField.ColumnName(), value)
+				field = fields.NewManyToManyField[*queries.RelM2M[attrs.Definer, attrs.Definer]](def, key, conf)
 			default:
 				panic("unknown relation type: " + typ.String())
 			}
@@ -764,7 +771,7 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 	}
 
 	// check if anything has changed,
-	if !m.internals.state.Changed(true) && !m.internals.fromDB && !cnf.Force {
+	if !m.internals.state.Changed(true) && m.internals.fromDB && !cnf.Force {
 		// if nothing has changed, we can skip saving
 		return nil
 	}
@@ -792,7 +799,7 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 		}
 
 		var hasChanged = m.internals.state.HasChanged(head.Value.Name())
-		if !hasChanged && !mustInclField && !cnf.Force && !m.internals.fromDB {
+		if !hasChanged && !mustInclField && !cnf.Force && m.internals.fromDB {
 			// if the field has not changed and none of the force flags are set,
 			// we can skip saving this field
 			continue
@@ -809,7 +816,7 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 
 	// if no changes were made and the force flag is not set,
 	// we can skip saving the model
-	if (!anyChanges || len(updateFields) == 0) && !cnf.Force && len(cnf.Fields) == 0 {
+	if (!anyChanges || len(updateFields) == 0) && !cnf.Force && len(cnf.Fields) == 0 && m.internals.fromDB {
 		return nil
 	}
 
@@ -825,9 +832,25 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 	} else {
 		transaction = queries.NullTransction()
 	}
-
 	defer transaction.Rollback()
 
+	/*
+		Save the model's proxy, if any.
+	*/
+	var proxy = m.proxy
+	if proxy != nil && proxy.object != nil && proxy.object.State().Changed(true) {
+		err = proxy.object.Save(ctx)
+		if err != nil {
+			return fmt.Errorf(
+				"failed to save proxy model %T: %w",
+				proxy.object.internals.object.Interface(), err,
+			)
+		}
+	}
+
+	/*
+		Save all model fields
+	*/
 	for _, field := range updateFields {
 		anyChanges = true
 
@@ -842,6 +865,28 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 			err = fld.Save(ctx)
 		case queries.SaveableField:
 			err = fld.Save(ctx, cnf.this)
+			//default:
+			//	var val = field.GetValue()
+			//
+			//	var def, ok = val.(attrs.Definer)
+			//	if !ok {
+			//		continue
+			//	}
+			//
+			//	if setup, ok := val.(queries.CanSetup); ok {
+			//		err = setup.Setup(def)
+			//		if err != nil {
+			//			return fmt.Errorf(
+			//				"failed to setup field %q in model %T: %w",
+			//				field.Name(), m.internals.object.Interface(), err,
+			//			)
+			//		}
+			//	}
+			//
+			//	if saver, ok := val.(models.ContextSaver); ok {
+			//		// if the field is a ContextSaver, we can save it directly
+			//		err = saver.Save(ctx)
+			//	}
 		}
 		if err != nil {
 			if !errors.Is(err, query_errors.ErrNotImplemented) {
@@ -860,6 +905,9 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 		}
 	}
 
+	/*
+		Setup the query set to save the model.
+	*/
 	// Setup the query set if not provided.
 	var querySet = cnf.QuerySet
 	if querySet == nil {
@@ -881,9 +929,13 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 		_, err = querySet.Create(cnf.this)
 	}
 	if err != nil {
+		var s = "create"
+		if saved {
+			s = "update"
+		}
 		return fmt.Errorf(
-			"failed to save model %T: %w",
-			m.internals.object.Interface(), err,
+			"failed to %s model %T: %w",
+			s, m.internals.object.Interface(), err,
 		)
 	}
 

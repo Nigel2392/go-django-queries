@@ -1,6 +1,7 @@
 package models_test
 
 import (
+	"context"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
@@ -71,7 +72,15 @@ func (m *StatefulModel) FieldDefs() attrs.Definitions {
 		attrs.Unbound("Age"),
 		attrs.Unbound("BinData"),
 		attrs.Unbound("MapData"),
-		fields.ForeignKey[*ImageModel]("Image", "image_id"),
+		// fields.ForeignKey[*ImageModel]("Image", "image_id"),
+		fields.NewForeignKeyField[*ImageModel](
+			m, "Image", &fields.FieldConfig{
+				ScanTo:     &m.Image,
+				Nullable:   true,
+				ColumnName: "image_id",
+				Rel:        attrs.Relate(&ImageModel{}, "", nil),
+			},
+		),
 	)
 }
 
@@ -156,5 +165,29 @@ func TestState(t *testing.T) {
 				t.Error("Expected state to be unchanged after reset with checkState")
 			}
 		})
+	})
+
+	t.Run("StateAfterSave", func(t *testing.T) {
+		var err = model.Save(context.Background())
+		if err != nil {
+			t.Fatalf("Failed to save model: %v", err)
+		}
+
+		t.Logf("Model saved successfully: %+v", model)
+
+		var state = model.State()
+		if state == nil {
+			t.Error("Expected state to be non-nil after save")
+		}
+
+		t.Run("StateUnchangedAfterSave", func(t *testing.T) {
+			if state.Changed(false) {
+				t.Error("Expected state to be unchanged after save")
+			}
+			if state.Changed(true) {
+				t.Error("Expected state to be unchanged after save with checkState")
+			}
+		})
+
 	})
 }

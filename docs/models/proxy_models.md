@@ -4,6 +4,8 @@ Proxy models are a powerful feature in Go-Django Queries that allow you to embed
 These models provide a way to create a model that is a "view" or "wrapper" around another model, allowing you to extend or modify its behavior without changing the original model.
 There is a caveat to this however, please refer to the [Caveats](#caveats) section below.
 
+---
+
 ## Rules
 
 There are however a few rules for proxy models:
@@ -16,6 +18,8 @@ There are however a few rules for proxy models:
 * The top-level (embedder) model must embed the `models.Model` struct.
 * The top-level model must implement the `attrs.Definer` interface.
 * The top-level model must embed a pointer to the proxy model, not a value.
+
+---
 
 ## `CanTargetDefiner` Interface
 

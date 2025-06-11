@@ -5,6 +5,8 @@ We will explain its purpose and how it can be used to enhance your models, as we
 The `Model` struct is designed to be embedded in your own `Definer` structs, either directly or indirectly through other structs (NEVER POINTERS!).  
 Do note that `Model` struct does not implement the [`attrs.Definer`](https://github.com/Nigel2392/go-django/blob/main/docs/attrs/attrs.md) interface itself.
 
+---
+
 ## Package interfaces
 
 The `models` package provides an interface for models to implement, which is used to provide extra functionality to the model.  
@@ -17,6 +19,8 @@ type SaveableObject interface {
     SaveObject(ctx context.Context, cnf SaveConfig) error
 }
 ```
+
+---
 
 ## Extra Functionality
 
@@ -31,6 +35,8 @@ It provides extra functionality for models, it will:
 - Automatically save the model adhering to the [models.ContextSaver](https://github.com/Nigel2392/go-django/blob/main/docs/models.md#saving-models) interface
 - Store through relations (many-to-many) when the model is part of the target- end of a many-to-many or one-to-one relation
 - Cache field definitions on the `Model` struct for faster access
+
+---
 
 ## Usage
 
@@ -66,6 +72,8 @@ To use the model directly in the code without having fetched it from the databas
 Noticing the above `FieldDefs` method, we are using the `Model.Define()` method to define the fields of the model.  
 This is a convenience method which will not only define the fields, but it also sets up the model's reverse relations, and a field to a possible proxy model.
 
+---
+
 ## Retrieving Annotated Values
 
 Models can be directly annotated by the queryset, allowing you to retrieve additional computed values alongside the model's fields.
@@ -90,6 +98,8 @@ func main() {
 }
 ```
 
+---
+
 ## Saving Models
 
 To save models, you can implement either one of two interfaces,
@@ -104,6 +114,8 @@ func (m *MyModel) SaveObject(ctx context.Context, db *sql.DB) error {
     return m.Model.SaveObject(ctx, db)
 }
 ```
+
+---
 
 ## Caveats
 
@@ -125,6 +137,8 @@ func main() {
     fmt.Println(myModel.Saved()) // false
 }
 ```
+
+---
 
 ## Interfaces implemented by the model
 
@@ -156,6 +170,8 @@ The `Model` struct implements the following interfaces:
 - `attrs.CanCreateObject[attrs.Definer]`
   - Allows the model to create a new object from itself, skipping the setup requirement because
     it is already setup.
+
+---
 
 ## Model Methods
 
@@ -214,5 +230,7 @@ This is used to properly initialize the model's internals, such as reverse relat
 
 Returns the model's state, providing information about wether direct fields have been set or changed,
 and providing access to the model's initial state.
+
+---
 
 For more information about proxy models, refer to the [Proxy Models](./proxy_models.md) documentation.

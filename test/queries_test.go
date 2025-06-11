@@ -581,7 +581,7 @@ func init() {
 	django.App(django.Configure(settings))
 
 	// create tables
-	var tables = quest.Table(nil,
+	var tables = quest.Table[*testing.T](nil,
 		&Image{},
 		&Profile{},
 		&User{},

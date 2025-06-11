@@ -86,7 +86,7 @@ func (t *relatedQuerySet[T, T2]) setup() {
 	)
 
 	var targetFieldInfo = &FieldInfo[attrs.FieldDefinition]{
-		Model: qs.model,
+		Model: qs.internals.Model.Object,
 		Table: Table{
 			Name: qs.internals.Model.TableName,
 		},

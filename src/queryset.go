@@ -53,10 +53,12 @@ var CREATE_IMPLICIT_TRANSACTION = true
 // It contains the model's meta information, primary key field, all fields,
 // and the table name.
 type modelInfo struct {
-	Meta      attrs.ModelMeta
-	Primary   attrs.FieldDefinition
-	Fields    []attrs.FieldDefinition
-	TableName string
+	Meta        attrs.ModelMeta
+	Primary     attrs.FieldDefinition
+	Object      attrs.Definer
+	Definitions attrs.StaticDefinitions
+	Fields      []attrs.FieldDefinition
+	TableName   string
 }
 
 // Internals contains the internal state of the QuerySet.
@@ -134,7 +136,6 @@ type GenericQuerySet = QuerySet[attrs.Definer]
 type QuerySet[T attrs.Definer] struct {
 	context      context.Context
 	internals    *QuerySetInternals
-	model        attrs.Definer
 	compiler     QueryCompiler
 	AliasGen     *alias.Generator
 	explicitSave bool
@@ -205,13 +206,13 @@ func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
 	}
 
 	var qs = &QuerySet[T]{
-		model:    model,
 		AliasGen: alias.NewGenerator(),
 		context:  context.Background(),
 		internals: &QuerySetInternals{
 			Model: modelInfo{
 				Meta:      meta,
 				Primary:   primary,
+				Object:    model,
 				Fields:    definitions.Fields(),
 				TableName: tableName,
 			},
@@ -252,17 +253,16 @@ func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
 // - This does not clone the QuerySet
 // - If the type mismatches and is not assignable, it will panic.
 func ChangeObjectsType[OldT, NewT attrs.Definer](qs *QuerySet[OldT]) *QuerySet[NewT] {
-	if _, ok := qs.model.(NewT); !ok {
+	if _, ok := qs.internals.Model.Object.(NewT); !ok {
 		panic(fmt.Errorf(
 			"ChangeObjectsType: cannot change QuerySet type from %T to %T: %w",
-			qs.model, new(NewT),
+			qs.internals.Model.Object, new(NewT),
 			query_errors.ErrTypeMismatch,
 		))
 	}
 
 	return &QuerySet[NewT]{
 		AliasGen:     qs.AliasGen,
-		model:        qs.model,
 		compiler:     qs.compiler,
 		explicitSave: qs.explicitSave,
 		useCache:     qs.useCache,
@@ -279,7 +279,7 @@ func (qs *QuerySet[T]) DB() DB {
 
 // Return the model which the queryset is for.
 func (qs *QuerySet[T]) Model() attrs.Definer {
-	return qs.model
+	return qs.internals.Model.Object
 }
 
 // Return the compiler which the queryset is using.
@@ -371,7 +371,6 @@ func (qs *QuerySet[T]) getTransaction() (tx Transaction, err error) {
 func (qs *QuerySet[T]) Clone() *QuerySet[T] {
 
 	return &QuerySet[T]{
-		model:    qs.model,
 		AliasGen: qs.AliasGen.Clone(),
 		internals: &QuerySetInternals{
 			Model:       qs.internals.Model,
@@ -459,7 +458,7 @@ func (qs *QuerySet[T]) GoString() string {
 	var sb = strings.Builder{}
 	sb.WriteString("QuerySet{")
 	sb.WriteString("\n\tmodel: ")
-	sb.WriteString(fmt.Sprintf("%T", qs.model))
+	sb.WriteString(fmt.Sprintf("%T", qs.internals.Model.Object))
 	sb.WriteString(",\n\tfields: [")
 	var written bool
 	for _, field := range qs.internals.Fields {
@@ -570,7 +569,7 @@ func (qs *QuerySet[T]) unpackFields(fields ...any) (infos []FieldInfo[attrs.Fiel
 		}
 
 		var current, parent, field, chain, aliases, isRelated, err = internal.WalkFields(
-			qs.model, selectedField, qs.AliasGen,
+			qs.internals.Model.Object, selectedField, qs.AliasGen,
 		)
 		if err != nil {
 			field, ok := qs.internals.Annotations[selectedField]
@@ -999,17 +998,17 @@ fieldsLoop:
 
 		if selectedField == "" && allFields {
 			qs.internals.Fields = append(qs.internals.Fields, &FieldInfo[attrs.FieldDefinition]{
-				Model: qs.model,
+				Model: qs.internals.Model.Object,
 				Table: Table{
 					Name: qs.internals.Model.TableName,
 				},
-				Fields: ForSelectAllFields[attrs.FieldDefinition](qs.model),
+				Fields: ForSelectAllFields[attrs.FieldDefinition](qs.internals.Model.Object),
 			})
 			continue fieldsLoop
 		}
 
 		var current, parent, field, chain, aliases, isRelated, err = internal.WalkFields(
-			qs.model, selectedField, qs.AliasGen,
+			qs.internals.Model.Object, selectedField, qs.AliasGen,
 		)
 		if err != nil {
 			field, ok := qs.internals.Annotations[selectedField]
@@ -1158,7 +1157,7 @@ func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
 		}
 
 		var obj, _, field, _, aliases, _, err = internal.WalkFields(
-			qs.model, ord, qs.AliasGen,
+			qs.internals.Model.Object, ord, qs.AliasGen,
 		)
 
 		if err != nil {
@@ -1424,7 +1423,7 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 
 	rows, err := newRows[T](
 		qs.internals.Fields,
-		internal.NewObjectFromIface(qs.model),
+		internal.NewObjectFromIface(qs.internals.Model.Object),
 		runActors,
 	)
 	if err != nil {
@@ -1433,7 +1432,7 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 
 	for resultIndex, row := range results {
 		var (
-			obj        = internal.NewObjectFromIface(qs.model)
+			obj        = internal.NewObjectFromIface(qs.internals.Model.Object)
 			scannables = getScannableFields(qs.internals.Fields, obj)
 		)
 
@@ -1538,7 +1537,7 @@ func (qs *QuerySet[T]) ValuesList(fields ...any) ([][]interface{}, error) {
 
 	var list = make([][]any, len(results))
 	for i, row := range results {
-		var obj = internal.NewObjectFromIface(qs.model)
+		var obj = internal.NewObjectFromIface(qs.internals.Model.Object)
 		var fields = getScannableFields(qs.internals.Fields, obj)
 		var values = make([]any, len(fields))
 		for j, field := range fields {
@@ -1595,7 +1594,7 @@ func (qs *QuerySet[T]) Aggregate(annotations map[string]expr.Expression) (map[st
 		out        = make(map[string]any)
 		scannables = getScannableFields(
 			qs.internals.Fields,
-			internal.NewObjectFromIface(qs.model),
+			internal.NewObjectFromIface(qs.internals.Model.Object),
 		)
 	)
 
@@ -1661,7 +1660,7 @@ func (qs *QuerySet[T]) Get() (*Row[T], error) {
 		return nillRow, errors.Wrapf(
 			query_errors.ErrMultipleRows,
 			"multiple rows returned for %T: %s rows",
-			qs.model, errResCnt,
+			qs.internals.Model.Object, errResCnt,
 		)
 	}
 
@@ -1691,7 +1690,7 @@ func (qs *QuerySet[T]) GetOrCreate(value T) (T, bool, error) {
 	var tx, err = qs.getTransaction()
 	if err != nil {
 		return *new(T), false, errors.Wrapf(
-			err, "failed to get transaction for %T", qs.model,
+			err, "failed to get transaction for %T", qs.internals.Model.Object,
 		)
 	}
 	defer tx.Rollback()
@@ -1704,7 +1703,7 @@ func (qs *QuerySet[T]) GetOrCreate(value T) (T, bool, error) {
 			goto create
 		} else {
 			return *new(T), false, errors.Wrapf(
-				err, "failed to get object %T", qs.model,
+				err, "failed to get object %T", qs.internals.Model.Object,
 			)
 		}
 	}
@@ -1720,7 +1719,7 @@ create:
 	// obj, err := qs.BulkCreate([]T{value})
 	if err != nil {
 		return *new(T), false, errors.Wrapf(
-			err, "failed to create object %T", qs.model,
+			err, "failed to create object %T", qs.internals.Model.Object,
 		)
 	}
 
@@ -1809,7 +1808,7 @@ func (qs *QuerySet[T]) Create(value T) (T, error) {
 	var tx, err = qs.getTransaction()
 	if err != nil {
 		return *new(T), errors.Wrapf(
-			err, "failed to get transaction for %T", qs.model,
+			err, "failed to get transaction for %T", qs.internals.Model.Object,
 		)
 	}
 	defer tx.Rollback()
@@ -1878,7 +1877,7 @@ func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int
 	var tx, err = qs.getTransaction()
 	if err != nil {
 		return 0, errors.Wrapf(
-			err, "failed to get transaction for %T", qs.model,
+			err, "failed to get transaction for %T", qs.internals.Model.Object,
 		)
 	}
 	defer tx.Rollback()
@@ -1926,7 +1925,7 @@ func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int
 	c, err := qs.BulkUpdate([]T{value}, expressions...)
 	if err != nil {
 		return 0, errors.Wrapf(
-			err, "failed to update object %T", qs.model,
+			err, "failed to update object %T", qs.internals.Model.Object,
 		)
 	}
 
@@ -1941,7 +1940,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 	var tx, err = qs.getTransaction()
 	if err != nil {
 		return nil, errors.Wrapf(
-			err, "failed to get transaction for %T", qs.model,
+			err, "failed to get transaction for %T", qs.internals.Model.Object,
 		)
 	}
 	defer tx.Rollback()
@@ -2160,7 +2159,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 		return nil, errors.Wrapf(
 			query_errors.ErrLastInsertId,
 			"unsupported returning method %q for %T",
-			support, qs.model,
+			support, qs.internals.Model.Object,
 		)
 	}
 
@@ -2176,7 +2175,7 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 	var tx, err = qs.getTransaction()
 	if err != nil {
 		return 0, errors.Wrapf(
-			err, "failed to get transaction for %T", qs.model,
+			err, "failed to get transaction for %T", qs.internals.Model.Object,
 		)
 	}
 	defer tx.Rollback()
@@ -2301,7 +2300,7 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 			if err != nil {
 				return 0, errors.Wrapf(
 					err, "failed to generate where clause for %T",
-					qs.model,
+					qs.internals.Model.Object,
 				)
 			}
 		} else {
@@ -2332,7 +2331,7 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 		return 0, errors.Wrapf(
 			query_errors.ErrNoRows,
 			"no rows updated for %T",
-			qs.model,
+			qs.internals.Model.Object,
 		)
 	}
 
@@ -2359,7 +2358,7 @@ func (qs *QuerySet[T]) Delete(objects ...T) (int64, error) {
 	var tx, err = qs.getTransaction()
 	if err != nil {
 		return 0, errors.Wrapf(
-			err, "failed to get transaction for %T", qs.model,
+			err, "failed to get transaction for %T", qs.internals.Model.Object,
 		)
 	}
 	defer tx.Rollback()
@@ -2369,7 +2368,7 @@ func (qs *QuerySet[T]) Delete(objects ...T) (int64, error) {
 		if err != nil {
 			return 0, errors.Wrapf(
 				err, "failed to generate where clause for %T",
-				qs.model,
+				qs.internals.Model.Object,
 			)
 		}
 		qs.internals.Where = append(qs.internals.Where, where...)

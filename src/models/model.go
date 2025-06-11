@@ -13,6 +13,7 @@ import (
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/assert"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/Nigel2392/go-django/src/core/contenttypes"
 	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/Nigel2392/go-django/src/models"
 	"github.com/Nigel2392/go-signals"
@@ -376,42 +377,42 @@ func (m *Model) setupProxy(base *BaseModelInfo, parent reflect.Value) (changed b
 	}
 
 	var (
-		rVal         = parent.FieldByIndex(base.proxy.rootField.Index)
-		initialIsNil = rVal.IsNil()
-		nextNil      = (m.proxy == nil || m.proxy.object == nil)
-		nilDiff      = !initialIsNil && nextNil
-		ptrDiff      = (!nextNil && m.proxy.object.internals.object.Pointer() != rVal.Pointer())
+		rVal              = parent.FieldByIndex(base.proxy.rootField.Index)
+		newValueIsNil     = rVal.IsNil()
+		currentProxyIsNil = (m.proxy == nil || m.proxy.object == nil)
+		nilDiff           = !newValueIsNil && currentProxyIsNil
+		ptrDiff           = (!currentProxyIsNil && m.proxy.object.internals.object.Pointer() != rVal.Pointer())
 	)
-
-	m.proxy = &proxyModel{
-		proxy: base.proxy,
-	}
 
 	// determine if the proxy needs to be reset
 	changed = nilDiff || ptrDiff
 
+	if m.proxy == nil {
+		m.proxy = &proxyModel{
+			proxy: base.proxy,
+		}
+	}
+
+	if !changed {
+		// if the proxy is not changed, we can skip the setup
+		// and return early
+		return false, nil
+	}
+
 	// if the proxy is nil, we need to create a new one when specified
-	if initialIsNil && (base.proxy.directField.Tag.Get("auto") == "true" || base.proxy.rootField.Tag.Get("auto") == "true") {
+	if newValueIsNil && (base.proxy.directField.Tag.Get("auto") == "true" || base.proxy.rootField.Tag.Get("auto") == "true") {
 		var newObj = attrs.NewObject[attrs.Definer](base.proxy.rootField.Type)
 		rVal.Set(reflect.ValueOf(newObj))
+		newValueIsNil = false
 		changed = true
 	}
 
-	if rVal.IsNil() && changed && !nextNil {
+	if rVal.IsNil() && changed && !currentProxyIsNil {
 		changed = true
 		m.proxy.object = nil
 		m.internals.defs = nil
-		// fmt.Printf(
-		// 	"Proxy model %T is nil, resetting the proxy object\n",
-		// 	base.proxy.rootField.Type,
-		// )
 		return changed, nil
 	}
-
-	// fmt.Printf(
-	// 	"rValNil: %t, changed: %t, nextNil: %t, ptrDiff: %t (%T %v)\n",
-	// 	rVal.IsNil(), changed, nextNil, ptrDiff, rVal.Interface(), rVal.Interface(),
-	// )
 
 	// if there is a difference in the pointer or one of
 	// the pointers is nil, we need to reset the proxy
@@ -442,10 +443,6 @@ func (m *Model) setupProxy(base *BaseModelInfo, parent reflect.Value) (changed b
 		}
 
 		m.proxy.object.changed.Listen(func(s signals.Signal[ModelChangeSignal], ms ModelChangeSignal) error {
-			//	fmt.Printf(
-			//		"Proxy model %T changed\n",
-			//		m.proxy.object.internals.object.Interface(),
-			//	)
 			m.changed.Send(ModelChangeSignal{
 				Flags: FlagProxyChanged,
 				Next:  &ms,
@@ -884,24 +881,6 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 	defer transaction.Rollback()
 
 	/*
-		Save the model's proxy, if any.
-	*/
-	var proxy = m.proxy
-	// fmt.Printf(
-	// 	"[SaveObject] Saving proxy model %v, hasChanged: %v, fromDB: %v\n",
-	// 	proxy, m.internals.state.Changed(true), m.internals.fromDB,
-	// )
-	if proxy != nil && proxy.object != nil && (proxy.object.internals.state.Changed(true) || !proxy.object.Saved()) {
-		err = proxy.object.Save(ctx)
-		if err != nil {
-			return fmt.Errorf(
-				"failed to save proxy model %T: %w",
-				proxy.object.internals.object.Interface(), err,
-			)
-		}
-	}
-
-	/*
 		Save all model fields
 	*/
 	for _, field := range updateFields {
@@ -939,8 +918,6 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 		// This is used to determine which fields to save in the query set.
 		selectFields = append(selectFields, field.Name())
 	}
-
-	// fmt.Println("[SaveObject] Fields to save:", selectFields)
 
 	/*
 		Setup the query set to save the model.
@@ -981,6 +958,77 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 			"model %T was not updated, no rows affected",
 			m.internals.object.Interface(),
 		)
+	}
+
+	/*
+		Save the model's proxy, if any.
+
+		This is done after the model itself is saved,
+		as the proxy may depend on the model's ID or other fields
+		to be set before it can be saved.
+	*/
+	var proxy = m.proxy
+	if proxy != nil && proxy.object != nil && (proxy.object.internals.state.Changed(true) || !proxy.object.Saved()) {
+
+		var proxyFieldInst, ok = m.internals.defs.Field(
+			proxyFieldName(m.internals.base.proxy.rootField.Name),
+		)
+		if !ok {
+			return fmt.Errorf(
+				"model %T does not have a proxy field %s, cannot save proxy",
+				m.internals.object.Interface(),
+				proxyFieldName(m.internals.base.proxy.rootField.Name),
+			)
+		}
+
+		proxyField, ok := proxyFieldInst.(*proxyField)
+		if !ok {
+			return fmt.Errorf(
+				"model %T proxy field %s is not a proxy field, cannot save proxy",
+				m.internals.object.Interface(),
+				proxyFieldName(m.internals.base.proxy.rootField.Name),
+			)
+		}
+
+		proxyField.setupRelatedFields()
+
+		var (
+			targetIDFieldDef = proxyField.LinkedPrimaryField()
+			targetIDField, _ = proxy.object.internals.defs.Field(
+				targetIDFieldDef.Name(),
+			)
+			targetCTypeFieldDef = proxyField.LinkedCTypeField()
+			targetCTypeField, _ = proxy.object.internals.defs.Field(
+				targetCTypeFieldDef.Name(),
+			)
+		)
+
+		if err := targetIDField.SetValue(
+			m.PK().GetValue(),
+			true,
+		); err != nil {
+			return fmt.Errorf(
+				"failed to set value for target ID field %s in proxy model %T: %w",
+				targetIDFieldDef.Name(), proxy.object.internals.object.Interface(), err,
+			)
+		}
+		if err := targetCTypeField.SetValue(
+			contenttypes.NewContentType(cnf.this).TypeName(),
+			true,
+		); err != nil {
+			return fmt.Errorf(
+				"failed to set value for target CType field %s in proxy model %T: %w",
+				targetCTypeFieldDef.Name(), proxy.object.internals.object.Interface(), err,
+			)
+		}
+
+		err = proxy.object.Save(ctx)
+		if err != nil {
+			return fmt.Errorf(
+				"failed to save proxy model %T: %w",
+				proxy.object.internals.object.Interface(), err,
+			)
+		}
 	}
 
 	// reset the state after saving

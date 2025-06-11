@@ -3,6 +3,7 @@ package quest
 import (
 	"database/sql"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/Nigel2392/go-django-queries/src/migrator"
@@ -10,15 +11,19 @@ import (
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
-type DBTables struct {
+type DBTables[T testing.TB] struct {
 	tables []*migrator.ModelTable
 	schema migrator.SchemaEditor
-	t      *testing.T
+	t      T
 }
 
-func Table(t *testing.T, model ...attrs.Definer) *DBTables {
+func Table[T testing.TB](t T, model ...attrs.Definer) *DBTables[T] {
 	if len(model) == 0 {
 		panic("No model provided to Table()")
+	}
+
+	if django.Global == nil || django.Global.Settings == nil {
+		panic("Django Global or Settings is not initialized")
 	}
 
 	var db = django.ConfigGet[*sql.DB](
@@ -26,7 +31,7 @@ func Table(t *testing.T, model ...attrs.Definer) *DBTables {
 		django.APPVAR_DATABASE,
 	)
 
-	var table = &DBTables{}
+	var table = &DBTables[T]{}
 	var schemaEditor, err = migrator.GetSchemaEditor(db.Driver())
 	if err != nil {
 		table.fatalf("Failed setup SchemaEditor: %v", err)
@@ -43,21 +48,21 @@ func Table(t *testing.T, model ...attrs.Definer) *DBTables {
 	return table
 }
 
-func (t *DBTables) fatal(args ...interface{}) {
-	if t.t == nil {
+func (t *DBTables[T]) fatal(args ...interface{}) {
+	if !reflect.ValueOf(t.t).IsNil() {
 		panic(fmt.Sprint(args...))
 	}
 	t.t.Fatal(args...)
 }
 
-func (t *DBTables) fatalf(format string, args ...interface{}) {
-	if t.t == nil {
+func (t *DBTables[T]) fatalf(format string, args ...interface{}) {
+	if !reflect.ValueOf(t.t).IsNil() {
 		panic(fmt.Sprintf(format, args...))
 	}
 	t.t.Fatalf(format, args...)
 }
 
-func (t *DBTables) Create() {
+func (t *DBTables[T]) Create() {
 	if t.schema == nil {
 		t.fatal("SchemaEditor is not initialized")
 		return
@@ -65,7 +70,7 @@ func (t *DBTables) Create() {
 
 	for _, table := range t.tables {
 
-		if t.t != nil {
+		if !reflect.ValueOf(t.t).IsNil() {
 			t.t.Logf("Creating table: %s", table.TableName())
 		} else {
 			fmt.Printf("Creating table: %s\n", table.TableName())
@@ -81,7 +86,7 @@ func (t *DBTables) Create() {
 	return
 }
 
-func (t *DBTables) Drop() {
+func (t *DBTables[T]) Drop() {
 	if t.schema == nil {
 		t.fatal("SchemaEditor is not initialized")
 	}

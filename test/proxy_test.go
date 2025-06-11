@@ -20,14 +20,14 @@ type ProxyModel struct {
 }
 
 func (b *ProxyModel) TargetContentTypeField() attrs.FieldDefinition {
-	var defs = b.Defs()
-	var f, _ = defs.Field("CategoryContentType")
+	var defs = b.FieldDefs()
+	var f, _ = defs.Field("TargetCType")
 	return f
 }
 
 func (b *ProxyModel) TargetPrimaryField() attrs.FieldDefinition {
-	var defs = b.Defs()
-	var f, _ = defs.Field("Category")
+	var defs = b.FieldDefs()
+	var f, _ = defs.Field("TargetID")
 	return f
 }
 

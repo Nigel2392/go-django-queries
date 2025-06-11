@@ -46,7 +46,7 @@ func init() {
 
 	django.App(django.Configure(settings))
 
-	quest.Table(nil, &Page{}, &BlogPage{}, &BlogPageCategory{}).Create()
+	quest.Table[*testing.T](nil, &Page{}, &BlogPage{}, &BlogPageCategory{}).Create()
 }
 
 type BasePage struct {
@@ -63,13 +63,13 @@ type Page struct {
 }
 
 func (p *Page) TargetContentTypeField() attrs.FieldDefinition {
-	var defs = p.Defs()
+	var defs = p.FieldDefs()
 	var f, _ = defs.Field("PageContentType")
 	return f
 }
 
 func (p *Page) TargetPrimaryField() attrs.FieldDefinition {
-	var defs = p.Defs()
+	var defs = p.FieldDefs()
 	var f, _ = defs.Field("PageID")
 	return f
 }

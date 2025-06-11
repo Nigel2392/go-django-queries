@@ -38,10 +38,6 @@ var _, _ = attrs.OnBeforeModelRegister.Listen(func(s signals.Signal[attrs.Signal
 	return nil
 })
 
-var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.SignalModelMeta], meta attrs.SignalModelMeta) error {
-	return nil
-})
-
 type BaseModelProxy struct {
 	// the field on the most top-level object that contains the proxy
 	rootField *reflect.StructField

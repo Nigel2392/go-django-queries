@@ -9,6 +9,8 @@ import (
 	"github.com/Nigel2392/go-django/src/core/contenttypes"
 )
 
+var _ queries.TargetClauseField = (*proxyField)(nil)
+
 type proxyField struct {
 	attrs.Field
 	cnf   *ProxyFieldConfig
@@ -109,7 +111,9 @@ func (f *proxyField) setupRelatedFields() {
 	f.targetPrimaryField = targetPrimaryField
 }
 
-var _ queries.TargetClauseField = (*proxyField)(nil)
+func (f *proxyField) IsProxy() bool {
+	return true
+}
 
 func (f *proxyField) GenerateTargetClause(qs *queries.QuerySet[attrs.Definer], inter *queries.QuerySetInternals, lhs queries.ClauseTarget, rhs queries.ClauseTarget) queries.JoinDef {
 	if f.cnf == nil || f.cnf.Proxy == nil {

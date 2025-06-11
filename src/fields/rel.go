@@ -92,6 +92,13 @@ func NewRelatedField[T any](forModel attrs.Definer, name string, cnf *FieldConfi
 		panic(fmt.Sprintf("NewRelatedField: relation is nil for field %s in model %T", name, forModel))
 	}
 
+	if cnf.IsProxy && cnf.Rel.Type() != attrs.RelOneToOne {
+		panic(fmt.Sprintf(
+			"NewRelatedField: relation type %s is not supported for proxy fields in model %T",
+			cnf.Rel.Type(), forModel,
+		))
+	}
+
 	if cnf.ReverseName == "" {
 		var nameParts = strings.Split(reflect.TypeOf(forModel).Elem().Name(), ".")
 		var modelName = nameParts[len(nameParts)-1]
@@ -214,6 +221,10 @@ func (r *RelationField[T]) IsReverse() bool {
 		return false
 	}
 	return true
+}
+
+func (r *RelationField[T]) IsProxy() bool {
+	return r.cnf.IsProxy
 }
 
 func (r *RelationField[T]) Attrs() map[string]any {

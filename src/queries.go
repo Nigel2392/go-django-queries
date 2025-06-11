@@ -105,6 +105,14 @@ retTarget:
 type ClauseTarget struct {
 	Model attrs.Definer
 	Table Table
+	Field attrs.FieldDefinition
+}
+
+type ThroughClauseTarget struct {
+	Model attrs.Definer
+	Table Table
+	Left  attrs.FieldDefinition
+	Right attrs.FieldDefinition
 }
 
 type TargetClauseField interface {
@@ -112,7 +120,19 @@ type TargetClauseField interface {
 }
 
 type TargetClauseThroughField interface {
-	GenerateTargetClause(qs *QuerySet[attrs.Definer], internals *QuerySetInternals, lhs ClauseTarget, through ClauseTarget, rhs ClauseTarget) (JoinDef, JoinDef)
+	GenerateTargetThroughClause(qs *QuerySet[attrs.Definer], internals *QuerySetInternals, lhs ClauseTarget, through ThroughClauseTarget, rhs ClauseTarget) (JoinDef, JoinDef)
+}
+
+type ProxyField interface {
+	attrs.FieldDefinition
+	TargetClauseField
+	IsProxy() bool
+}
+
+type ProxyThroughField interface {
+	attrs.FieldDefinition
+	TargetClauseThroughField
+	IsProxy() bool
 }
 
 // ForUseInQueriesField is an interface that can be implemented by fields to indicate

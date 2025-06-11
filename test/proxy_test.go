@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/models"
 	"github.com/Nigel2392/go-django-queries/src/quest"
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -78,5 +79,34 @@ func TestProxyModel(t *testing.T) {
 	var ctx = context.Background()
 	if err := proxyModel.Save(ctx); err != nil {
 		t.Fatalf("Failed to save proxy model: %v", err)
+	}
+}
+
+func TestProxyFields(t *testing.T) {
+	var proxiedModel = models.Setup(&ProxiedModel{
+		ProxyModel: &ProxyModel{
+			Title:       "Test Proxy",
+			Description: "This is a test proxy model",
+		},
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	})
+
+	var proxyFields = queries.ProxyFields(proxiedModel)
+	if proxyFields == nil {
+		t.Fatal("Expected proxy fields to be initialized, but got nil")
+	}
+
+	if proxyFields.Len() != 1 {
+		t.Fatalf("Expected 1 proxy field, but got %d", proxyFields.Len())
+	}
+
+	var proxyField, ok = proxyFields.Get("__PROXY")
+	if !ok {
+		t.Fatal("Expected to find proxy field with name '__PROXY'")
+	}
+
+	if proxyField.Name() != "__PROXY" {
+		t.Fatalf("Expected proxy field name to be '__PROXY', but got '%s'", proxyField.Name())
 	}
 }

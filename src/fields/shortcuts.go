@@ -10,6 +10,7 @@ import (
 type FieldConfig struct {
 	ScanTo      any
 	Nullable    bool
+	IsProxy     bool
 	ReverseName string
 	ColumnName  string
 	TargetField string

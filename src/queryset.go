@@ -718,6 +718,7 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 				Alias: condA_Alias,
 			},
 			Model: parentDefs.Instance(),
+			Field: parentField,
 		}
 		var rhs = ClauseTarget{
 			Table: Table{
@@ -725,6 +726,7 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 				Alias: condB_Alias,
 			},
 			Model: target,
+			Field: relField,
 		}
 		join = clause.GenerateTargetClause(
 			ChangeObjectsType[T, attrs.Definer](qs),
@@ -818,13 +820,16 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 				Alias: parentAlias,
 			},
 			Model: parentDefs.Instance(),
+			Field: parentField,
 		}
-		var through = ClauseTarget{
+		var through = ThroughClauseTarget{
 			Table: Table{
 				Name:  throughTable,
 				Alias: aliasThrough,
 			},
 			Model: throughModel,
+			Left:  throughSourceField,
+			Right: throughTargetField,
 		}
 		var rhs = ClauseTarget{
 			Table: Table{
@@ -832,8 +837,9 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 				Alias: alias,
 			},
 			Model: target,
+			Field: targetField,
 		}
-		join1, join2 = clause.GenerateTargetClause(
+		join1, join2 = clause.GenerateTargetThroughClause(
 			ChangeObjectsType[T, attrs.Definer](qs),
 			qs.internals,
 			lhs, through, rhs,

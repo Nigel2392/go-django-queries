@@ -112,18 +112,28 @@ Example:
 ```go
 type BaseUser struct {
     models.Model
-    ID   int
-    Name string
+    ID        int
+    Name      string
+    UserID    int
+    UserCType *contenttypes.BaseContentType[attrs.Definer]
 }
+
+// ... other required methods for BaseUser (CanTargetDefiner interface)
+
 func (m *BaseUser) FieldDefs() attrs.Definitions {
     // ...
 }
 
 type BaseProfile struct {
     models.Model
-    ID    int
-    Email string
+    ID           int
+    Email        string
+    ProfileID    int
+    ProfileCType *contenttypes.BaseContentType[attrs.Definer]
 }
+
+// ... other required methods for BaseProfile (CanTargetDefiner interface)
+
 func (m *BaseProfile) FieldDefs() attrs.Definitions {
     // ...
 }

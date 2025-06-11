@@ -401,8 +401,17 @@ func (m *Model) setupProxy(base *BaseModelInfo, parent reflect.Value) (changed b
 		changed = true
 		m.proxy.object = nil
 		m.internals.defs = nil
+		// fmt.Printf(
+		// 	"Proxy model %T is nil, resetting the proxy object\n",
+		// 	base.proxy.rootField.Type,
+		// )
 		return changed, nil
 	}
+
+	// fmt.Printf(
+	// 	"rValNil: %t, changed: %t, nextNil: %t, ptrDiff: %t (%T %v)\n",
+	// 	rVal.IsNil(), changed, nextNil, ptrDiff, rVal.Interface(), rVal.Interface(),
+	// )
 
 	// if there is a difference in the pointer or one of
 	// the pointers is nil, we need to reset the proxy
@@ -581,6 +590,14 @@ func (m *Model) Define(def attrs.Definer, flds ...any) *attrs.ObjectDefinitions 
 		m.internals.defs.Table = tableName
 	}
 
+	return m.internals.defs
+}
+
+// Defs returns the model's definitions.
+//
+// If the model is not properly initialized it will panic.
+func (m *Model) Defs() *attrs.ObjectDefinitions {
+	m.checkValid()
 	return m.internals.defs
 }
 
@@ -870,7 +887,11 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 		Save the model's proxy, if any.
 	*/
 	var proxy = m.proxy
-	if proxy != nil && proxy.object != nil && proxy.object.internals.state.Changed(true) {
+	// fmt.Printf(
+	// 	"[SaveObject] Saving proxy model %v, hasChanged: %v, fromDB: %v\n",
+	// 	proxy, m.internals.state.Changed(true), m.internals.fromDB,
+	// )
+	if proxy != nil && proxy.object != nil && (proxy.object.internals.state.Changed(true) || !proxy.object.Saved()) {
 		err = proxy.object.Save(ctx)
 		if err != nil {
 			return fmt.Errorf(
@@ -918,6 +939,8 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 		// This is used to determine which fields to save in the query set.
 		selectFields = append(selectFields, field.Name())
 	}
+
+	// fmt.Println("[SaveObject] Fields to save:", selectFields)
 
 	/*
 		Setup the query set to save the model.

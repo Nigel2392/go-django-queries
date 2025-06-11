@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
@@ -313,6 +314,14 @@ func (m *PostgresSchemaEditor) WriteColumn(w *strings.Builder, col migrator.Colu
 				w.WriteString("TRUE")
 			} else {
 				w.WriteString("FALSE")
+			}
+		case time.Time:
+			if v.IsZero() {
+				w.WriteString("CURRENT_TIMESTAMP")
+			} else {
+				w.WriteString("'")
+				w.WriteString(v.Format("2006-01-02 15:04:05"))
+				w.WriteString("'")
 			}
 		default:
 			panic(fmt.Errorf("unsupported default type: %T", v))

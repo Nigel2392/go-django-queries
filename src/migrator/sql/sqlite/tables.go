@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	django "github.com/Nigel2392/go-django/src"
-	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/mattn/go-sqlite3"
 )
@@ -53,18 +53,18 @@ func NewSQLiteSchemaEditor(db *sql.DB) *SQLiteSchemaEditor {
 }
 
 func (m *SQLiteSchemaEditor) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	logger.Debugf("SQLiteSchemaEditor.QueryContext:\n%s", query)
+	// logger.Debugf("SQLiteSchemaEditor.QueryContext:\n%s", query)
 	rows, err := m.db.QueryContext(ctx, query, args...)
 	return rows, err
 }
 
 func (m *SQLiteSchemaEditor) queryRow(ctx context.Context, query string, args ...any) *sql.Row {
-	logger.Debugf("SQLiteSchemaEditor.QueryRowContext:\n%s", query)
+	// logger.Debugf("SQLiteSchemaEditor.QueryRowContext:\n%s", query)
 	return m.db.QueryRowContext(ctx, query, args...)
 }
 
 func (m *SQLiteSchemaEditor) Execute(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	logger.Debugf("SQLiteSchemaEditor.ExecContext:\n%s", query)
+	// logger.Debugf("SQLiteSchemaEditor.ExecContext:\n%s", query)
 	result, err := m.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -509,6 +509,14 @@ func (m *SQLiteSchemaEditor) WriteColumn(w *strings.Builder, col migrator.Column
 				w.WriteString("1")
 			} else {
 				w.WriteString("0")
+			}
+		case time.Time:
+			if v.IsZero() {
+				w.WriteString("CURRENT_TIMESTAMP")
+			} else {
+				w.WriteString("'")
+				w.WriteString(v.Format("2006-01-02 15:04:05"))
+				w.WriteString("'")
 			}
 		default:
 			panic(fmt.Errorf(

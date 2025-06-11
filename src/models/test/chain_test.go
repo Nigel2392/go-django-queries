@@ -63,13 +63,13 @@ type Page struct {
 }
 
 func (p *Page) TargetContentTypeField() attrs.FieldDefinition {
-	var defs = p.FieldDefs()
+	var defs = p.Defs()
 	var f, _ = defs.Field("PageContentType")
 	return f
 }
 
 func (p *Page) TargetPrimaryField() attrs.FieldDefinition {
-	var defs = p.FieldDefs()
+	var defs = p.Defs()
 	var f, _ = defs.Field("PageID")
 	return f
 }
@@ -95,13 +95,13 @@ type BlogPage struct {
 }
 
 func (b *BlogPage) TargetContentTypeField() attrs.FieldDefinition {
-	var defs = b.FieldDefs()
+	var defs = b.Defs()
 	var f, _ = defs.Field("CategoryContentType")
 	return f
 }
 
 func (b *BlogPage) TargetPrimaryField() attrs.FieldDefinition {
-	var defs = b.FieldDefs()
+	var defs = b.Defs()
 	var f, _ = defs.Field("Category")
 	return f
 }

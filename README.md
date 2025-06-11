@@ -15,7 +15,7 @@ This library brings Django-style ORM queries to Go-Django, allowing you to:
 ## 📁 Documentation Structure
 
 * [Getting Started](./docs/getting_started.md)
-* [Defining Models](./docs/models.md)
+* [Defining Models](./docs/models/models.md)
 * [Interfaces](./docs/interfaces.md)
 * [Querying Objects](./docs/querying.md)
   * [QuerySet](./docs/queryset/queryset.md)

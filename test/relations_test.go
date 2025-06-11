@@ -223,7 +223,7 @@ func TestReverseRelations(t *testing.T) {
 	}
 
 	// Todo.*
-	todoSet, ok := dbTodo.Object.(*User).RelatedField("Todo")
+	todoSet, ok := dbTodo.Object.(*User).FieldDefs().Field("Todo")
 	if !ok {
 		t.Errorf("expected todoSet field, got nil")
 		return
@@ -338,7 +338,7 @@ func TestReverseRelationsNested(t *testing.T) {
 	}
 
 	// Todo.*
-	todoSet, ok := dbTodo.Object.(*User).RelatedField("Todo")
+	todoSet, ok := dbTodo.Object.(*User).FieldDefs().Field("Todo")
 	if !ok {
 		t.Errorf("expected todoSet field, got nil")
 		return
@@ -392,7 +392,7 @@ func TestReverseRelationsNested(t *testing.T) {
 	}
 
 	// Todo.User.Todo.*
-	todoSet, ok = val.User.RelatedField("Todo")
+	todoSet, ok = val.User.FieldDefs().Field("Todo")
 	if !ok {
 		t.Errorf("expected user.todoSet field, got nil")
 		return
@@ -445,7 +445,7 @@ func TestReverseRelationsNested(t *testing.T) {
 		return
 	}
 
-	todoSet, ok = val.User.RelatedField("Todo")
+	todoSet, ok = val.User.FieldDefs().Field("Todo")
 	if !ok {
 		t.Errorf("expected user.todoSet field, got nil")
 		return
@@ -558,7 +558,7 @@ func TestOneToOneWithThroughReverse(t *testing.T) {
 		t.Errorf("expected name %q, got %q", target.Name, obj.Name)
 	}
 
-	reverseVal, ok := obj.RelatedField("TargetReverse")
+	reverseVal, ok := obj.FieldDefs().Field("TargetReverse")
 	if !ok || reverseVal == nil {
 		t.Fatalf("expected reverse field, got nil")
 	}
@@ -623,7 +623,7 @@ func TestOneToOneWithThroughReverseIntoForward(t *testing.T) {
 		t.Errorf("expected name %q, got %q", target.Name, obj.Name)
 	}
 
-	reverseVal, ok := obj.RelatedField("TargetReverse")
+	reverseVal, ok := obj.FieldDefs().Field("TargetReverse")
 	if !ok || reverseVal == nil {
 		t.Fatalf("expected reverse field, got nil")
 	}
@@ -689,7 +689,7 @@ func TestOneToOneWithThroughNested(t *testing.T) {
 
 	obj := result.Object.(*OneToOneWithThrough_Target)
 
-	reverse, ok := obj.RelatedField("TargetReverse")
+	reverse, ok := obj.FieldDefs().Field("TargetReverse")
 	if !ok || reverse == nil {
 		t.Fatalf("expected Reverse relation")
 	}
@@ -746,7 +746,8 @@ func TestOneToOneWithThroughDoubleNested(t *testing.T) {
 
 	obj := result.Object.(*OneToOneWithThrough_Target)
 
-	reverse, ok := obj.RelatedField("TargetReverse")
+	var objDefs = obj.FieldDefs()
+	reverse, ok := objDefs.Field("TargetReverse")
 	if !ok || reverse == nil {
 		t.Fatalf("expected Reverse relation")
 	}
@@ -761,7 +762,7 @@ func TestOneToOneWithThroughDoubleNested(t *testing.T) {
 		t.Errorf("expected reloaded target ID %d, got %v", target.ID, relatedTarget)
 	}
 
-	relatedReverse, ok := relatedTarget.Object.RelatedField("TargetReverse")
+	relatedReverse, ok := relatedTarget.Object.FieldDefs().Field("TargetReverse")
 	if !ok || relatedReverse == nil {
 		t.Fatalf("expected Reverse relation")
 		return

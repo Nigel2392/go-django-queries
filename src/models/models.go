@@ -14,7 +14,7 @@ const (
 	ErrModelAdressable  errs.Error = "the Model is not addressable"
 )
 
-type CanSaveObject interface {
+type SaveableObject interface {
 	SaveObject(ctx context.Context, cnf SaveConfig) error
 }
 

@@ -21,7 +21,7 @@ import (
 var (
 	// Internal interfaces that the model should implement
 	_ _ModelInterface = &Model{}
-	_ CanSaveObject   = &Model{}
+	_ SaveableObject  = &Model{}
 
 	// Third party interfaces that the model should implement
 	_ models.ContextSaver                  = &Model{}
@@ -29,6 +29,8 @@ var (
 	_ queries.DataModel                    = &Model{}
 	_ queries.Annotator                    = &Model{}
 	_ queries.ThroughModelSetter           = &Model{}
+	_ queries.ActsAfterSave                = &Model{}
+	_ queries.ActsAfterQuery               = &Model{}
 	_ attrs.CanSignalChanged               = &Model{}
 	_ attrs.CanCreateObject[attrs.Definer] = &Model{}
 )
@@ -615,24 +617,6 @@ func (m *Model) PK() attrs.Field {
 	return m.internals.defs.Primary()
 }
 
-// RelatedField returns the related field by name.
-//
-// It checks if the model has definitions set up and if the field exists
-func (m *Model) RelatedField(name string) (attrs.Field, bool) {
-	if m.internals.defs == nil {
-		return nil, false
-	}
-	var meta = m.ModelMeta()
-	var (
-		_, ok1 = meta.Forward(name)
-		_, ok2 = meta.Reverse(name)
-	)
-	if ok1 || ok2 {
-		return m.internals.defs.Field(name)
-	}
-	return nil, false
-}
-
 // Object returns the object of the model.
 //
 // It checks if the model is properly initialized and if the object is set up,
@@ -763,7 +747,7 @@ func (m *Model) Save(ctx context.Context) error {
 	}
 
 	var this = m.internals.object.Interface().(attrs.Definer)
-	return this.(CanSaveObject).SaveObject(ctx, SaveConfig{
+	return this.(SaveableObject).SaveObject(ctx, SaveConfig{
 		this: this,
 	})
 }

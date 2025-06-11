@@ -67,6 +67,7 @@ func (p *Page) TargetContentTypeField() attrs.FieldDefinition {
 	var f, _ = defs.Field("PageContentType")
 	return f
 }
+
 func (p *Page) TargetPrimaryField() attrs.FieldDefinition {
 	var defs = p.FieldDefs()
 	var f, _ = defs.Field("PageID")

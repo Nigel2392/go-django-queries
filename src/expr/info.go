@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 
+	"github.com/Nigel2392/go-django-queries/internal"
 	"github.com/Nigel2392/go-django-queries/src/alias"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
@@ -124,6 +125,9 @@ type ExpressionInfo struct {
 	//
 	// This will automatically append "= ?" to the SQL TableColumn statement
 	ForUpdate bool
+
+	// Annotations is a map of queryset annotations (fields).
+	Annotations map[string]attrs.Field
 }
 
 func (inf *ExpressionLookupInfo) FormatLogicalOpRHS(op LogicalOp, rhs string, values ...any) (string, []any) {
@@ -154,4 +158,80 @@ func (inf *ExpressionLookupInfo) PatternOpRHS(op string, fmtArgs ...any) string 
 		return fmt.Sprintf(format, fmtArgs...)
 	}
 	panic(fmt.Errorf("unknown pattern operator %s: compiler does not support operator", op))
+}
+
+type LookupField interface {
+	attrs.FieldDefinition
+	AllowedTransforms() []string
+	AllowedLookups() []string
+}
+
+type ResolvedField struct {
+	FieldPath         string
+	Field             string
+	SQLText           string
+	AllowedTransforms []string
+	AllowedLookups    []string
+}
+
+func newResolvedField(fieldPath, sqlText string, field attrs.FieldDefinition) *ResolvedField {
+	var (
+		transforms []string
+		lookups    []string
+	)
+	if v, ok := field.(LookupField); ok {
+		transforms = v.AllowedTransforms()
+		lookups = v.AllowedLookups()
+	}
+	return &ResolvedField{
+		FieldPath:         fieldPath,
+		Field:             field.Name(),
+		SQLText:           sqlText,
+		AllowedTransforms: transforms,
+		AllowedLookups:    lookups,
+	}
+}
+
+func (inf *ExpressionInfo) ResolveExpressionField(field string) *ResolvedField {
+	var current, _, f, chain, aliases, isRelated, err = internal.WalkFields(inf.Model, field, inf.AliasGen)
+	if err != nil {
+		if fld, ok := inf.Annotations[field]; ok {
+			f = fld
+		} else {
+			panic(err)
+		}
+	}
+
+	var col = &TableColumn{}
+	if (!inf.ForUpdate) || (isRelated || len(chain) > 0) {
+		var aliasStr string
+		switch {
+		case len(aliases) > 0:
+			aliasStr = aliases[len(aliases)-1]
+		case current != nil:
+			aliasStr = current.FieldDefs().TableName()
+		default:
+			aliasStr = inf.Model.FieldDefs().TableName()
+		}
+
+		if vF, ok := f.(interface{ Alias() string }); ok {
+			col.FieldAlias = inf.AliasGen.GetFieldAlias(
+				aliasStr, vF.Alias(),
+			)
+		} else {
+			col.TableOrAlias = aliasStr
+			col.FieldColumn = f
+		}
+
+		var sql, _ = inf.FormatField(col)
+		return newResolvedField(
+			field, sql, f,
+		)
+	}
+
+	col.FieldColumn = f
+	var sql, _ = inf.FormatField(col)
+	return newResolvedField(
+		field, sql, f,
+	)
 }

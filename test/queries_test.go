@@ -2758,7 +2758,7 @@ func TestRunInTransaction(t *testing.T) {
 	}
 
 	var ctx = context.Background()
-	var err = queries.RunInTransaction(ctx, func(NewQuerySet queries.ObjectsFunc[*Todo]) (bool, error) {
+	var err = queries.RunInTransaction(ctx, func(ctx context.Context, NewQuerySet queries.ObjectsFunc[*Todo]) (bool, error) {
 		var qs = NewQuerySet(&Todo{})
 
 		if !qs.Compiler().InTransaction() {
@@ -2804,7 +2804,7 @@ func TestGetOrCreateInTransaction(t *testing.T) {
 		Done:        false,
 	}
 
-	var err = queries.RunInTransaction(context.Background(), func(NewQuerySet queries.ObjectsFunc[*Todo]) (bool, error) {
+	var err = queries.RunInTransaction(context.Background(), func(ctx context.Context, NewQuerySet queries.ObjectsFunc[*Todo]) (bool, error) {
 		var todo, created, err = NewQuerySet(&Todo{}).
 			Select("ID", "Title", "Description", "Done", "User").
 			Filter("Title", todo.Title).

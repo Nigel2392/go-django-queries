@@ -112,7 +112,7 @@ func (e *function[T]) Resolve(inf *ExpressionInfo) Expression {
 	}
 
 	if nE.fieldName != "" {
-		nE.field = ResolveExpressionField(inf, nE.fieldName)
+		nE.field = inf.ResolveExpressionField(nE.fieldName)
 	}
 
 	return nE

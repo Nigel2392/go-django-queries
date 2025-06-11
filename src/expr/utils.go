@@ -6,9 +6,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/Nigel2392/go-django-queries/internal"
-	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
 var (
@@ -146,73 +143,4 @@ func Express(key interface{}, vals ...interface{}) []ClauseExpression {
 	default:
 		panic(fmt.Errorf("unsupported type %T", key))
 	}
-}
-
-type LookupField interface {
-	attrs.FieldDefinition
-	AllowedTransforms() []string
-	AllowedLookups() []string
-}
-
-type ResolvedField struct {
-	FieldPath         string
-	Field             string
-	SQLText           string
-	AllowedTransforms []string
-	AllowedLookups    []string
-}
-
-func newResolvedField(fieldPath, sqlText string, field attrs.FieldDefinition) *ResolvedField {
-	var (
-		transforms []string
-		lookups    []string
-	)
-	if v, ok := field.(LookupField); ok {
-		transforms = v.AllowedTransforms()
-		lookups = v.AllowedLookups()
-	}
-	return &ResolvedField{
-		FieldPath:         fieldPath,
-		Field:             field.Name(),
-		SQLText:           sqlText,
-		AllowedTransforms: transforms,
-		AllowedLookups:    lookups,
-	}
-}
-
-func ResolveExpressionField(inf *ExpressionInfo, field string) *ResolvedField {
-	var current, _, f, chain, aliases, isRelated, err = internal.WalkFields(inf.Model, field, inf.AliasGen)
-	if err != nil {
-		panic(err)
-	}
-
-	var col = &TableColumn{}
-	if (!inf.ForUpdate) || (isRelated || len(chain) > 0) {
-		var aliasStr string
-		if len(aliases) > 0 {
-			aliasStr = aliases[len(aliases)-1]
-		} else {
-			aliasStr = current.FieldDefs().TableName()
-		}
-
-		if vF, ok := f.(interface{ Alias() string }); ok {
-			col.FieldAlias = inf.AliasGen.GetFieldAlias(
-				aliasStr, vF.Alias(),
-			)
-		} else {
-			col.TableOrAlias = aliasStr
-			col.FieldColumn = f
-		}
-
-		var sql, _ = inf.FormatField(col)
-		return newResolvedField(
-			field, sql, f,
-		)
-	}
-
-	col.FieldColumn = f
-	var sql, _ = inf.FormatField(col)
-	return newResolvedField(
-		field, sql, f,
-	)
 }

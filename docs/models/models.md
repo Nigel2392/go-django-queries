@@ -11,6 +11,8 @@ This will make sure to also setup fields for reverse relations, allow for storin
 and provide some additional functionality.  
 It also allows you to use a `table:"tablename"` tag to specify the table name for the model.
 
+Read more about the [`models.Model`](./model.md) implementation in the [Model documentation](./model.md).
+
 A short example of defining some models with a relationship (we will assume the tables already exist):
 
 ```go
@@ -83,4 +85,4 @@ func (m *Todo) FieldDefs() attrs.Definitions {
 
 For more information on defining or registering models, see the [attrs documentation](https://github.com/Nigel2392/go-django/blob/main/docs/attrs/attrs.md).
 
-Or continue with [Querying Objects](./querying.md)…
+Or continue with [Querying Objects](../querying.md)…

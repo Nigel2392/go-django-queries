@@ -26,7 +26,7 @@ func init() {
 	RegisterCompiler(&drivers.DriverPostgres{}, NewGenericQueryBuilder)
 }
 
-func newExpressionInfo(g *genericQueryBuilder, qs *QuerySet[attrs.Definer], updating bool) *expr.ExpressionInfo {
+func newExpressionInfo(g *genericQueryBuilder, qs *QuerySet[attrs.Definer], i *QuerySetInternals, updating bool) *expr.ExpressionInfo {
 	return &expr.ExpressionInfo{
 		Driver: g.driver,
 		Model: attrs.NewObject[attrs.Definer](
@@ -43,7 +43,8 @@ func newExpressionInfo(g *genericQueryBuilder, qs *QuerySet[attrs.Definer], upda
 			OperatorsRHS:     g.LookupOperatorsRHS(),
 			PatternOpsRHS:    g.LookupPatternOperatorsRHS(),
 		},
-		ForUpdate: updating,
+		ForUpdate:   updating,
+		Annotations: i.Annotations,
 	}
 }
 
@@ -392,7 +393,7 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 	var (
 		query = new(strings.Builder)
 		args  []any
-		inf   = newExpressionInfo(g, qs, false)
+		inf   = newExpressionInfo(g, qs, internals, false)
 	)
 
 	query.WriteString("SELECT ")
@@ -479,7 +480,7 @@ func (g *genericQueryBuilder) BuildCountQuery(
 	qs *GenericQuerySet,
 	internals *QuerySetInternals,
 ) CompiledQuery[int64] {
-	var inf = newExpressionInfo(g, qs, false)
+	var inf = newExpressionInfo(g, qs, internals, false)
 	var query = new(strings.Builder)
 	var args = make([]any, 0)
 	query.WriteString("SELECT COUNT(*) FROM ")
@@ -715,6 +716,7 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 		inf = newExpressionInfo(
 			g,
 			qs,
+			internals,
 			true,
 		)
 		written bool
@@ -796,7 +798,7 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 	qs *GenericQuerySet,
 	internals *QuerySetInternals,
 ) CompiledQuery[int64] {
-	var inf = newExpressionInfo(g, qs, false)
+	var inf = newExpressionInfo(g, qs, internals, false)
 	var query = new(strings.Builder)
 	var args = make([]any, 0)
 	query.WriteString("DELETE FROM ")

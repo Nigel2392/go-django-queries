@@ -66,10 +66,7 @@ func (e *field) Resolve(inf *ExpressionInfo) Expression {
 
 	var nE = e.Clone().(*field)
 	nE.used = true
-	nE.field = ResolveExpressionField(
-		inf, nE.fieldName,
-	)
-
+	nE.field = inf.ResolveExpressionField(nE.fieldName)
 	return nE
 }
 

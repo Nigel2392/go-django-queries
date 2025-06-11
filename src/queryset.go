@@ -65,7 +65,7 @@ type modelInfo struct {
 // the compiler to build a query out of.
 type QuerySetInternals struct {
 	Model       modelInfo
-	Annotations map[string]*queryField[any]
+	Annotations map[string]attrs.Field
 	Fields      []*FieldInfo[attrs.FieldDefinition]
 	Where       []expr.ClauseExpression
 	Having      []expr.ClauseExpression
@@ -215,7 +215,7 @@ func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
 				Fields:    definitions.Fields(),
 				TableName: tableName,
 			},
-			Annotations: make(map[string]*queryField[any]),
+			Annotations: make(map[string]attrs.Field),
 			Where:       make([]expr.ClauseExpression, 0),
 			Having:      make([]expr.ClauseExpression, 0),
 			Joins:       make([]JoinDef, 0),

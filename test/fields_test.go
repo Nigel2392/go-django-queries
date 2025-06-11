@@ -412,6 +412,54 @@ func Test_Annotate_Only(t *testing.T) {
 	}
 }
 
+func Test_Annotated_Filter(t *testing.T) {
+	// Create test data
+	test := &TestStruct{
+		Name: "TEST1",
+		Text: "TEST2",
+	}
+
+	if err := queries.CreateObject(test); err != nil {
+		t.Fatalf("Failed to create object: %v", err)
+	}
+
+	qs := queries.Objects[attrs.Definer](&TestStruct{}).
+		Select("*").
+		Filter("Name", "TEST1").
+		Annotate("LowerName", expr.FuncLower("Name")).
+		Filter("LowerName", "test1")
+	rows, err := qs.All()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(rows) == 0 {
+		t.Fatal("expected at least one result")
+	}
+
+	var obj = rows[0].Object.(*TestStruct)
+
+	if obj.ID != test.ID {
+		t.Errorf("expected ID = %d, got %d", test.ID, obj.ID)
+	}
+
+	if obj.Name != "TEST1" {
+		t.Errorf("expected Name = 'TEST1', got %q (%d)", obj.Name, len(obj.Name))
+	}
+
+	if obj.Text != "TEST2" {
+		t.Errorf("expected Text = 'TEST2', got %q (%d)", obj.Text, len(obj.Text))
+	}
+
+	if obj.Annotations["LowerName"] != "test1" {
+		t.Errorf("expected LowerName = 'test1', got %v", obj.Annotations["LowerName"])
+	}
+
+	if _, err := queries.DeleteObject(test); err != nil {
+		t.Fatalf("Failed to delete object: %v", err)
+	}
+}
+
 func Test_Annotated_Get(t *testing.T) {
 	// Create test data
 	test := &TestStruct{

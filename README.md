@@ -30,14 +30,14 @@ This library brings Django-style ORM queries to Go-Django, allowing you to:
 
 ```go
 // Query forward foreign key relation
-var todos, err := queries.Objects[*Todo](&Todo{}).
+var todos, err := queries.GetQuerySet(&Todo{}).
     Select("*", "User.*").
     Filter("Done", false).
     OrderBy("-ID").
     All()
 
 // Query reverse foreign key relation
-var todos, err := queries.Objects[*User](&User{}).
+var todos, err := queries.GetQuerySet(&User{}).
     Select("*", "TodoSet.*").
     Filter("TodoSet.Done", false).
     OrderBy("-ID").

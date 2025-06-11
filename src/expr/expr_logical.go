@@ -287,7 +287,7 @@ func (l *logicalChainExpr) Resolve(inf *ExpressionInfo) Expression {
 	nE.forUpdate = inf.ForUpdate
 
 	if nE.fieldName != "" {
-		nE.field = ResolveExpressionField(inf, nE.fieldName)
+		nE.field = inf.ResolveExpressionField(nE.fieldName)
 	}
 
 	if len(nE.inner) > 0 {

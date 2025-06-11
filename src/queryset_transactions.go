@@ -17,12 +17,12 @@ type transactionContextValue struct {
 	DatabaseName string
 }
 
-func transactionFromContext(ctx context.Context) (Transaction, string, bool) {
-	var tx, ok = ctx.Value(transactionContextKey{}).(*transactionContextValue)
+func transactionFromContext(ctx context.Context) (tx Transaction, databaseName string, ok bool) {
+	t, ok := ctx.Value(transactionContextKey{}).(*transactionContextValue)
 	if !ok {
 		return nil, "", false
 	}
-	return tx.Transaction, tx.DatabaseName, tx.Transaction != nil
+	return t.Transaction, t.DatabaseName, t.Transaction != nil
 }
 
 func transactionToContext(ctx context.Context, tx Transaction, dbName string) context.Context {
@@ -35,6 +35,21 @@ func transactionToContext(ctx context.Context, tx Transaction, dbName string) co
 	})
 }
 
+// StartTransaction starts a new transaction for the given database.
+//
+// If a transaction already exists in the context, it will return a no-op transaction,
+// meaning that Rollback and Commit will do nothing, it is assumed that the transaction
+// is managed by a higher-level function in the call stack.
+//
+// If the database name is not provided, it will use the default database name from the compiler.
+// If the database name is provided, it will use that database name to start the transaction.
+//
+// The transaction can not be retrieved from the context if the database name is different, a new
+// transaction will be started for the given database name.
+//
+// The context returned will have the transaction stored in it, so that it can be used later, the
+// transaction is stored in the context - a queryset will automatically use the transaction
+// from the context if it exists when using [QuerySet.WithContext].
 func StartTransaction(ctx context.Context, database ...string) (context.Context, DatabaseSpecificTransaction, error) {
 	var (
 		databaseName   = getDatabaseName(nil, database...)
@@ -60,7 +75,16 @@ func StartTransaction(ctx context.Context, database ...string) (context.Context,
 	return ctx, &dbSpecificTransaction{tx, databaseName}, nil
 }
 
-func RunInTransaction[T attrs.Definer](c context.Context, fn func(NewQuerySet ObjectsFunc[T]) (commit bool, err error), database ...string) error {
+// RunInTransaction runs the given function in a transaction.
+//
+// The function should return a boolean indicating whether the transaction should be committed or rolled back.
+// If the function returns an error, the transaction will be rolled back.
+//
+// The queryset passed to the function will have the transaction bound to it, so that it can be used
+// to execute queries within the transaction.
+//
+// If the function panics, the transaction will be rolled back and the panic will be recovered.
+func RunInTransaction[T attrs.Definer](c context.Context, fn func(ctx context.Context, NewQuerySet ObjectsFunc[T]) (commit bool, err error), database ...string) error {
 	var panicFromNewQuerySet error
 	var comitted bool
 
@@ -106,15 +130,9 @@ func RunInTransaction[T attrs.Definer](c context.Context, fn func(NewQuerySet Ob
 	}()
 
 	// if the function returns an error, the transaction will be rolled back
-	commit, err := fn(newQuerySetFunc)
+	commit, err := fn(ctx, newQuerySetFunc)
 	if err != nil {
 		return errors.Wrap(err, "RunInTransaction: function returned an error")
-	}
-
-	// if the transaction is nil, it means that no transaction was started
-	// i.e. no newQuerySetFunc was called
-	if transaction == nil {
-		return query_errors.ErrNoTransaction
 	}
 
 	if commit {

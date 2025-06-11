@@ -7,14 +7,19 @@ import (
 	"strings"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
+	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
 var (
-	_ queries.ForUseInQueriesField = (*RelationField[any])(nil)
-	_ attrs.CanRelatedName         = (*RelationField[any])(nil)
+	_ queries.TargetClauseField        = (*RelationField[any])(nil)
+	_ queries.TargetClauseThroughField = (*RelationField[any])(nil)
+	_ queries.ProxyField               = (*RelationField[any])(nil)
+	_ queries.ProxyThroughField        = (*RelationField[any])(nil)
+	_ queries.ForUseInQueriesField     = (*RelationField[any])(nil)
+	_ attrs.CanRelatedName             = (*RelationField[any])(nil)
 )
 
 type RelationField[T any] struct {
@@ -223,10 +228,6 @@ func (r *RelationField[T]) IsReverse() bool {
 	return true
 }
 
-func (r *RelationField[T]) IsProxy() bool {
-	return r.cnf.IsProxy
-}
-
 func (r *RelationField[T]) Attrs() map[string]any {
 	var atts = make(map[string]any)
 	atts[attrs.AttrNameKey] = r.Name()
@@ -246,4 +247,83 @@ func (r *RelationField[T]) Rel() attrs.Relation {
 			field: r,
 		},
 	}
+}
+
+func (f *RelationField[T]) hasMany() bool {
+	if f.cnf.Rel == nil {
+		return false
+	}
+	var relType = f.cnf.Rel.Type()
+	return !(relType == attrs.RelOneToOne || relType == attrs.RelManyToOne)
+}
+
+func (r *RelationField[T]) IsProxy() bool {
+	return r.cnf.IsProxy && r.cnf.Rel.Type() == attrs.RelOneToOne
+}
+
+func (f *RelationField[T]) GenerateTargetClause(qs *queries.QuerySet[attrs.Definer], inter *queries.QuerySetInternals, lhs queries.ClauseTarget, rhs queries.ClauseTarget) queries.JoinDef {
+
+	var joinType = queries.TypeJoinLeft
+	if !f.cnf.Nullable && !f.hasMany() {
+		joinType = queries.TypeJoinInner
+	}
+
+	return queries.JoinDef{
+		Table:    rhs.Table,
+		TypeJoin: joinType,
+		JoinDefCondition: &queries.JoinDefCondition{
+			ConditionA: expr.TableColumn{
+				TableOrAlias: lhs.Table.Alias,
+				FieldColumn:  lhs.Field,
+			},
+			Operator: expr.EQ,
+			ConditionB: expr.TableColumn{
+				TableOrAlias: rhs.Table.Alias,
+				FieldColumn:  rhs.Field,
+			},
+		},
+	}
+}
+
+func (f *RelationField[T]) GenerateTargetThroughClause(qs *queries.QuerySet[attrs.Definer], inter *queries.QuerySetInternals, lhs queries.ClauseTarget, thru queries.ThroughClauseTarget, rhs queries.ClauseTarget) (queries.JoinDef, queries.JoinDef) {
+
+	var joinType = queries.TypeJoinLeft
+	if !f.cnf.Nullable && !f.hasMany() {
+		joinType = queries.TypeJoinInner
+	}
+
+	var join1 = queries.JoinDef{
+		TypeJoin: joinType,
+		Table:    thru.Table,
+		JoinDefCondition: &queries.JoinDefCondition{
+			Operator: expr.EQ,
+			ConditionA: expr.TableColumn{
+				TableOrAlias: lhs.Table.Alias,
+				FieldColumn:  lhs.Field,
+			},
+			ConditionB: expr.TableColumn{
+				TableOrAlias: thru.Table.Alias,
+				FieldColumn:  thru.Left,
+			},
+		},
+	}
+
+	// JOIN target table
+	var join2 = queries.JoinDef{
+		TypeJoin: joinType,
+		Table:    rhs.Table,
+		JoinDefCondition: &queries.JoinDefCondition{
+			Operator: expr.EQ,
+			ConditionA: expr.TableColumn{
+				TableOrAlias: thru.Table.Alias,
+				FieldColumn:  thru.Right,
+			},
+			ConditionB: expr.TableColumn{
+				TableOrAlias: rhs.Table.Alias,
+				FieldColumn:  rhs.Field,
+			},
+		},
+	}
+
+	return join1, join2
 }

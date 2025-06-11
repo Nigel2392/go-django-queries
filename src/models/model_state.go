@@ -61,10 +61,10 @@ func (m *ModelState) checkState() {
 
 		// if the value is not equal to the initial value,
 		// we need to mark the field as changed
-		if initialValue, ok := m.initial[name]; !ok || !reflect.DeepEqual(value, initialValue) {
+		var initialValue, ok = m.initial[name]
+		if !ok || !reflect.DeepEqual(value, initialValue) {
 			m.changed[name] = struct{}{}
 		} else {
-
 			// if the value is equal to the initial value,
 			// we need to remove the field from the changed map
 			delete(m.changed, name)
@@ -126,6 +126,24 @@ func (m *ModelState) HasChanged(fieldName string) bool {
 	}
 
 	return false
+}
+
+// InitialValue returns the initial value of a field in the model's state.
+func (m *ModelState) InitialValue(fieldName string) (interface{}, bool) {
+	if m == nil {
+		return nil, false
+	}
+
+	if m.model == nil {
+		panic("model state is not properly initialized: model is nil")
+	}
+
+	initialValue, ok := m.initial[fieldName]
+	if !ok {
+		return nil, false // field does not have an initial value
+	}
+
+	return initialValue, true
 }
 
 // Reset clears the changed fields and initial values and

@@ -1947,10 +1947,9 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 	defer tx.Rollback()
 
 	var (
-		values     = make([]any, 0, len(objects))
-		attrFields = make([][]attrs.Field, 0, len(objects))
-		infos      = make([]*FieldInfo[attrs.Field], 0, len(objects))
-		primary    attrs.Field
+		values  = make([]any, 0, len(objects))
+		infos   = make([]*FieldInfo[attrs.Field], 0, len(objects))
+		primary attrs.Field
 	)
 
 	for _, object := range objects {
@@ -2016,7 +2015,6 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 		}
 
 		// Copy all the fields from the model to the info fields
-		attrFields = append(attrFields, infoFields)
 		info.Fields = slices.Clone(infoFields)
 		infos = append(infos, info)
 	}

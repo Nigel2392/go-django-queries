@@ -66,6 +66,7 @@ func _indirect(depth int, t reflect.Type) (int, reflect.Type) {
 var (
 	_DATA_MODEL_TYPE       = reflect.TypeOf((*queries.DataModel)(nil)).Elem()
 	_DATA_MODEL_STORE_TYPE = reflect.TypeOf((*queries.ModelDataStore)(nil)).Elem()
+	_DEFINER_TYPE          = reflect.TypeOf((*attrs.Definer)(nil)).Elem()
 )
 
 func scannerGetter[T any](f *DataModelField[T]) (any, bool) {
@@ -250,6 +251,14 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref 
 	return f
 }
 
+func (f *DataModelField[T]) signalChange(val any) {
+	if f.fieldRef != nil {
+		f.defs.SignalChange(f.fieldRef, val)
+	} else {
+		f.defs.SignalChange(f, val)
+	}
+}
+
 func (f *DataModelField[T]) FieldDefinitions() attrs.Definitions {
 	return f.defs
 }
@@ -295,6 +304,8 @@ func (f *DataModelField[T]) getQueryValue() (any, bool) {
 }
 
 func (f *DataModelField[T]) setQueryValue(v any) (err error) {
+	// f.signalChange(v)
+
 	for _, setter := range f.setters {
 		if err = setter(f, v); err != nil {
 			panic(fmt.Errorf("setQueryValue: cannot set value for %s: %w", f.name, err))
@@ -399,7 +410,7 @@ var baseReflectKinds = (func() []reflect.Kind {
 	return kinds
 })()
 
-func (e *DataModelField[T]) SetValue(v interface{}, _ bool) error {
+func (e *DataModelField[T]) SetValue(v interface{}, force bool) error {
 	var (
 		rV = reflect.ValueOf(v)
 		rT = reflect.TypeOf(v)
@@ -413,6 +424,22 @@ func (e *DataModelField[T]) SetValue(v interface{}, _ bool) error {
 	e.bindVal(rV)
 
 	if rT != e._Type {
+
+		// check if the value implements the Definer interface
+		// if it is the definer interface itself, the value cannot be created, we skip this.
+		if e._Type.Implements(_DEFINER_TYPE) && e._Type != _DEFINER_TYPE {
+			var obj = e.GetValue()
+			if obj == nil {
+				obj = attrs.NewObject[attrs.Definer](e._Type)
+				if err := e.SetValue(obj, false); err != nil {
+					return fmt.Errorf("cannot set value %v to %T: %w", v, *new(T), err)
+				}
+			}
+			var defObj = obj.(attrs.Definer)
+			var defs = defObj.FieldDefs()
+			var prim = defs.Primary()
+			return prim.Scan(v)
+		}
 
 		if rT.ConvertibleTo(e._Type) {
 			rV = rV.Convert(e._Type)
@@ -444,11 +471,13 @@ func (e *DataModelField[T]) SetValue(v interface{}, _ bool) error {
 	}
 
 	v = rV.Interface()
+
 	if v == nil {
-		e.setQueryValue(
-			reflect.New(e._Type).Interface(),
-		)
-		return nil
+		reflect.New(e._Type).Interface()
+	}
+
+	if !force {
+		e.signalChange(v)
 	}
 
 	if _, ok := v.(T); ok {
@@ -465,11 +494,22 @@ func (e *DataModelField[T]) Value() (driver.Value, error) {
 		return *new(T), nil
 	}
 
+	switch v := val.(type) {
+	case attrs.Definer:
+		var pk = v.FieldDefs().Primary()
+		if pk == nil {
+			return nil, fmt.Errorf("Value: model %T has no primary key", v)
+		}
+		return pk.Value()
+	case driver.Valuer:
+		return v.Value()
+	}
+
 	return val, nil
 }
 
 func (e *DataModelField[T]) Scan(src interface{}) error {
-	return e.SetValue(src, false)
+	return e.SetValue(src, true)
 }
 
 func (e *DataModelField[T]) GetDefault() interface{} {
@@ -480,10 +520,7 @@ func (e *DataModelField[T]) Instance() attrs.Definer {
 	if e.Model == nil {
 		panic("model is nil")
 	}
-	if def, ok := e.Model.(attrs.Definer); ok {
-		return def
-	}
-	panic(fmt.Errorf("model %T does not implement attrs.Definer", e.Model))
+	return e.Model
 }
 
 func (e *DataModelField[T]) Rel() attrs.Relation {

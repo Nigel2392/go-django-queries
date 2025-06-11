@@ -19,13 +19,18 @@ import (
 )
 
 var (
-	// _ models.ContextSaver                  = &Model{}
+	// Internal interfaces that the model should implement
+	_ _ModelInterface = &Model{}
+	_ CanSaveObject   = &Model{}
+
+	// Third party interfaces that the model should implement
+	_ models.ContextSaver                  = &Model{}
 	_ queries.CanSetup                     = &Model{}
 	_ queries.DataModel                    = &Model{}
 	_ queries.Annotator                    = &Model{}
 	_ queries.ThroughModelSetter           = &Model{}
-	_ attrs.CanCreateObject[attrs.Definer] = &Model{}
 	_ attrs.CanSignalChanged               = &Model{}
+	_ attrs.CanCreateObject[attrs.Definer] = &Model{}
 )
 
 type modelOptions struct {
@@ -60,6 +65,10 @@ type Model struct {
 	// if not nil, this references a proxy model.
 	proxy *proxyModel
 
+	// data store for the model, used to store model data
+	// like annotations, custom data, etc.
+	data queries.ModelDataStore
+
 	// ThroughModel is a model bound to the current
 	// object, it will be set if the model is a
 	// target of a ManyToMany or OneToMany relation
@@ -69,10 +78,6 @@ type Model struct {
 	// annotations for the model, used to store
 	// database annotation key value pairs
 	Annotations map[string]any
-
-	// data store for the model, used to store model data
-	// like annotations, custom data, etc.
-	data queries.ModelDataStore
 }
 
 // Setup sets up a [attrs.Definer] object so that it's model is properly initialized.
@@ -105,13 +110,13 @@ func (m *Model) __Model() private { return private{} }
 // checkValid checks if the model is valid and initialized.
 func (m *Model) checkValid() {
 	assert.False(m.internals == nil,
-		"model internals are not initialized, model is improperly initialized",
+		fmt.Errorf("model internals are not initialized: %w", ErrModelInitialized),
 	)
 	assert.False(m.internals.base == nil,
-		"model base information is not set, model is improperly initialized",
+		fmt.Errorf("model base information is not set: %w", ErrModelInitialized),
 	)
 	assert.False(m.internals.object == nil,
-		"model object is not set, model is improperly initialized",
+		fmt.Errorf("model object is not set: %w", ErrModelInitialized),
 	)
 }
 
@@ -138,49 +143,43 @@ func (m *Model) onChange(s signals.Signal[ModelChangeSignal], ms ModelChangeSign
 		))
 	}
 
-	//	fmt.Printf(
-	//		"[onChange] Model %T received signal %s with flags %v\n",
-	//		m.internals.object.Interface(),
-	//		s.Name(), ms.Flags,
-	//	)
-
 	if m.internals.state == nil {
 		m.setupInitialState()
 	}
 
-	//	fmt.Printf(
-	//		"[onChange] Model %T received signal %s with flags %v\n",
-	//		m.internals.object.Interface(),
-	//		s.Name(), ms.Flags,
-	//	)
+	// fmt.Printf(
+	// "[onChange] Model %T received signal %s for field %s with flags %v (%v)\n",
+	// m.internals.object.Interface(),
+	// s.Name(), ms.Field.Name(), ms.Flags, ms.Field.GetValue(),
+	// )
 
 	switch {
 	case ms.Flags.True(FlagModelReset), ms.Flags.True(FlagModelSetup):
 		// set the model's initial state
 		m.setupInitialState()
-		//	fmt.Printf(
-		//		"Proxy model %T has been reset or setup, initial state is now set\n",
-		//		m.internals.object.Interface(),
-		//	)
+		// fmt.Printf(
+		// 	"Proxy model %T has been reset or setup, initial state is now set\n",
+		// 	m.internals.object.Interface(),
+		// )
 
 	case ms.Flags.True(FlagFieldChanged):
 		m.internals.state.change(ms.Field.Name())
 
-		//	fmt.Printf(
-		//		"Model %T field %s changed to %v\n",
-		//		m.internals.object.Interface(),
-		//		ms.Field.Name(), ms.Field.GetValue(),
-		//	)
+		// fmt.Printf(
+		// 	"Model %T field %s changed to %v\n",
+		// 	m.internals.object.Interface(),
+		// 	ms.Field.Name(), ms.Field.GetValue(),
+		// )
 
 	case ms.Flags.True(FlagProxySetup), ms.Flags.True(FlagProxyChanged):
 		var fieldName = proxyFieldName(ms.Model.internals.base.proxy.rootField.Name)
 		m.internals.state.change(fieldName)
 
-		//	fmt.Printf(
-		//		"Model %T proxy field %s changed to %v\n",
-		//		m.internals.object.Interface(),
-		//		fieldName, ms.Model.internals.object.Interface(),
-		//	)
+		// fmt.Printf(
+		// 	"Model %T proxy field %s changed to %v\n",
+		// 	m.internals.object.Interface(),
+		// 	fieldName, ms.Model.internals.object.Interface(),
+		// )
 	default:
 		// if the signal is not for a field change, we can skip it
 		panic(fmt.Errorf(
@@ -583,6 +582,12 @@ func (m *Model) Define(def attrs.Definer, flds ...any) *attrs.ObjectDefinitions 
 	return m.internals.defs
 }
 
+// GetQuerySet returns a new [queries.QuerySet] for the model.
+//
+// It automatically applies proxy joins if the model is a proxy model.
+//
+// The returned [queries.QuerySet] can be used to query the model's data
+// and perform various operations like filtering, ordering, etc.
 func (m *Model) GetQuerySet() *queries.QuerySet[attrs.Definer] {
 	m.checkValid()
 
@@ -595,6 +600,11 @@ func (m *Model) GetQuerySet() *queries.QuerySet[attrs.Definer] {
 	return qs
 }
 
+// PK returns the primary key field of the model.
+//
+// If the model is not properly initialized it will panic.
+//
+// If the model does not have a primary key defined, it will return nil.
 func (m *Model) PK() attrs.Field {
 	m.checkValid()
 
@@ -605,6 +615,9 @@ func (m *Model) PK() attrs.Field {
 	return m.internals.defs.Primary()
 }
 
+// RelatedField returns the related field by name.
+//
+// It checks if the model has definitions set up and if the field exists
 func (m *Model) RelatedField(name string) (attrs.Field, bool) {
 	if m.internals.defs == nil {
 		return nil, false
@@ -620,11 +633,16 @@ func (m *Model) RelatedField(name string) (attrs.Field, bool) {
 	return nil, false
 }
 
+// Object returns the object of the model.
+//
+// It checks if the model is properly initialized and if the object is set up,
+// if the model is not properly set up, it will panic.
 func (m *Model) Object() attrs.Definer {
 	m.checkValid()
 	return m.internals.object.Interface().(attrs.Definer)
 }
 
+// ModelMeta returns the model's metadata.
 func (m *Model) ModelMeta() attrs.ModelMeta {
 	m.checkValid()
 	if m.internals.meta == nil {
@@ -633,6 +651,12 @@ func (m *Model) ModelMeta() attrs.ModelMeta {
 	return m.internals.meta
 }
 
+// Saved checks if the model is saved to the database.
+// It checks if the model is properly initialized and if the model's definitions
+// are set up. If the model is not initialized, it returns false.
+// If the model is initialized, it checks if the model was loaded from the database
+// or if the primary key field is set. If the primary key field is nil, it returns false.
+// If the primary key field has a value, it returns true.
 func (m *Model) Saved() bool {
 	// if the model is not initialized, it is assumed
 	// that it is not saved, so we return false
@@ -664,6 +688,10 @@ func (m *Model) Saved() bool {
 	return !attrs.IsZero(value)
 }
 
+// AfterQuery is called after a query is executed on the model.
+//
+// This is useful for setup after the model has been loaded from the database,
+// such as setting the initial state of the model and marking it as loaded from the database.
 func (m *Model) AfterQuery(_ *queries.GenericQuerySet) error {
 	m.checkValid()
 	m.setupInitialState()
@@ -671,6 +699,10 @@ func (m *Model) AfterQuery(_ *queries.GenericQuerySet) error {
 	return nil
 }
 
+// AfterSave is called after the model is saved to the database.
+//
+// This is useful for setup after the model has been saved to the database,
+// such as setting the initial state of the model and marking it as loaded from the database.
 func (m *Model) AfterSave(_ *queries.GenericQuerySet) error {
 	m.checkValid()
 	m.setupInitialState()
@@ -678,10 +710,15 @@ func (m *Model) AfterSave(_ *queries.GenericQuerySet) error {
 	return nil
 }
 
+// If this model was the target end of a through relation,
+// this method will set the through model for this model.
 func (m *Model) SetThroughModel(throughModel attrs.Definer) {
 	m.ThroughModel = throughModel
 }
 
+// Annotate adds annotations to the model.
+// Annotations are key-value pairs that can be used to store additional
+// information about the model, such as database annotations or custom data.
 func (m *Model) Annotate(annotations map[string]any) {
 	if m.Annotations == nil {
 		m.Annotations = make(map[string]any)
@@ -690,15 +727,15 @@ func (m *Model) Annotate(annotations map[string]any) {
 	maps.Copy(m.Annotations, annotations)
 }
 
+// DataStore returns the data store for the model.
+//
+// The data store is used to store model data like annotations, custom data, etc.
+// If the data store is not initialized, it will be created.
 func (m *Model) DataStore() queries.ModelDataStore {
 	if m.data == nil {
 		m.data = make(MapDataStore)
 	}
 	return m.data
-}
-
-type canSaveObject interface {
-	SaveObject(ctx context.Context, cnf SaveConfig) error
 }
 
 // Save saves the model to the database.
@@ -719,11 +756,14 @@ func (m *Model) Save(ctx context.Context) error {
 	}
 
 	if m.internals == nil || m.internals.object == nil {
-		return errors.New("model is not properly initialized, cannot save object")
+		return fmt.Errorf(
+			"cannot save object: %w: %w",
+			query_errors.ErrNotImplemented, ErrModelInitialized,
+		)
 	}
 
 	var this = m.internals.object.Interface().(attrs.Definer)
-	return this.(canSaveObject).SaveObject(ctx, SaveConfig{
+	return this.(CanSaveObject).SaveObject(ctx, SaveConfig{
 		this: this,
 	})
 }
@@ -760,8 +800,9 @@ type SaveConfig struct {
 func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 	if m.internals == nil || m.internals.defs == nil {
 		return fmt.Errorf(
-			"model %T is not properly initialized, cannot save fields",
+			"cannot save fields for %T: %w",
 			m.internals.object.Interface(),
+			ErrModelInitialized,
 		)
 	}
 
@@ -790,6 +831,13 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 
 		// if there was a list of fields provided and if
 		// the field is not in the list of fields to save, we skip it
+
+		//	fmt.Printf(
+		//		"[SaveObject] Checking field %s in model %T, force: %v, fromDB: %v (%v) %v\n",
+		//		head.Value.Name(), m.internals.object.Interface(),
+		//		cnf.Force, m.internals.fromDB, head.Value.GetValue(), m.internals.state.HasChanged(head.Value.Name()),
+		//	)
+
 		var mustInclField bool
 		if len(cnf.Fields) > 0 {
 			if _, ok := fields[head.Value.Name()]; !ok && !cnf.Force && m.internals.fromDB {
@@ -800,17 +848,17 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 
 		var hasChanged = m.internals.state.HasChanged(head.Value.Name())
 		if !hasChanged && !mustInclField && !cnf.Force && m.internals.fromDB {
+			//	fmt.Printf(
+			//		"[SaveObject] Field %s in model %T has not changed, skipping save: %v %v %v %v\n",
+			//		head.Value.Name(), m.internals.object.Interface(),
+			//		hasChanged, mustInclField, cnf.Force, m.internals.fromDB,
+			//	)
 			// if the field has not changed and none of the force flags are set,
 			// we can skip saving this field
 			continue
 		}
 
-		// Add the field name to the list of changed fields.
-		// This is used to determine which fields to save in the query set.
-		if queries.ForSelectAll(head.Value) {
-			selectFields = append(selectFields, head.Value.Name())
-		}
-
+		anyChanges = true
 		updateFields = append(updateFields, head.Value)
 	}
 
@@ -838,7 +886,7 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 		Save the model's proxy, if any.
 	*/
 	var proxy = m.proxy
-	if proxy != nil && proxy.object != nil && proxy.object.State().Changed(true) {
+	if proxy != nil && proxy.object != nil && proxy.object.internals.state.Changed(true) {
 		err = proxy.object.Save(ctx)
 		if err != nil {
 			return fmt.Errorf(
@@ -865,28 +913,6 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 			err = fld.Save(ctx)
 		case queries.SaveableField:
 			err = fld.Save(ctx, cnf.this)
-			//default:
-			//	var val = field.GetValue()
-			//
-			//	var def, ok = val.(attrs.Definer)
-			//	if !ok {
-			//		continue
-			//	}
-			//
-			//	if setup, ok := val.(queries.CanSetup); ok {
-			//		err = setup.Setup(def)
-			//		if err != nil {
-			//			return fmt.Errorf(
-			//				"failed to setup field %q in model %T: %w",
-			//				field.Name(), m.internals.object.Interface(), err,
-			//			)
-			//		}
-			//	}
-			//
-			//	if saver, ok := val.(models.ContextSaver); ok {
-			//		// if the field is a ContextSaver, we can save it directly
-			//		err = saver.Save(ctx)
-			//	}
 		}
 		if err != nil {
 			if !errors.Is(err, query_errors.ErrNotImplemented) {
@@ -903,6 +929,10 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 
 			continue
 		}
+
+		// Add the field name to the list of changed fields.
+		// This is used to determine which fields to save in the query set.
+		selectFields = append(selectFields, field.Name())
 	}
 
 	/*

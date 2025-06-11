@@ -71,6 +71,6 @@ func (w *wrappedTransaction) Commit() error {
 	if err != nil {
 		return fmt.Errorf("failed to commit transaction for %s: %w", w.compiler.DatabaseName(), err)
 	}
-	logger.Debugf("Committing transaction for %s", w.compiler.DatabaseName())
+	// logger.Debugf("Committing transaction for %s", w.compiler.DatabaseName())
 	return nil
 }

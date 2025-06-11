@@ -5,14 +5,6 @@ import (
 	"reflect"
 
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/Nigel2392/go-django/src/core/errs"
-)
-
-const (
-	ErrObjectPtr       errs.Error = "object must be a pointer to a struct"
-	ErrObjectInvalid   errs.Error = "the object must be a valid pointer to a struct"
-	ErrModelEmbedded   errs.Error = "the object must embed the Model struct"
-	ErrModelAdressable errs.Error = "the Model is not addressable"
 )
 
 func ExtractModel(def attrs.Definer) (*Model, error) {

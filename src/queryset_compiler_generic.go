@@ -12,7 +12,6 @@ import (
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/pkg/errors"
 )
 
@@ -142,7 +141,7 @@ func (g *genericQueryBuilder) FormatLookupCol(lookupName string, inner string) s
 	case "iexact", "icontains", "istartswith", "iendswith":
 		switch internal.SqlxDriverName(g.queryInfo.DB) {
 		case "mysql":
-			return fmt.Sprintf("BINARY %s", inner)
+			return fmt.Sprintf("LOWER(%s)", inner)
 		case "postgres", "pgx":
 			return fmt.Sprintf("LOWER(%s)", inner)
 		case "sqlite3":
@@ -161,11 +160,11 @@ func equalityFormat(op expr.LogicalOp) func(string, []any) (string, []any) {
 	}
 }
 
-func mathOpFormat(op expr.LogicalOp) func(string, []any) (string, []any) {
-	return func(rhs string, value []any) (string, []any) {
-		return fmt.Sprintf("%s %s = %s", op, rhs, rhs), []any{value[0], value[0]}
-	}
-}
+//	func mathOpFormat(op expr.LogicalOp) func(string, []any) (string, []any) {
+//		return func(rhs string, value []any) (string, []any) {
+//			return fmt.Sprintf("%s %s = %s", op, rhs, rhs), []any{value[0], value[0]}
+//		}
+//	}
 
 var defaultCompilerLogicalOperators = map[expr.LogicalOp]func(rhs string, value []any) (string, []any){
 	expr.EQ:  equalityFormat(expr.EQ),  // = %s
@@ -195,11 +194,11 @@ func (g *genericQueryBuilder) LookupOperatorsRHS() map[string]string {
 	switch internal.SqlxDriverName(g.queryInfo.DB) {
 	case "mysql":
 		return map[string]string{
-			"iexact":      "LIKE %s",
-			"contains":    "LIKE BINARY %s",
+			"iexact":      "= LOWER(%s)",
+			"contains":    "LIKE LOWER(%s)",
 			"icontains":   "LIKE %s",
-			"startswith":  "LIKE BINARY %s",
-			"endswith":    "LIKE BINARY %s",
+			"startswith":  "LIKE LOWER(%s)",
+			"endswith":    "LIKE LOWER(%s)",
 			"istartswith": "LIKE %s",
 			"iendswith":   "LIKE %s",
 		}
@@ -234,11 +233,11 @@ func (g *genericQueryBuilder) LookupPatternOperatorsRHS() map[string]string {
 	switch internal.SqlxDriverName(g.queryInfo.DB) {
 	case "mysql":
 		return map[string]string{
-			"contains":    "LIKE BINARY CONCAT('%%', %s, '%%')",
+			"contains":    "LIKE LOWER(CONCAT('%%', %s, '%%'))",
 			"icontains":   "LIKE CONCAT('%%', %s, '%%')",
-			"startswith":  "LIKE BINARY CONCAT(%s, '%%')",
+			"startswith":  "LIKE LOWER(CONCAT(%s, '%%'))",
 			"istartswith": "LIKE CONCAT(%s, '%%')",
-			"endswith":    "LIKE BINARY CONCAT('%%', %s)",
+			"endswith":    "LIKE LOWER(CONCAT('%%', %s))",
 			"iendswith":   "LIKE CONCAT('%%', %s)",
 		}
 	case "postgres", "pgx":
@@ -345,7 +344,7 @@ func (g *genericQueryBuilder) StartTransaction(ctx context.Context) (Transaction
 		return nil, query_errors.ErrFailedStartTransaction
 	}
 
-	logger.Debugf("Starting transaction for %s", g.DatabaseName())
+	// logger.Debugf("Starting transaction for %s", g.DatabaseName())
 
 	return g.WithTransaction(tx)
 }

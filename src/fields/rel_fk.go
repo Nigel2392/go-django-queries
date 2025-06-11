@@ -33,6 +33,14 @@ func NewForeignKeyField[T any](forModel attrs.Definer, name string, conf *FieldC
 	return f
 }
 
+func (e *ForeignKeyField[T]) AllowEdit() bool {
+	return true
+}
+
+func (m *ForeignKeyField[T]) ForSelectAll() bool {
+	return true
+}
+
 type ForeignKeyReverseField[T any] struct {
 	*RelationField[T]
 }

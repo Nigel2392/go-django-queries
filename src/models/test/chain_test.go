@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
+	"github.com/Nigel2392/go-django-queries/src/fields"
 	"github.com/Nigel2392/go-django-queries/src/models"
 	"github.com/Nigel2392/go-django-queries/src/quest"
 	django "github.com/Nigel2392/go-django/src"
@@ -106,7 +107,7 @@ func (b *BlogPage) TargetPrimaryField() attrs.FieldDefinition {
 
 func (b *BlogPage) FieldDefs() attrs.Definitions {
 	return b.Model.Define(b,
-		models.EmbedProxyModel("Proxy"),
+		fields.Embed("Proxy"),
 		attrs.Unbound("PageID", &attrs.FieldConfig{Primary: true}),
 		attrs.Unbound("Author"),
 		attrs.Unbound("Tags"),
@@ -123,7 +124,7 @@ type BlogPageCategory struct {
 
 func (b *BlogPageCategory) FieldDefs() attrs.Definitions {
 	return b.Model.Define(b,
-		models.EmbedProxyModel("BlogPage"),
+		fields.Embed("BlogPage"),
 		attrs.Unbound("Category", &attrs.FieldConfig{
 			Primary: true,
 		}),
@@ -241,8 +242,6 @@ func TestGetQuerySet(t *testing.T) {
 
 	var b = &BlogPageCategory{}
 	var err error
-
-	err = queries.CreateObject(&Page{})
 
 	var qs = queries.GetQuerySet(b)
 	t.Logf("QuerySet: %T", qs)

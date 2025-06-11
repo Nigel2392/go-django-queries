@@ -3,6 +3,8 @@ package fields
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"strings"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
@@ -91,15 +93,17 @@ func NewRelatedField[T any](forModel attrs.Definer, name string, cnf *FieldConfi
 	}
 
 	if cnf.ReverseName == "" {
+		var nameParts = strings.Split(reflect.TypeOf(forModel).Elem().Name(), ".")
+		var modelName = nameParts[len(nameParts)-1]
 		switch cnf.Rel.Type() {
 		case attrs.RelOneToOne:
-			cnf.ReverseName = fmt.Sprintf("%sReverse", name)
+			cnf.ReverseName = fmt.Sprintf("%sReverse", modelName)
 		case attrs.RelManyToOne:
-			cnf.ReverseName = fmt.Sprintf("%sSet", name)
+			cnf.ReverseName = fmt.Sprintf("%sSet", modelName)
 		case attrs.RelManyToMany:
-			cnf.ReverseName = fmt.Sprintf("%sSet", name)
+			cnf.ReverseName = fmt.Sprintf("%sSet", modelName)
 		case attrs.RelOneToMany:
-			cnf.ReverseName = fmt.Sprintf("%sReverse", name)
+			cnf.ReverseName = fmt.Sprintf("%sReverse", modelName)
 		default:
 			panic(fmt.Sprintf(
 				"NewRelatedField: unsupported relation type %s for field %s in model %T",

@@ -19,12 +19,6 @@ var (
 	//	_BINDER_VALUE   = reflect.ValueOf((*attrs.Binder)(nil)).Elem()
 )
 
-type private struct{}
-
-type _ModelInterface interface {
-	__Model() private
-}
-
 var _, _ = attrs.OnBeforeModelRegister.Listen(func(s signals.Signal[attrs.SignalModelMeta], meta attrs.SignalModelMeta) error {
 	var (
 		rTyp       = reflect.TypeOf(meta.Definer)
@@ -181,7 +175,7 @@ func buildModelChain(rTyp reflect.Type) *BaseModelInfo {
 
 			var ctypeFieldName = field.Tag.Get("ctype")
 			var targetFieldName = field.Tag.Get("target")
-			if (ctypeFieldName == "" || targetFieldName == "") && !field.Type.Implements(reflect.TypeOf((*canTargetDefiner)(nil)).Elem()) {
+			if (ctypeFieldName == "" || targetFieldName == "") && !field.Type.Implements(reflect.TypeOf((*CanTargetDefiner)(nil)).Elem()) {
 				panic(fmt.Sprintf(
 					"proxy field %d in model %s must have 'ctype' and 'target' tags defined, got %q and %q",
 					i, rTyp.Name(), ctypeFieldName, targetFieldName,
@@ -245,7 +239,7 @@ func buildModelChain(rTyp reflect.Type) *BaseModelInfo {
 
 						var ctypeFieldName = subField.Tag.Get("ctype")
 						var targetFieldName = subField.Tag.Get("target")
-						if (ctypeFieldName == "" || targetFieldName == "") && !subField.Type.Implements(reflect.TypeOf((*canTargetDefiner)(nil)).Elem()) {
+						if (ctypeFieldName == "" || targetFieldName == "") && !subField.Type.Implements(reflect.TypeOf((*CanTargetDefiner)(nil)).Elem()) {
 							panic(fmt.Sprintf(
 								"proxy field %d in model %s must have 'ctype' and 'target' tags defined, got %q and %q",
 								i, rTyp.Name(), ctypeFieldName, targetFieldName,

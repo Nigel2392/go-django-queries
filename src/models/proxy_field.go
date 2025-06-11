@@ -82,7 +82,7 @@ func (f *proxyField) setupRelatedFields() {
 		targetPrimaryField attrs.FieldDefinition
 	)
 
-	if targetDefiner, ok := f.cnf.Proxy.(canTargetDefiner); ok {
+	if targetDefiner, ok := f.cnf.Proxy.(CanTargetDefiner); ok {
 		targetCtypeField = targetDefiner.TargetContentTypeField()
 		targetPrimaryField = targetDefiner.TargetPrimaryField()
 	} else {

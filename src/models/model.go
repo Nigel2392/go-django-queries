@@ -51,6 +51,14 @@ type proxyModel struct {
 	object *Model
 }
 
+// The `models` package provides a [Model] struct that is used to represent a model in the GO-Django ORM.
+//
+// To use the [Model] struct, simply embed it in your own [attrs.Definer] struct.
+//
+// This will give you access to all the extra functionality provided by the `Model` struct, such as reverse relations, annotations, and the [Model.GetQuerySet] method.
+//
+// To use the model directly in the code without having fetched it from the database it is recommended to use the [Setup] function on the [attrs.Definer] object,
+// passing in the [attrs.Definer] object as an argument.
 type Model struct {
 	// internals of the model, used to store
 	// the model's base information, object, definitions, etc.
@@ -303,7 +311,7 @@ func (m *Model) Setup(def attrs.Definer) error {
 	}
 
 	// Handle the model's proxy object if it exists.
-	var wasChanged, err = m.setupProxy(
+	var proxyWasChanged, err = m.setupProxy(
 		base,
 		defValue,
 	)
@@ -317,13 +325,12 @@ func (m *Model) Setup(def attrs.Definer) error {
 	// if the proxy was changed it needs
 	// to be reset, we need to clear the internals
 	// as some fields may be pointing to the old object
-	if wasChanged && m.internals != nil {
+	if proxyWasChanged && m.internals != nil {
 		sig.SignalInfo.Flags.set(FlagProxySetup)
 		m.internals.object = nil
 		m.internals.defs = nil
 		m.changed = nil
 	}
-
 	// validate if it is the same object
 	// if not, clear the defs so any old fields pointing to the old
 	// object will be cleared
@@ -334,6 +341,11 @@ func (m *Model) Setup(def attrs.Definer) error {
 		m.internals.defs = nil
 		m.internals.object = nil
 		m.changed = nil
+	}
+
+	// no changes were made, pointers equal according to above check
+	if !proxyWasChanged && m.internals != nil && m.internals.object != nil {
+		return nil
 	}
 
 	if m.changed == nil {
@@ -393,18 +405,18 @@ func (m *Model) setupProxy(base *BaseModelInfo, parent reflect.Value) (changed b
 		}
 	}
 
-	if !changed {
-		// if the proxy is not changed, we can skip the setup
-		// and return early
-		return false, nil
-	}
-
 	// if the proxy is nil, we need to create a new one when specified
 	if newValueIsNil && (base.proxy.directField.Tag.Get("auto") == "true" || base.proxy.rootField.Tag.Get("auto") == "true") {
 		var newObj = attrs.NewObject[attrs.Definer](base.proxy.rootField.Type)
 		rVal.Set(reflect.ValueOf(newObj))
 		newValueIsNil = false
 		changed = true
+	}
+
+	if !changed {
+		// if the proxy is not changed, we can skip the setup
+		// and return early
+		return false, nil
 	}
 
 	if rVal.IsNil() && changed && !currentProxyIsNil {
@@ -503,15 +515,17 @@ func (m *Model) Define(def attrs.Definer, flds ...any) *attrs.ObjectDefinitions 
 		panic("failed to setup model: " + err.Error())
 	}
 
-	var _fields, err = attrs.UnpackFieldsFromArgs(def, flds...)
-	assert.True(
-		err == nil,
-		"failed to unpack fields from args: %v", err,
-	)
-
 	m.checkValid()
-	var tableName = m.internals.base.base.Tag.Get("table")
+
 	if m.internals.defs == nil {
+
+		var tableName = m.internals.base.base.Tag.Get("table")
+		var _fields, err = attrs.UnpackFieldsFromArgs(def, flds...)
+		assert.True(
+			err == nil,
+			"failed to unpack fields from args: %v", err,
+		)
+
 		var meta = attrs.GetModelMeta(def)
 		for head := meta.ReverseMap().Front(); head != nil; head = head.Next() {
 			var (
@@ -581,10 +595,10 @@ func (m *Model) Define(def attrs.Definer, flds ...any) *attrs.ObjectDefinitions 
 		}
 
 		m.internals.defs = attrs.Define(def, _fields...)
-	}
 
-	if tableName != "" && m.internals.defs.Table == "" {
-		m.internals.defs.Table = tableName
+		if tableName != "" && m.internals.defs.Table == "" {
+			m.internals.defs.Table = tableName
+		}
 	}
 
 	return m.internals.defs

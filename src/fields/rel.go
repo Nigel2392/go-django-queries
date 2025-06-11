@@ -258,7 +258,7 @@ func (f *RelationField[T]) hasMany() bool {
 }
 
 func (r *RelationField[T]) IsProxy() bool {
-	return r.cnf.IsProxy && r.cnf.Rel.Type() == attrs.RelOneToOne
+	return r.cnf.IsProxy
 }
 
 func (f *RelationField[T]) GenerateTargetClause(qs *queries.QuerySet[attrs.Definer], inter *queries.QuerySetInternals, lhs queries.ClauseTarget, rhs queries.ClauseTarget) queries.JoinDef {
@@ -292,7 +292,7 @@ func (f *RelationField[T]) GenerateTargetThroughClause(qs *queries.QuerySet[attr
 		joinType = queries.TypeJoinInner
 	}
 
-	var join1 = queries.JoinDef{
+	var sourceToThrough = queries.JoinDef{
 		TypeJoin: joinType,
 		Table:    thru.Table,
 		JoinDefCondition: &queries.JoinDefCondition{
@@ -309,7 +309,7 @@ func (f *RelationField[T]) GenerateTargetThroughClause(qs *queries.QuerySet[attr
 	}
 
 	// JOIN target table
-	var join2 = queries.JoinDef{
+	var throughToTarget = queries.JoinDef{
 		TypeJoin: joinType,
 		Table:    rhs.Table,
 		JoinDefCondition: &queries.JoinDefCondition{
@@ -325,5 +325,5 @@ func (f *RelationField[T]) GenerateTargetThroughClause(qs *queries.QuerySet[attr
 		},
 	}
 
-	return join1, join2
+	return sourceToThrough, throughToTarget
 }

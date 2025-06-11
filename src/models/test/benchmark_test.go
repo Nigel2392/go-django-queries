@@ -60,17 +60,22 @@ type ComplexModel struct {
 }
 
 func (m *ComplexModel) FieldDefs() attrs.Definitions {
-	return m.Model.Define(m,
-		attrs.NewField(m, "ID"),
-		attrs.NewField(m, "Title"),
-		attrs.NewField(m, "Description"),
-		attrs.NewField(m, "Joined", &attrs.FieldConfig{
-			Null:          true,
-			Column:        "joined_id",
-			RelForeignKey: attrs.Relate(&BasicJoinedModel{}, "", nil),
-		}),
-		fields.Embed("Joined"),
-	)
+	// using a function here will make sure that the fields dont get allocated
+	// each time, we do not want to allocate fields for each call to FieldDefs when
+	// the result might be cached.
+	return m.Model.Define(m, func(def attrs.Definer) []any {
+		return []any{
+			attrs.NewField(m, "ID"),
+			attrs.NewField(m, "Title"),
+			attrs.NewField(m, "Description"),
+			attrs.NewField(m, "Joined", &attrs.FieldConfig{
+				Null:          true,
+				Column:        "joined_id",
+				RelForeignKey: attrs.Relate(&BasicJoinedModel{}, "", nil),
+			}),
+			fields.Embed("Joined"),
+		}
+	})
 }
 
 func BenchmarkCreateObjects(b *testing.B) {
@@ -119,6 +124,27 @@ func BenchmarkFieldDefs(b *testing.B) {
 			}
 
 			var defs = m.FieldDefs()
+			_ = defs
+		}
+	})
+
+	b.Run("BasicModelFieldDefsCantCache", func(b *testing.B) {
+		var m = &BasicModel{
+			ID:          1,
+			Title:       "Test",
+			Description: "Test description",
+			Joined: &BasicJoinedModel{
+				ID:        1,
+				Age:       30,
+				FirstName: "John",
+				LastName:  "Doe",
+			},
+		}
+
+		var defs = m.FieldDefs()
+
+		for i := 0; i < b.N; i++ {
+			defs = m.FieldDefs()
 			_ = defs
 		}
 	})
@@ -185,4 +211,25 @@ func BenchmarkFieldDefs(b *testing.B) {
 			_ = defs
 		}
 	})
+
+	b.Run("ComplexModelWithJoinedAndSetupCached", func(b *testing.B) {
+		var m = models.Setup(&ComplexModel{
+			ID:          1,
+			Title:       "Test",
+			Description: "Test description",
+			Joined: &BasicJoinedModel{
+				ID:        1,
+				Age:       30,
+				FirstName: "John",
+				LastName:  "Doe",
+			},
+		})
+
+		var defs = m.FieldDefs()
+		for i := 0; i < b.N; i++ {
+			defs = m.FieldDefs()
+			_ = defs
+		}
+	})
+
 }

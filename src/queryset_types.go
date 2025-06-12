@@ -1,6 +1,7 @@
 package queries
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/src/expr"
@@ -46,32 +47,58 @@ type JoinDefCondition struct {
 	Next       *JoinDefCondition // The next join condition, if any
 }
 
+func writeCol(sb strings.Builder, col *expr.TableColumn) {
+	var (
+		length int = 0
+		list       = make([]string, 0, 6)
+	)
+
+	if col.TableOrAlias != "" {
+		length += len(col.TableOrAlias)
+		list = append(list, col.TableOrAlias)
+	}
+	if col.FieldAlias != "" {
+		length += len(col.FieldAlias)
+		list = append(list, col.FieldAlias)
+	}
+	if col.RawSQL != "" {
+		length += len(col.RawSQL)
+		list = append(list, col.RawSQL)
+	}
+	if col.FieldColumn != nil {
+		var n = col.FieldColumn.ColumnName()
+		length += len(n)
+		list = append(list, n)
+	}
+	if col.ForUpdate {
+		var n = "FOR_UPDATE"
+		length += len(n)
+		list = append(list, n)
+	}
+	if col.Value != "" {
+		var n = fmt.Sprint(col.Value)
+		length += len(n)
+		list = append(list, n)
+	}
+
+	sb.Grow(length + (len(list) - 1))
+
+	for i, str := range list {
+		if i > 0 {
+			sb.WriteString(":")
+		}
+		sb.WriteString(str)
+	}
+}
+
 func (j *JoinDefCondition) String() string {
 	var sb = strings.Builder{}
 	var curr = j
 	for curr != nil {
-		if curr.ConditionA.TableOrAlias != "" {
-			sb.WriteString(curr.ConditionA.TableOrAlias)
-		}
-		if curr.ConditionA.FieldColumn != nil {
-			sb.WriteString(".")
-			sb.WriteString(curr.ConditionA.FieldColumn.ColumnName())
-		}
-		if curr.ConditionA.FieldAlias != "" {
-			sb.WriteString(".")
-			sb.WriteString(curr.ConditionA.FieldAlias)
-		}
-		if curr.ConditionB.TableOrAlias != "" {
-			sb.WriteString(curr.ConditionB.TableOrAlias)
-		}
-		if curr.ConditionB.FieldAlias != "" {
-			sb.WriteString(".")
-			sb.WriteString(curr.ConditionB.FieldAlias)
-		}
-		if curr.ConditionB.FieldColumn != nil {
-			sb.WriteString(".")
-			sb.WriteString(curr.ConditionB.FieldColumn.ColumnName())
-		}
+
+		writeCol(sb, &curr.ConditionA)
+		sb.WriteString(string(curr.Operator))
+		writeCol(sb, &curr.ConditionB)
 		curr = curr.Next
 
 	}

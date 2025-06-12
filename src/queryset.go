@@ -1018,17 +1018,16 @@ fieldsLoop:
 		)
 		if err != nil {
 			field, ok := qs.internals.Annotations[selectedField]
-			if ok {
-				qs.internals.Fields = append(qs.internals.Fields, &FieldInfo[attrs.FieldDefinition]{
-					Table: Table{
-						Name: qs.internals.Model.TableName,
-					},
-					Fields: []attrs.FieldDefinition{field},
-				})
-				continue fieldsLoop
+			if !ok {
+				panic(err)
 			}
-
-			panic(err)
+			qs.internals.Fields = append(qs.internals.Fields, &FieldInfo[attrs.FieldDefinition]{
+				Table: Table{
+					Name: qs.internals.Model.TableName,
+				},
+				Fields: []attrs.FieldDefinition{field},
+			})
+			continue fieldsLoop
 		}
 
 		// Check if expression, wrap it in exprField

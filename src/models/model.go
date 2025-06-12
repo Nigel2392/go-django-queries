@@ -391,6 +391,7 @@ func (m *Model) setupProxy(base *BaseModelInfo, parent reflect.Value) (changedLi
 		m.proxies = make(map[string]*proxyModel)
 	}
 
+	changedList = make([]string, 0, len(base.proxies))
 	for _, proxy := range base.proxies {
 		var (
 			rVal          = parent.FieldByIndex(proxy.rootField.Index)

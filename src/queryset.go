@@ -766,22 +766,12 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 	}
 
 	// add the proxy joins if the field is a proxy
-	var chainKey = strings.Join(chain, ".")
-	if _, ok := proxyM[chainKey]; !ok {
-		var subInfos, subJoins = qs.addProxies(
-			info, aliases,
-		)
-
-		infos = append(infos, subInfos...)
-
-		for _, join := range subJoins {
-			var key = join.JoinDefCondition.String()
-			if _, ok := joinM[key]; !ok {
-				joins = append(joins, join)
-			}
-		}
-	}
-
+	// add the proxy joins if the field is a proxy
+	var subInfos, subJoins = addProxyChain(
+		qs, chain, proxyM, joinM, info, aliases,
+	)
+	infos = append(infos, subInfos...)
+	joins = append(joins, subJoins...)
 	return infos, joins
 }
 
@@ -957,10 +947,32 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 	infos = append(infos, currInfo)
 
 	// add the proxy joins if the field is a proxy
-	var chainKey = strings.Join(chain, ".")
+	var subInfos, subJoins = addProxyChain(
+		qs, chain, proxyM, joinM, currInfo, aliases,
+	)
+	infos = append(infos, subInfos...)
+	joins = append(joins, subJoins...)
+
+	return infos, joins
+}
+
+func (qs *QuerySet[T]) addJoinForO2O(oneToOne attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, proxyM map[string]struct{}, joinM map[string]bool) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
+	var through = oneToOne.Through()
+	if through == nil {
+		return qs.addJoinForFK(oneToOne, parentDefs, parentField, field, chain, aliases, all, proxyM, joinM)
+	}
+	return qs.addJoinForM2M(oneToOne, parentDefs, parentField, field, chain, aliases, all, proxyM, joinM)
+}
+
+func addProxyChain[T attrs.Definer](qs *QuerySet[T], chain []string, proxyM map[string]struct{}, joinM map[string]bool, info *FieldInfo[attrs.FieldDefinition], aliases []string) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
+	var (
+		chainKey = strings.Join(chain, ".")
+		infos    = make([]*FieldInfo[attrs.FieldDefinition], 0, 1)
+		joins    = make([]JoinDef, 0, 1)
+	)
 	if _, ok := proxyM[chainKey]; !ok {
 		var subInfos, subJoins = qs.addProxies(
-			currInfo, aliases,
+			info, aliases,
 		)
 
 		infos = append(infos, subInfos...)
@@ -975,15 +987,6 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 	}
 
 	return infos, joins
-
-}
-
-func (qs *QuerySet[T]) addJoinForO2O(oneToOne attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, proxyM map[string]struct{}, joinM map[string]bool) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
-	var through = oneToOne.Through()
-	if through == nil {
-		return qs.addJoinForFK(oneToOne, parentDefs, parentField, field, chain, aliases, all, proxyM, joinM)
-	}
-	return qs.addJoinForM2M(oneToOne, parentDefs, parentField, field, chain, aliases, all, proxyM, joinM)
 }
 
 func (qs *QuerySet[T]) addProxies(info *FieldInfo[attrs.FieldDefinition], aliasses []string) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
@@ -1196,24 +1199,11 @@ fieldsLoop:
 			qs.internals.Fields = append(qs.internals.Fields, currInfo)
 
 			// add proxy chain for the model
-			if _, ok := seenProxies[""]; !ok {
-				seenProxies[""] = struct{}{}
-
-				var proxyInfos, proxyJoins = qs.addProxies(
-					currInfo, []string{},
-				)
-
-				qs.internals.Fields = append(qs.internals.Fields, proxyInfos...)
-
-				for _, join := range proxyJoins {
-					var key = join.JoinDefCondition.String()
-					if _, ok := qs.internals.joinsMap[key]; !ok {
-						qs.internals.Joins = append(qs.internals.Joins, join)
-						qs.internals.joinsMap[key] = true
-					}
-				}
-			}
-
+			var subInfos, subJoins = addProxyChain(
+				qs, []string{}, seenProxies, qs.internals.joinsMap, currInfo, []string{},
+			)
+			qs.internals.Fields = append(qs.internals.Fields, subInfos...)
+			qs.internals.Joins = append(qs.internals.Joins, subJoins...)
 			continue fieldsLoop
 		}
 
@@ -1315,23 +1305,11 @@ fieldsLoop:
 
 		// add proxy chain for the model
 		// the root model always has an empty chain key
-		if _, ok := seenProxies[""]; !ok {
-			seenProxies[""] = struct{}{}
-
-			var proxyInfos, proxyJoins = qs.addProxies(
-				currInfo, []string{},
-			)
-
-			qs.internals.Fields = append(qs.internals.Fields, proxyInfos...)
-
-			for _, join := range proxyJoins {
-				var key = join.JoinDefCondition.String()
-				if _, ok := qs.internals.joinsMap[key]; !ok {
-					qs.internals.Joins = append(qs.internals.Joins, join)
-					qs.internals.joinsMap[key] = true
-				}
-			}
-		}
+		var subInfos, subJoins = addProxyChain(
+			qs, []string{}, seenProxies, qs.internals.joinsMap, currInfo, []string{},
+		)
+		qs.internals.Fields = append(qs.internals.Fields, subInfos...)
+		qs.internals.Joins = append(qs.internals.Joins, subJoins...)
 	}
 
 	return qs

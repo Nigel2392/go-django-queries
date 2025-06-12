@@ -70,6 +70,11 @@ type Model struct {
 	// signal pool. this means it is used only for this model.
 	changed signals.Signal[ModelChangeSignal]
 
+	// proxies is a map of proxy models that are bound to the current
+	// model. this is used to handle proxy models that are
+	// defined in the model's struct.
+	proxies map[string]*proxyModel
+
 	// data store for the model, used to store model data
 	// like annotations, custom data, etc.
 	data queries.ModelDataStore
@@ -165,6 +170,15 @@ func (m *Model) onChange(s signals.Signal[ModelChangeSignal], ms ModelChangeSign
 		// fmt.Printf(
 		// 	"Proxy model %T has been reset or setup, initial state is now set\n",
 		// 	m.internals.object.Interface(),
+		// )
+
+	case ms.Flags.True(FlagProxyChanged):
+		m.internals.state.change(ms.StructField.Name)
+
+		// fmt.Printf(
+		// 	"Model %T proxy field %s changed to %v\n",
+		// 	m.internals.object.Interface(),
+		// 	fieldName, ms.Model.internals.object.Interface(),
 		// )
 
 	case ms.Flags.True(FlagFieldChanged):
@@ -295,6 +309,27 @@ func (m *Model) Setup(def attrs.Definer) error {
 		Object: def,
 	}
 
+	// Handle the model's proxy object if it exists.
+	var changedProxies, err = m.setupProxy(
+		base,
+		defValue,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to setup proxy for model %T: %w",
+			def, err,
+		)
+	}
+
+	// if the proxy was changed it needs
+	// to be reset, we need to clear the internals
+	// as some fields may be pointing to the old object
+	if len(changedProxies) > 0 && m.internals != nil {
+		sig.SignalInfo.Flags.set(FlagProxySetup)
+		m.internals.object = nil
+		m.internals.defs = nil
+		m.changed = nil
+	}
 	// validate if it is the same object
 	// if not, clear the defs so any old fields pointing to the old
 	// object will be cleared
@@ -308,7 +343,7 @@ func (m *Model) Setup(def attrs.Definer) error {
 	}
 
 	// no changes were made, pointers equal according to above check
-	if m.internals != nil && m.internals.object != nil {
+	if len(changedProxies) == 0 && m.internals != nil && m.internals.object != nil {
 		return nil
 	}
 
@@ -337,6 +372,114 @@ func (m *Model) Setup(def attrs.Definer) error {
 	}
 
 	return nil
+}
+
+// setupProxy sets up the proxy for the model if it exists.
+// It checks if the proxy field is set, and if so, it extracts the
+// embedded model from the proxy field and calls Setup on it with the
+// provided definer proxy object.
+func (m *Model) setupProxy(base *BaseModelInfo, parent reflect.Value) (changedList []string, err error) {
+	if len(base.proxies) == 0 {
+		return nil, nil
+	}
+
+	if parent.Kind() == reflect.Ptr {
+		parent = parent.Elem()
+	}
+
+	if m.proxies == nil {
+		m.proxies = make(map[string]*proxyModel)
+	}
+
+	for _, proxy := range base.proxies {
+		var (
+			rVal          = parent.FieldByIndex(proxy.rootField.Index)
+			newValueIsNil = rVal.IsNil()
+		)
+
+		var currentProxy = m.proxies[proxy.rootField.Name]
+		if currentProxy == nil {
+			currentProxy = &proxyModel{
+				proxy:  proxy,
+				object: nil,
+			}
+			m.proxies[proxy.rootField.Name] = currentProxy
+		}
+
+		var (
+			currentProxyIsNil = currentProxy.object == nil
+			nilDiff           = !newValueIsNil && currentProxyIsNil
+			ptrDiff           = (!currentProxyIsNil && currentProxy.object.internals.object.Pointer() != rVal.Pointer())
+			changed           = nilDiff || ptrDiff
+		)
+
+		// if the proxy is nil, we need to create a new one when specified
+		if newValueIsNil && (proxy.directField.Tag.Get("auto") == "true" || proxy.rootField.Tag.Get("auto") == "true") {
+			var newObj = attrs.NewObject[attrs.Definer](proxy.rootField.Type)
+			rVal.Set(reflect.ValueOf(newObj))
+			newValueIsNil = false
+			changed = true
+		}
+
+		if !changed {
+			// if the proxy is not changed, we can skip the setup
+			// and return early
+			continue
+		}
+
+		if rVal.IsNil() && changed && !currentProxyIsNil {
+			changed = true
+			currentProxy.object = nil
+			m.internals.defs = nil
+			changedList = append(changedList, proxy.rootField.Name)
+			continue
+		}
+
+		// if there is a difference in the pointer or one of
+		// the pointers is nil, we need to reset the proxy
+		if !rVal.IsNil() && changed {
+			changed = true
+			var proxyObj = rVal.Interface().(attrs.Definer)
+			var modelValue = rVal.Elem().FieldByIndex(
+				proxy.next.base.Index,
+			)
+			var modelPtr = modelValue.Addr().Interface()
+			currentProxy.object = modelPtr.(*Model)
+
+			// proxy object must not be nil
+			if currentProxy.object == nil {
+				return nil, fmt.Errorf(
+					"failed to extract embedded model from proxy field %s: %w",
+					proxy.rootField.Name, ErrObjectInvalid,
+				)
+			}
+
+			// setup the proxy object
+			err = currentProxy.object.Setup(proxyObj)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"failed to setup embedded model from proxy field %s: %w",
+					proxy.rootField.Name, err,
+				)
+			}
+
+			currentProxy.object.changed.Listen(func(s signals.Signal[ModelChangeSignal], ms ModelChangeSignal) error {
+				m.changed.Send(ModelChangeSignal{
+					Flags:       FlagProxyChanged,
+					StructField: proxy.rootField,
+					Next:        &ms,
+					Model:       m,
+				})
+				return nil
+			})
+		}
+
+		if changed {
+			changedList = append(changedList, proxy.rootField.Name)
+		}
+	}
+
+	return changedList, nil
 }
 
 // Define defines the fields of the model based on the provided definer
@@ -803,11 +946,6 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 	m.internals.fromDB = true
 
 	return transaction.Commit()
-}
-
-func proxyFieldName(name string) string {
-	return fmt.Sprintf("__%s", name)
-	// return "__PROXY"
 }
 
 func saveRegularField(ctx context.Context, cnf *SaveConfig, field queries.SaveableField) error {

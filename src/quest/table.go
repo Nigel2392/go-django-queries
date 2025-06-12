@@ -49,14 +49,14 @@ func Table[T testing.TB](t T, model ...attrs.Definer) *DBTables[T] {
 }
 
 func (t *DBTables[T]) fatal(args ...interface{}) {
-	if !reflect.ValueOf(t.t).IsNil() {
+	if reflect.ValueOf(t.t).IsNil() {
 		panic(fmt.Sprint(args...))
 	}
 	t.t.Fatal(args...)
 }
 
 func (t *DBTables[T]) fatalf(format string, args ...interface{}) {
-	if !reflect.ValueOf(t.t).IsNil() {
+	if reflect.ValueOf(t.t).IsNil() {
 		panic(fmt.Sprintf(format, args...))
 	}
 	t.t.Fatalf(format, args...)

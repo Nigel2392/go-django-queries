@@ -125,13 +125,23 @@ func dataModelsetter[T any](f *DataModelField[T], v any) error {
 	return nil
 }
 
-func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref ...attrs.Field) *DataModelField[T] {
+type DataModelFieldConfig struct {
+	ResultType reflect.Type // Type of the result of the expression
+	Ref        attrs.Field  // Reference to the field in the model
+}
+
+func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, cnf ...DataModelFieldConfig) *DataModelField[T] {
 	if forModel == nil || dst == nil {
 		panic("NewDataModelField: model is nil")
 	}
 
 	if name == "" {
 		panic("NewDataModelField: name is empty")
+	}
+
+	var conf DataModelFieldConfig
+	if len(cnf) > 0 {
+		conf = cnf[0]
 	}
 
 	var (
@@ -144,6 +154,10 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref 
 		isPointerPointer = dstT.Kind() == reflect.Pointer &&
 			dstT.Elem().Kind() == reflect.Pointer
 	)
+
+	if conf.ResultType != nil {
+		Type = conf.ResultType
+	}
 
 	// List of setters and getters to be used
 	// for scanning and setting values in the field.
@@ -228,22 +242,13 @@ func NewDataModelField[T any](forModel attrs.Definer, dst any, name string, ref 
 		setters = append(setters, dataModelsetter[T])
 	}
 
-	var fRef attrs.Field
-	if len(ref) > 0 {
-		fRef = ref[0]
-	}
-
-	if len(ref) > 0 && fRef == nil {
-		panic(fmt.Errorf("NewDataModelField: fieldRef is nil for %T.%s", forModel, name))
-	}
-
 	var f = &DataModelField[T]{
 		Model:     forModel,
 		dataModel: dataModel,
 		val:       dstV,
 		_Type:     Type,
 		name:      name,
-		fieldRef:  fRef,
+		fieldRef:  conf.Ref,
 		getters:   getters,
 		setters:   setters,
 	}

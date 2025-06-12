@@ -20,8 +20,6 @@ const (
 	FlagModelReset      ModelSignalFlag = 1 << iota
 	FlagModelSetup
 	FlagFieldChanged
-	FlagProxySetup
-	FlagProxyChanged
 )
 
 type ModelChangeSignal struct {

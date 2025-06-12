@@ -1,7 +1,6 @@
 package models
 
 import (
-	"fmt"
 	"reflect"
 
 	"github.com/Nigel2392/go-django/src/core/assert"
@@ -63,7 +62,7 @@ type BaseModelProxy struct {
 
 type BaseModelInfo struct {
 	// the proxy for this model, if any
-	proxy *BaseModelProxy
+	proxies []*BaseModelProxy
 
 	// the reference to the base model field
 	// from the root of the current chain part
@@ -72,31 +71,6 @@ type BaseModelInfo struct {
 	// can also contain information on
 	// how to control the proxy behavior
 	base reflect.StructField
-
-	//	// fields which should be initialized
-	//	// when the model's fields are defined
-	//	initFields []reflect.StructField
-}
-
-func (b *BaseModelInfo) initChain(obj reflect.Value) {
-	var curr = b
-	if obj.Kind() == reflect.Ptr {
-		obj = obj.Elem()
-	}
-
-	for curr != nil {
-		if curr.proxy == nil {
-			break
-		}
-
-		var field = obj.FieldByIndex(curr.proxy.rootField.Index)
-		field.Set(reflect.ValueOf(attrs.NewObject[attrs.Definer](
-			curr.proxy.rootField.Type,
-		)))
-
-		obj = field.Elem()
-		curr = curr.proxy.next
-	}
 }
 
 func embedsModel(rTyp reflect.Type) bool {
@@ -163,29 +137,27 @@ func buildModelChain(rTyp reflect.Type) *BaseModelInfo {
 				"definer %s must embed a model before any proxy fields (%s)",
 				rTyp.Name(), field.Name,
 			)
-			assert.True(
-				base.proxy == nil,
-				"definer %s cannot embed multiple proxy fields (%s)",
-				rTyp.Name(), field.Name,
+
+			var (
+				ctypeFieldName  = field.Tag.Get("ctype")
+				targetFieldName = field.Tag.Get("target")
 			)
 
-			var ctypeFieldName = field.Tag.Get("ctype")
-			var targetFieldName = field.Tag.Get("target")
-			if (ctypeFieldName == "" || targetFieldName == "") && !field.Type.Implements(reflect.TypeOf((*CanTargetDefiner)(nil)).Elem()) {
-				panic(fmt.Sprintf(
-					"proxy field %d in model %s must have 'ctype' and 'target' tags defined, got %q and %q",
-					i, rTyp.Name(), ctypeFieldName, targetFieldName,
-				))
+			if (ctypeFieldName == "" || targetFieldName == "") && field.Type.Implements(reflect.TypeOf((*CanTargetDefiner)(nil)).Elem()) {
+				var newTargetDefiner = reflect.New(field.Type.Elem()).Interface().(CanTargetDefiner)
+				newTargetDefiner = Setup(newTargetDefiner)
+				ctypeFieldName = newTargetDefiner.TargetContentTypeField().Name()
+				targetFieldName = newTargetDefiner.TargetPrimaryField().Name()
 			}
 
-			base.proxy = &BaseModelProxy{
+			base.proxies = append(base.proxies, &BaseModelProxy{
 				prev:            base,
 				rootField:       &field,
 				directField:     &field,
 				cTypeFieldName:  ctypeFieldName,
 				targetFieldName: targetFieldName,
 				next:            buildModelChain(field.Type),
-			}
+			})
 
 		case isModelField(field):
 			assert.True(
@@ -227,30 +199,27 @@ func buildModelChain(rTyp reflect.Type) *BaseModelInfo {
 							"definer %s must embed a model before any proxy fields (%s)",
 							rTyp.Name(), subField.Name,
 						)
-						assert.True(
-							base.proxy == nil,
-							"definer %s cannot embed multiple proxy fields (%s)",
-							rTyp.Name(), subField.Name,
+
+						var (
+							ctypeFieldName  = subField.Tag.Get("ctype")
+							targetFieldName = subField.Tag.Get("target")
 						)
 
-						var ctypeFieldName = subField.Tag.Get("ctype")
-						var targetFieldName = subField.Tag.Get("target")
-						if (ctypeFieldName == "" || targetFieldName == "") && !subField.Type.Implements(reflect.TypeOf((*CanTargetDefiner)(nil)).Elem()) {
-							panic(fmt.Sprintf(
-								"proxy field %d in model %s must have 'ctype' and 'target' tags defined, got %q and %q",
-								i, rTyp.Name(), ctypeFieldName, targetFieldName,
-							))
+						if (ctypeFieldName == "" || targetFieldName == "") && subField.Type.Implements(reflect.TypeOf((*CanTargetDefiner)(nil)).Elem()) {
+							var newTargetDefiner = reflect.New(subField.Type.Elem()).Interface().(CanTargetDefiner)
+							ctypeFieldName = newTargetDefiner.TargetContentTypeField().Name()
+							targetFieldName = newTargetDefiner.TargetPrimaryField().Name()
 						}
 
 						field.Index = append(field.Index, subField.Index...)
-						base.proxy = &BaseModelProxy{
+						base.proxies = append(base.proxies, &BaseModelProxy{
 							rootField:       &field,
 							directField:     &subField,
 							prev:            base,
 							cTypeFieldName:  ctypeFieldName,
 							targetFieldName: targetFieldName,
 							next:            buildModelChain(subField.Type),
-						}
+						})
 						break structLoop
 					case subField.Type.Kind() == reflect.Struct && reflect.PointerTo(subField.Type).Implements(_MODEL_IFACE):
 						field.Index = append(field.Index, subField.Index...)

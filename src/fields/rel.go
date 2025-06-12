@@ -113,6 +113,17 @@ func NewRelatedField[T any](forModel attrs.Definer, name string, cnf *FieldConfi
 		))
 	}
 
+	if cnf.TargetField != "" && (cnf.Rel.Field() == nil || cnf.Rel.Field().Name() != cnf.TargetField) {
+		cnf.Rel = &typedRelation{
+			Relation: attrs.Relate(
+				cnf.Rel.Model(),
+				cnf.TargetField,
+				cnf.Rel.Through(),
+			),
+			typ: cnf.Rel.Type(),
+		}
+	}
+
 	if cnf.ReverseName == "" {
 		var nameParts = strings.Split(reflect.TypeOf(forModel).Elem().Name(), ".")
 		var modelName = nameParts[len(nameParts)-1]
@@ -134,7 +145,7 @@ func NewRelatedField[T any](forModel attrs.Definer, name string, cnf *FieldConfi
 	}
 
 	var f = &RelationField[T]{
-		DataModelField: NewDataModelField[T](forModel, cnf.ScanTo, name),
+		DataModelField: NewDataModelField[T](forModel, cnf.ScanTo, name, cnf.DataModelFieldConfig),
 		cnf:            cnf,
 	}
 	f.DataModelField.fieldRef = f // Set the field reference to itself

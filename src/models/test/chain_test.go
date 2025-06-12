@@ -95,13 +95,13 @@ type BlogPage struct {
 }
 
 func (b *BlogPage) TargetContentTypeField() attrs.FieldDefinition {
-	var defs = b.Defs()
+	var defs = b.FieldDefs()
 	var f, _ = defs.Field("CategoryContentType")
 	return f
 }
 
 func (b *BlogPage) TargetPrimaryField() attrs.FieldDefinition {
-	var defs = b.Defs()
+	var defs = b.FieldDefs()
 	var f, _ = defs.Field("Category")
 	return f
 }
@@ -130,61 +130,6 @@ func (b *BlogPageCategory) FieldDefs() attrs.Definitions {
 			Primary: true,
 		}),
 	)
-}
-
-func TestProxyModelChain(t *testing.T) {
-	var bCat = &BlogPageCategory{
-		BlogPage: &BlogPage{
-			//Proxy: &Page{
-			//	BasePage: BasePage{
-			//		ID: 1,
-			//	},
-			//	Title:       "Sample Blog Page",
-			//	Description: "This is a sample blog page description.",
-			//},
-			Author: "Jane Doe",
-			Tags:   []string{"blog", "sample"},
-		},
-		Category: "Technology",
-	}
-	var defs = bCat.FieldDefs()
-	_ = defs
-	var proxyRoot = models.NewProxyChain(bCat, true)
-	var proxy = proxyRoot
-	t.Logf("Proxy Model: %T", proxy)
-	for proxy != nil {
-		t.Logf("Model: %T, Object: %T %+v", proxy.Model(), proxy.Object(), proxy.Object())
-		if proxy.Next() == nil {
-			break
-		}
-		proxy = proxy.Next()
-	}
-	t.Log(bCat.BlogPage.Proxy)
-
-	defs = bCat.FieldDefs()
-
-	defs.Set("Author", "John Smith")
-
-	if bCat.BlogPage.Author != "John Smith" {
-		t.Errorf("expected Author to be `John Smith`, got `%s`", bCat.BlogPage.Author)
-	}
-
-	var cpyDefs = proxyRoot.Object().FieldDefs()
-	cpyDefs.Set("Author", "Alice Johnson")
-
-	if bCat.BlogPage.Author != "John Smith" {
-		t.Errorf("expected bCat.BlogPage.Author to be `John Smith`, got `%s`", bCat.BlogPage.Author)
-	}
-
-	cpyDefs = proxyRoot.Next().Object().FieldDefs()
-	cpyDefs.Set("Author", "Alice Johnson")
-
-	var cpyCat = proxyRoot.Object().(*BlogPageCategory)
-	if cpyCat.BlogPage.Author != "Alice Johnson" {
-		t.Errorf("expected cpyCat.BlogPage.Author to be `Alice Johnson`, got `%s`", cpyCat.BlogPage.Author)
-	}
-
-	t.Logf("Proxy Chain: %v", proxyRoot)
 }
 
 func TestProxyModelFieldDefs(t *testing.T) {

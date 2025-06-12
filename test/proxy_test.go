@@ -21,18 +21,6 @@ type ProxyModel struct {
 	Description string
 }
 
-func (b *ProxyModel) TargetContentTypeField() attrs.FieldDefinition {
-	var defs = b.FieldDefs()
-	var f, _ = defs.Field("TargetCType")
-	return f
-}
-
-func (b *ProxyModel) TargetPrimaryField() attrs.FieldDefinition {
-	var defs = b.FieldDefs()
-	var f, _ = defs.Field("TargetID")
-	return f
-}
-
 func (b *ProxyModel) FieldDefs() attrs.Definitions {
 	return b.Model.Define(b,
 		attrs.Unbound("ID", &attrs.FieldConfig{Primary: true}),
@@ -227,12 +215,12 @@ func TestProxyFields(t *testing.T) {
 		t.Fatalf("Expected 1 proxy field, but got %d", proxyFields.FieldsLen())
 	}
 
-	var proxyField, ok = proxyFields.Get("__PROXY")
+	var proxyField, ok = proxyFields.Get("ProxyModel")
 	if !ok {
-		t.Fatal("Expected to find proxy field with name '__PROXY'")
+		t.Fatal("Expected to find proxy field with name 'ProxyModel'")
 	}
 
-	if proxyField.Name() != "__PROXY" {
-		t.Fatalf("Expected proxy field name to be '__PROXY', but got '%s'", proxyField.Name())
+	if proxyField.Name() != "ProxyModel" {
+		t.Fatalf("Expected proxy field name to be 'ProxyModel', but got '%s'", proxyField.Name())
 	}
 }

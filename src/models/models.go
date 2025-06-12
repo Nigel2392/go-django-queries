@@ -25,6 +25,7 @@ type _ModelInterface interface {
 }
 
 type CanTargetDefiner interface {
+	attrs.Definer
 	TargetContentTypeField() attrs.FieldDefinition
 	TargetPrimaryField() attrs.FieldDefinition
 }

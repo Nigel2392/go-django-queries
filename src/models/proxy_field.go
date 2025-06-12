@@ -29,7 +29,9 @@ type proxyField struct {
 }
 
 type ProxyFieldConfig struct {
-	Proxy attrs.Definer
+	Proxy            attrs.Definer
+	ContentTypeField string
+	TargetField      string
 }
 
 func newProxyField(model *Model, definer attrs.Definer, niceName string, internalName string, cnf *ProxyFieldConfig) *proxyField {
@@ -96,19 +98,19 @@ func (f *proxyField) setupRelatedFields() {
 	} else {
 		var meta = attrs.GetModelMeta(f.cnf.Proxy)
 		var targetDefs = meta.Definitions()
-		targetCtypeField, ok = targetDefs.Field(f.model.proxy.proxy.cTypeFieldName)
+		targetCtypeField, ok = targetDefs.Field(f.cnf.ContentTypeField)
 		if !ok {
 			panic(fmt.Sprintf(
 				"proxy field in model %T does not have a field with ctype name %q",
-				f.cnf.Proxy, f.model.proxy.proxy.cTypeFieldName,
+				f.cnf.Proxy, f.cnf.ContentTypeField,
 			))
 		}
 
-		targetPrimaryField, ok = targetDefs.Field(f.model.proxy.proxy.targetFieldName)
+		targetPrimaryField, ok = targetDefs.Field(f.cnf.TargetField)
 		if !ok {
 			panic(fmt.Sprintf(
 				"proxy field in model %T does not have a field with target name %q",
-				f.cnf.Proxy, f.model.proxy.proxy.targetFieldName,
+				f.cnf.Proxy, f.cnf.TargetField,
 			))
 		}
 	}

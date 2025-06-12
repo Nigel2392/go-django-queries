@@ -8,6 +8,7 @@ import (
 )
 
 type FieldConfig struct {
+	DataModelFieldConfig
 	ScanTo      any
 	Nullable    bool
 	IsProxy     bool

@@ -772,13 +772,12 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 			info, aliases,
 		)
 
-		qs.internals.Fields = append(qs.internals.Fields, subInfos...)
+		infos = append(infos, subInfos...)
 
 		for _, join := range subJoins {
 			var key = join.JoinDefCondition.String()
-			if _, ok := qs.internals.joinsMap[key]; !ok {
-				qs.internals.Joins = append(qs.internals.Joins, join)
-				qs.internals.joinsMap[key] = true
+			if _, ok := joinM[key]; !ok {
+				joins = append(joins, join)
 			}
 		}
 	}
@@ -964,6 +963,8 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 			currInfo, aliases,
 		)
 
+		infos = append(infos, subInfos...)
+
 		for _, join := range subJoins {
 			var key = join.JoinDefCondition.String()
 			if _, ok := joinM[key]; !ok {
@@ -971,9 +972,6 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 				joinM[key] = true
 			}
 		}
-
-		infos = append(infos, subInfos...)
-		joins = append(joins, subJoins...)
 	}
 
 	return infos, joins

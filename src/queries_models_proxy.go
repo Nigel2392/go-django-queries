@@ -10,6 +10,22 @@ import (
 
 const _PROXY_FIELDS_KEY = "models.embed.proxy.fields"
 
+// Build out the proxy field map when a model is registered.
+//
+// This will create a tree structure that contains all the proxy fields
+// and their respective sub-proxy fields.
+var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.SignalModelMeta], meta attrs.SignalModelMeta) error {
+	var newDefiner = attrs.NewObject[attrs.Definer](meta.Definer)
+	var proxyFields = buildProxyFieldMap(newDefiner)
+	attrs.StoreOnMeta(
+		meta.Definer,
+		_PROXY_FIELDS_KEY,
+		proxyFields,
+	)
+
+	return nil
+})
+
 type proxyTree struct {
 	object  attrs.Definer
 	proxies *orderedmap.OrderedMap[string, *proxyFieldNode]
@@ -89,19 +105,6 @@ func buildProxyFieldMap(definer attrs.Definer) *proxyTree {
 
 	return node
 }
-
-var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.SignalModelMeta], meta attrs.SignalModelMeta) error {
-
-	var newDefiner = attrs.NewObject[attrs.Definer](meta.Definer)
-	var proxyFields = buildProxyFieldMap(newDefiner)
-	attrs.StoreOnMeta(
-		meta.Definer,
-		_PROXY_FIELDS_KEY,
-		proxyFields,
-	)
-
-	return nil
-})
 
 func ProxyFields(definer attrs.Definer) *proxyTree {
 	if !attrs.IsModelRegistered(definer) {

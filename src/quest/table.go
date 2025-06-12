@@ -22,17 +22,25 @@ func Table[T testing.TB](t T, model ...attrs.Definer) *DBTables[T] {
 		panic("No model provided to Table()")
 	}
 
-	if django.Global == nil || django.Global.Settings == nil {
-		panic("Django Global or Settings is not initialized")
+	var (
+		db    *sql.DB
+		err   error
+		table = &DBTables[T]{}
+	)
+	if django.Global != nil && django.Global.Settings != nil {
+		db = django.ConfigGet[*sql.DB](
+			django.Global.Settings,
+			django.APPVAR_DATABASE,
+		)
+	} else {
+		db, err = sql.Open("sqlite3", "file:quest_memory?mode=memory")
+		if err != nil {
+			table.fatalf("Failed to open database: %v", err)
+			return nil
+		}
 	}
 
-	var db = django.ConfigGet[*sql.DB](
-		django.Global.Settings,
-		django.APPVAR_DATABASE,
-	)
-
-	var table = &DBTables[T]{}
-	var schemaEditor, err = migrator.GetSchemaEditor(db.Driver())
+	schemaEditor, err := migrator.GetSchemaEditor(db.Driver())
 	if err != nil {
 		table.fatalf("Failed setup SchemaEditor: %v", err)
 		return nil

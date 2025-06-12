@@ -3,7 +3,7 @@ module github.com/Nigel2392/go-django-queries
 go 1.24.2
 
 require (
-	github.com/Nigel2392/go-django v1.7.1-0.20250611234215-094567a3ba01
+	github.com/Nigel2392/go-django v1.7.1-0.20250612214103-34a1e5a9d084
 	github.com/Nigel2392/go-signals v1.0.8
 	github.com/Nigel2392/goldcrest v1.0.4
 	github.com/elliotchance/orderedmap/v2 v2.2.0

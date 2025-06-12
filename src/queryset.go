@@ -16,7 +16,6 @@ import (
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/Nigel2392/go-django/src/forms/fields"
 	"github.com/Nigel2392/go-django/src/models"
 	"github.com/pkg/errors"
 
@@ -2103,17 +2102,7 @@ func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int
 			)
 		}
 
-		var (
-			defs            = value.FieldDefs()
-			primary         = defs.Primary()
-			primaryVal, err = primary.Value()
-		)
-
-		if err != nil {
-			panic(fmt.Errorf("failed to get value for field %q: %w", primary.Name(), err))
-		}
-
-		if saver, ok := any(value).(models.ContextSaver); ok && !fields.IsZero(primaryVal) {
+		if saver, ok := any(value).(models.ContextSaver); ok {
 			if err := sendSignal(SignalPreModelSave, value, qs.compiler); err != nil {
 				return 0, err
 			}

@@ -11,6 +11,8 @@ import (
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+
+	_ "unsafe"
 )
 
 var (
@@ -90,17 +92,24 @@ func NewRelatedField[T any](forModel attrs.Definer, name string, cnf *FieldConfi
 	//)
 
 	if cnf == nil {
-		panic(fmt.Sprintf("NewRelatedField: config is nil for field %s in model %T", name, forModel))
+		panic(fmt.Sprintf("NewRelatedField: config is nil for field %q in model %T", name, forModel))
 	}
 
 	if cnf.Rel == nil {
-		panic(fmt.Sprintf("NewRelatedField: relation is nil for field %s in model %T", name, forModel))
+		panic(fmt.Sprintf("NewRelatedField: relation is nil for field %q in model %T", name, forModel))
 	}
 
-	if cnf.IsProxy && cnf.Rel.Type() != attrs.RelOneToOne {
+	if cnf.IsProxy && (cnf.Rel.Type() != attrs.RelOneToOne && cnf.Rel.Type() != attrs.RelManyToOne) {
 		panic(fmt.Sprintf(
 			"NewRelatedField: relation type %s is not supported for proxy fields in model %T",
 			cnf.Rel.Type(), forModel,
+		))
+	}
+
+	if cnf.IsProxy && cnf.Nullable {
+		panic(fmt.Sprintf(
+			"NewRelatedField: proxy field %q in model %T cannot be nullable",
+			name, forModel,
 		))
 	}
 
@@ -118,7 +127,7 @@ func NewRelatedField[T any](forModel attrs.Definer, name string, cnf *FieldConfi
 			cnf.ReverseName = fmt.Sprintf("%sReverse", modelName)
 		default:
 			panic(fmt.Sprintf(
-				"NewRelatedField: unsupported relation type %s for field %s in model %T",
+				"NewRelatedField: unsupported relation type %s for field %q in model %T",
 				cnf.Rel.Type(), name, forModel,
 			))
 		}
@@ -147,12 +156,16 @@ func (m *RelationField[T]) ForSelectAll() bool {
 	return false
 }
 
+//go:linkname toSnakeCase github.com/Nigel2392/go-django/src/core/attrs.toSnakeCase
+func toSnakeCase(str string) string
+
 func (r *RelationField[T]) ColumnName() string {
 	if r.cnf.ColumnName == "" {
 		var from = r.cnf.Rel.From()
 		if from != nil {
 			return from.Field().ColumnName()
 		}
+		return toSnakeCase(r.Name())
 	}
 	return r.cnf.ColumnName
 }
@@ -171,7 +184,15 @@ type (
 	}
 )
 
-func (r *RelationField[T]) Save(ctx context.Context, parent attrs.Definer) error {
+func (r *RelationField[T]) AllowEdit() bool {
+	switch r.cnf.Rel.Type() {
+	case attrs.RelOneToOne, attrs.RelManyToOne:
+		return r.cnf.IsProxy
+	}
+	return false
+}
+
+func (r *RelationField[T]) Save(ctx context.Context) error {
 	var val = r.GetValue()
 	if val == nil {
 		return nil
@@ -191,12 +212,11 @@ func (r *RelationField[T]) Save(ctx context.Context, parent attrs.Definer) error
 		)
 
 	case attrs.RelOneToOne:
-
 		switch v := val.(type) {
 		case saveableDefiner:
 			return v.Save(ctx)
 		case saveableRelation:
-			return v.Save(ctx, parent)
+			return v.Save(ctx, r.Instance())
 		}
 
 	case attrs.RelManyToOne:

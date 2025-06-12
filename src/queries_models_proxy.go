@@ -1,6 +1,8 @@
 package queries
 
 import (
+	"fmt"
+
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-signals"
 	"github.com/elliotchance/orderedmap/v2"
@@ -8,53 +10,116 @@ import (
 
 const _PROXY_FIELDS_KEY = "models.embed.proxy.fields"
 
-type proxyFieldMap struct {
-	object attrs.Definer
-	field  ProxyField
-	next   *proxyFieldMap
-	fields *orderedmap.OrderedMap[string, proxyFieldMap]
+type proxyTree struct {
+	object  attrs.Definer
+	proxies *orderedmap.OrderedMap[string, *proxyFieldNode]
+	fields  *orderedmap.OrderedMap[string, ProxyField]
 }
 
-type ProxyFieldMap = orderedmap.OrderedMap[string, ProxyField]
+type proxyFieldNode struct {
+	sourceField ProxyField
+	tree        *proxyTree
+}
 
-var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.SignalModelMeta], meta attrs.SignalModelMeta) error {
+func (n *proxyTree) Object() attrs.Definer {
+	return n.object
+}
 
-	var newDefiner = attrs.NewObject[attrs.Definer](meta.Definer)
+func (n *proxyTree) FieldsLen() int {
+	return n.fields.Len()
+}
+
+func (n *proxyTree) hasProxies() bool {
+	return n.proxies.Len() > 0 || n.fields.Len() > 0
+}
+
+func (n *proxyTree) Get(name string) (ProxyField, bool) {
+	return n.fields.Get(name)
+}
+
+func buildProxyFieldMap(definer attrs.Definer) *proxyTree {
+	if attrs.IsModelRegistered(definer) {
+		var (
+			meta     = attrs.GetModelMeta(definer)
+			vals, ok = meta.Storage(_PROXY_FIELDS_KEY)
+		)
+		if ok {
+			return vals.(*proxyTree)
+		}
+	}
+
+	var node = &proxyTree{
+		object:  definer,
+		fields:  orderedmap.NewOrderedMap[string, ProxyField](),
+		proxies: orderedmap.NewOrderedMap[string, *proxyFieldNode](),
+	}
+	var newDefiner = attrs.NewObject[attrs.Definer](definer)
 	var defs = newDefiner.FieldDefs()
-	var fields = defs.Fields()
-	var proxyFields = orderedmap.NewOrderedMap[string, ProxyField]()
-	for _, field := range fields {
+	for _, field := range defs.Fields() {
 		var proxyField, ok = field.(ProxyField)
 		if !ok || !proxyField.IsProxy() {
 			continue
 		}
 
-		proxyFields.Set(
+		node.fields.Set(
 			field.Name(),
 			proxyField,
 		)
+
+		var rel = field.Rel()
+		var relType = rel.Type()
+		if relType == attrs.RelOneToOne || relType == attrs.RelManyToOne {
+			var model = rel.Model()
+			var subTree = buildProxyFieldMap(model)
+			if !subTree.hasProxies() {
+				continue
+			}
+
+			node.proxies.Set(
+				field.Name(),
+				&proxyFieldNode{
+					tree:        subTree,
+					sourceField: proxyField,
+				},
+			)
+
+			continue
+		}
 	}
 
-	if proxyFields.Len() > 0 {
-		attrs.StoreOnMeta(
-			meta.Definer,
-			_PROXY_FIELDS_KEY,
-			(*ProxyFieldMap)(proxyFields),
-		)
-	}
+	return node
+}
+
+var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.SignalModelMeta], meta attrs.SignalModelMeta) error {
+
+	var newDefiner = attrs.NewObject[attrs.Definer](meta.Definer)
+	var proxyFields = buildProxyFieldMap(newDefiner)
+	attrs.StoreOnMeta(
+		meta.Definer,
+		_PROXY_FIELDS_KEY,
+		proxyFields,
+	)
 
 	return nil
 })
 
-func ProxyFields(definer attrs.Definer) *ProxyFieldMap {
+func ProxyFields(definer attrs.Definer) *proxyTree {
+	if !attrs.IsModelRegistered(definer) {
+		return &proxyTree{
+			object:  definer,
+			fields:  orderedmap.NewOrderedMap[string, ProxyField](),
+			proxies: orderedmap.NewOrderedMap[string, *proxyFieldNode](),
+		}
+	}
+
 	var (
 		meta     = attrs.GetModelMeta(definer)
 		vals, ok = meta.Storage(_PROXY_FIELDS_KEY)
 	)
 
 	if !ok {
-		return (*ProxyFieldMap)(orderedmap.NewOrderedMap[string, ProxyField]())
+		panic(fmt.Errorf("no proxy fields found for model %T", definer))
 	}
 
-	return vals.(*ProxyFieldMap)
+	return vals.(*proxyTree)
 }

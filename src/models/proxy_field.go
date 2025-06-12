@@ -1,15 +1,21 @@
 package models
 
 import (
+	"context"
 	"fmt"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/core/contenttypes"
+	"github.com/Nigel2392/go-django/src/models"
 )
 
-var _ queries.TargetClauseField = (*proxyField)(nil)
+var (
+	_ queries.TargetClauseField      = (*proxyField)(nil)
+	_ queries.ProxyField             = (*proxyField)(nil)
+	_ queries.SaveableDependantField = (*proxyField)(nil)
+)
 
 type proxyField struct {
 	attrs.Field
@@ -64,7 +70,7 @@ func (f *proxyField) GetSourcePrimary() attrs.FieldDefinition {
 	if primary == nil {
 		panic(fmt.Errorf(
 			"ProxyFieldConfig.Proxy: %T (%s) does not have a primary field defined (%T)",
-			f.cnf.Proxy, f.Name(), f.model.internals.defs.Object,
+			f.cnf.Proxy, f.Name(), f.obj,
 		))
 	}
 	return primary
@@ -113,6 +119,65 @@ func (f *proxyField) setupRelatedFields() {
 
 func (f *proxyField) IsProxy() bool {
 	return true
+}
+
+func (f *proxyField) Save(ctx context.Context, parent attrs.Definer) error {
+
+	var proxyObject = f.GetValue()
+	if proxyObject == nil {
+		return fmt.Errorf(
+			"cannot save proxy field %s in model %T: value is nil",
+			f.Name(), f.obj,
+		)
+	}
+
+	var proxy, ok = proxyObject.(attrs.Definer)
+	if !ok {
+		return fmt.Errorf(
+			"cannot save proxy field %s in model %T: value is not a definer, got %T",
+			f.Name(), f.obj, proxyObject,
+		)
+	}
+
+	f.setupRelatedFields()
+
+	var proxyDefs = proxy.FieldDefs()
+	var (
+		targetIDFieldDef = f.LinkedPrimaryField()
+		targetIDField, _ = proxyDefs.Field(
+			targetIDFieldDef.Name(),
+		)
+		targetCTypeFieldDef = f.LinkedCTypeField()
+		targetCTypeField, _ = proxyDefs.Field(
+			targetCTypeFieldDef.Name(),
+		)
+	)
+
+	var parentDefs = parent.FieldDefs()
+	var parentPrimary = parentDefs.Primary()
+
+	if err := targetIDField.SetValue(parentPrimary.GetValue(), true); err != nil {
+		return fmt.Errorf(
+			"failed to set value for target ID field %s in proxy model %T: %w",
+			targetIDFieldDef.Name(), proxyObject, err,
+		)
+	}
+	if err := targetCTypeField.SetValue(contenttypes.NewContentType(parent).TypeName(), true); err != nil {
+		return fmt.Errorf(
+			"failed to set value for target CType field %s in proxy model %T: %w",
+			targetCTypeFieldDef.Name(), proxyObject, err,
+		)
+	}
+
+	saver, ok := proxyObject.(models.ContextSaver)
+	if !ok {
+		return fmt.Errorf(
+			"cannot save proxy field %s in model %T: value does not implement models.ContextSaver, got %T",
+			f.Name(), f.obj, proxyObject,
+		)
+	}
+
+	return saver.Save(ctx)
 }
 
 func (f *proxyField) GenerateTargetClause(qs *queries.QuerySet[attrs.Definer], inter *queries.QuerySetInternals, lhs queries.ClauseTarget, rhs queries.ClauseTarget) queries.JoinDef {

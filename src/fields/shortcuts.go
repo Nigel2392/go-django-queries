@@ -35,15 +35,7 @@ func (u *unbound[T]) BindField(model attrs.Definer) (attrs.Field, error) {
 		panic(fmt.Sprintf("field name cannot be empty for %T", model))
 	}
 
-	var fieldConfig = &FieldConfig{
-		ScanTo:      u.config.ScanTo,
-		Nullable:    u.config.Nullable,
-		ReverseName: u.config.ReverseName,
-		ColumnName:  u.config.ColumnName,
-		TargetField: u.config.TargetField,
-		Through:     u.config.Through,
-		Rel:         u.config.Rel,
-	}
+	var fieldConfig = *u.config
 
 	if fieldConfig.ScanTo == nil {
 		var (
@@ -69,7 +61,7 @@ func (u *unbound[T]) BindField(model attrs.Definer) (attrs.Field, error) {
 	var field = u.field(
 		model,
 		u.name,
-		fieldConfig,
+		&fieldConfig,
 	)
 
 	return field, nil

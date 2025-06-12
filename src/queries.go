@@ -52,6 +52,14 @@ type SaveableField interface {
 	attrs.Field
 
 	// Save is called to save the field's value to the database.
+	// It should return an error if the save operation fails.
+	Save(ctx context.Context) error
+}
+
+type SaveableDependantField interface {
+	attrs.Field
+
+	// Save is called to save the field's value to the database.
 	Save(ctx context.Context, parent attrs.Definer) error
 }
 

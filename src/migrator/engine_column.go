@@ -92,6 +92,21 @@ func NewTableColumn(table Table, field attrs.Field) Column {
 		}
 	}
 
+	var dflt = field.GetDefault()
+	if def, ok := dflt.(attrs.Definer); ok {
+		if !attrs.IsZero(dflt) {
+			var defs = def.FieldDefs()
+			var prim = defs.Primary()
+			if prim != nil {
+				dflt = prim.GetDefault()
+			} else {
+				dflt = nil // no primary field, no default
+			}
+		} else {
+			dflt = nil // zero value, no default
+		}
+	}
+
 	var col = Column{
 		Table:        table,
 		Field:        field,
@@ -105,7 +120,7 @@ func NewTableColumn(table Table, field attrs.Field) Column {
 		Unique:       attrUnique,
 		Auto:         attrAutoIncrement || canAutoIncrement(field),
 		Primary:      field.IsPrimary(),
-		Default:      field.GetDefault(),
+		Default:      dflt,
 		ReverseAlias: attrReverseAlias,
 		Rel:          rel,
 	}
@@ -198,6 +213,7 @@ func (c *Column) HasDefault() bool {
 	if c.Default == nil {
 		return false
 	}
+
 	var rv = reflect.ValueOf(c.Default)
 	if rv.Kind() == reflect.Ptr {
 		if !rv.IsValid() || rv.IsNil() {

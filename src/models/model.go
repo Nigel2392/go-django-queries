@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
-	"strings"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/fields"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/assert"
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/Nigel2392/go-django/src/core/contenttypes"
 	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/Nigel2392/go-django/src/models"
 	"github.com/Nigel2392/go-signals"
@@ -467,44 +465,6 @@ func (m *Model) setupProxy(base *BaseModelInfo, parent reflect.Value) (changed b
 	return changed, err
 }
 
-func (m *Model) proxyScope(qs *queries.QuerySet[attrs.Definer], internals *queries.QuerySetInternals) *queries.QuerySet[attrs.Definer] {
-	var (
-		newObj     = reflect.New(m.internals.object.Type().Elem()).Interface().(attrs.Definer)
-		chain      = NewProxyChain(newObj, true)
-		embedder   = chain
-		proxy      = chain.Next()
-		fieldNames = make([]any, 0)
-		fieldChain = make([]string, 0)
-	)
-
-	// make sure to select all fields from the root model
-	fieldNames = append(fieldNames, "*")
-
-	for proxy != nil {
-		var (
-			sourceProxyField = embedder.ProxyField()
-		)
-
-		if sourceProxyField == nil {
-			panic(fmt.Errorf(
-				"proxy field is nil in model %T, a proxy field is required for proxy joins",
-				embedder.object,
-			))
-		}
-
-		// apppend the field name to the field chain (this does not include the astrix)
-		fieldChain = append(fieldChain, sourceProxyField.Name())
-		// if the field is a proxy field, we need to append the field name with an astrix to select all fields
-		fieldNames = append(fieldNames, fmt.Sprintf("%s.*", strings.Join(fieldChain, ".")))
-		// move down the chain
-		embedder = proxy
-		proxy = proxy.Next()
-
-	}
-
-	return qs.Select(fieldNames...)
-}
-
 // Define defines the fields of the model based on the provided definer
 //
 // Normally this would be done with [attrs.Define], the current model method
@@ -610,24 +570,6 @@ func (m *Model) Define(def attrs.Definer, flds ...any) *attrs.ObjectDefinitions 
 func (m *Model) Defs() *attrs.ObjectDefinitions {
 	m.checkValid()
 	return m.internals.defs
-}
-
-// GetQuerySet returns a new [queries.QuerySet] for the model.
-//
-// It automatically applies proxy joins if the model is a proxy model.
-//
-// The returned [queries.QuerySet] can be used to query the model's data
-// and perform various operations like filtering, ordering, etc.
-func (m *Model) GetQuerySet() *queries.QuerySet[attrs.Definer] {
-	m.checkValid()
-
-	var qs = queries.Objects(m.Object())
-
-	if m.internals.base.proxy != nil {
-		qs = qs.Scope(m.proxyScope)
-	}
-
-	return qs
 }
 
 // PK returns the primary key field of the model.
@@ -834,22 +776,20 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 		fields[field] = struct{}{}
 	}
 
-	// if the model was not loaded from the database,
-	// we automatically assume all changes are to be saved
-	var anyChanges = !m.internals.fromDB
-	var selectFields = make([]interface{}, 0)
-	var updateFields = make([]attrs.Field, 0, m.internals.defs.ObjectFields.Len())
+	var (
+		// if the model was not loaded from the database,
+		// we automatically assume all changes are to be saved
+		anyChanges = !m.internals.fromDB
+
+		// Setup to save fields / select relevant fields to update.
+		selectFields   = make([]interface{}, 0)
+		saveBeforeSelf = make([]queries.SaveableField, 0, m.internals.defs.ObjectFields.Len())
+		saveAfterSelf  = make([]queries.SaveableDependantField, 0, m.internals.defs.ObjectFields.Len())
+	)
 	for head := m.internals.defs.ObjectFields.Front(); head != nil; head = head.Next() {
 
 		// if there was a list of fields provided and if
 		// the field is not in the list of fields to save, we skip it
-
-		//	fmt.Printf(
-		//		"[SaveObject] Checking field %s in model %T, force: %v, fromDB: %v (%v) %v\n",
-		//		head.Value.Name(), m.internals.object.Interface(),
-		//		cnf.Force, m.internals.fromDB, head.Value.GetValue(), m.internals.state.HasChanged(head.Value.Name()),
-		//	)
-
 		var mustInclField bool
 		if len(cnf.Fields) > 0 {
 			if _, ok := fields[head.Value.Name()]; !ok && !cnf.Force && m.internals.fromDB {
@@ -858,28 +798,40 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 			mustInclField = true
 		}
 
+		// No changes were made to the field, we can skip it.
 		var hasChanged = m.internals.state.HasChanged(head.Value.Name())
 		if !hasChanged && !mustInclField && !cnf.Force && m.internals.fromDB {
-			//	fmt.Printf(
-			//		"[SaveObject] Field %s in model %T has not changed, skipping save: %v %v %v %v\n",
-			//		head.Value.Name(), m.internals.object.Interface(),
-			//		hasChanged, mustInclField, cnf.Force, m.internals.fromDB,
-			//	)
-			// if the field has not changed and none of the force flags are set,
-			// we can skip saving this field
 			continue
 		}
 
+		// Check if the field is a Saver or a SaveableField.
+		// If it is a Saver, we need to panic and inform the user
+		// that they need to use a ContextSaver to maintain transaction integrity.
+		switch fld := head.Value.(type) {
+		case models.Saver:
+			panic(fmt.Errorf(
+				"model %T field %s is a Saver, which is not supported in Save(), a ContextSaver is required to maintain transaction integrity",
+				cnf.this, head.Value.Name(),
+			))
+		case queries.SaveableField:
+			saveBeforeSelf = append(saveBeforeSelf, fld)
+		case queries.SaveableDependantField:
+			saveAfterSelf = append(saveAfterSelf, fld)
+		}
+
+		// Add the field name to the list of changed fields.
+		// This is used to determine which fields to save in the query set.
+		selectFields = append(selectFields, head.Value.Name())
 		anyChanges = true
-		updateFields = append(updateFields, head.Value)
 	}
 
 	// if no changes were made and the force flag is not set,
 	// we can skip saving the model
-	if (!anyChanges || len(updateFields) == 0) && !cnf.Force && len(cnf.Fields) == 0 && m.internals.fromDB {
+	if !anyChanges && !cnf.Force && len(cnf.Fields) == 0 && m.internals.fromDB {
 		return nil
 	}
 
+	// Start transaction, if one was already started this is a no-op.
 	var transaction queries.Transaction
 	if queries.CREATE_IMPLICIT_TRANSACTION {
 		ctx, transaction, err = queries.StartTransaction(ctx)
@@ -894,48 +846,14 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 	}
 	defer transaction.Rollback()
 
-	/*
-		Save all model fields
-	*/
-	for _, field := range updateFields {
-		anyChanges = true
-
-		var err error
-		switch fld := field.(type) {
-		case models.Saver:
-			panic(fmt.Errorf(
-				"model %T field %s is a Saver, which is not supported in Save(), a ContextSaver is required to maintain transaction integrity",
-				m.internals.object.Interface(), field.Name(),
-			))
-		case models.ContextSaver:
-			err = fld.Save(ctx)
-		case queries.SaveableField:
-			err = fld.Save(ctx, cnf.this)
+	// Save fields which do not depend on the model itself,
+	// these are fields that can be / should be saved before the model itself is saved.
+	for _, field := range saveBeforeSelf {
+		if err := saveField(ctx, &cnf, field, saveRegularField); err != nil {
+			return err
 		}
-		if err != nil {
-			if !errors.Is(err, query_errors.ErrNotImplemented) {
-				return fmt.Errorf(
-					"failed to save field %q in model %T: %w",
-					field.Name(), m.internals.object.Interface(), err,
-				)
-			}
-
-			logger.Warnf(
-				"field %q in model %T is not saveable, skipping: %v",
-				field.Name(), m.internals.object.Interface(), err,
-			)
-
-			continue
-		}
-
-		// Add the field name to the list of changed fields.
-		// This is used to determine which fields to save in the query set.
-		selectFields = append(selectFields, field.Name())
 	}
 
-	/*
-		Setup the query set to save the model.
-	*/
 	// Setup the query set if not provided.
 	var querySet = cnf.QuerySet
 	if querySet == nil {
@@ -949,6 +867,8 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 	querySet = querySet.
 		WithContext(ctx)
 
+	// Perform the save operation on the model.
+	// If the model is already saved, it will update the model,
 	var updated int64
 	var saved = m.Saved()
 	if saved {
@@ -967,6 +887,8 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 		)
 	}
 
+	// If no changes were made and the model was saved,
+	// we return an error indicating that no rows were affected.
 	if saved && updated == 0 {
 		return fmt.Errorf(
 			"model %T was not updated, no rows affected",
@@ -974,74 +896,12 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 		)
 	}
 
-	/*
-		Save the model's proxy, if any.
-
-		This is done after the model itself is saved,
-		as the proxy may depend on the model's ID or other fields
-		to be set before it can be saved.
-	*/
-	var proxy = m.proxy
-	if proxy != nil && proxy.object != nil && (proxy.object.internals.state.Changed(true) || !proxy.object.Saved()) {
-
-		var proxyFieldInst, ok = m.internals.defs.Field(
-			proxyFieldName(m.internals.base.proxy.rootField.Name),
-		)
-		if !ok {
-			return fmt.Errorf(
-				"model %T does not have a proxy field %s, cannot save proxy",
-				m.internals.object.Interface(),
-				proxyFieldName(m.internals.base.proxy.rootField.Name),
-			)
-		}
-
-		proxyField, ok := proxyFieldInst.(*proxyField)
-		if !ok {
-			return fmt.Errorf(
-				"model %T proxy field %s is not a proxy field, cannot save proxy",
-				m.internals.object.Interface(),
-				proxyFieldName(m.internals.base.proxy.rootField.Name),
-			)
-		}
-
-		proxyField.setupRelatedFields()
-
-		var (
-			targetIDFieldDef = proxyField.LinkedPrimaryField()
-			targetIDField, _ = proxy.object.internals.defs.Field(
-				targetIDFieldDef.Name(),
-			)
-			targetCTypeFieldDef = proxyField.LinkedCTypeField()
-			targetCTypeField, _ = proxy.object.internals.defs.Field(
-				targetCTypeFieldDef.Name(),
-			)
-		)
-
-		if err := targetIDField.SetValue(
-			m.PK().GetValue(),
-			true,
-		); err != nil {
-			return fmt.Errorf(
-				"failed to set value for target ID field %s in proxy model %T: %w",
-				targetIDFieldDef.Name(), proxy.object.internals.object.Interface(), err,
-			)
-		}
-		if err := targetCTypeField.SetValue(
-			contenttypes.NewContentType(cnf.this).TypeName(),
-			true,
-		); err != nil {
-			return fmt.Errorf(
-				"failed to set value for target CType field %s in proxy model %T: %w",
-				targetCTypeFieldDef.Name(), proxy.object.internals.object.Interface(), err,
-			)
-		}
-
-		err = proxy.object.Save(ctx)
-		if err != nil {
-			return fmt.Errorf(
-				"failed to save proxy model %T: %w",
-				proxy.object.internals.object.Interface(), err,
-			)
+	// Save all fields that depend on the model itself,
+	// these are fields that should be saved after the model itself is saved.
+	// This is useful for fields that depend on the model's primary key or other fields.
+	for _, field := range saveAfterSelf {
+		if err := saveField(ctx, &cnf, field, saveDependantField); err != nil {
+			return err
 		}
 	}
 
@@ -1050,4 +910,36 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 	m.internals.fromDB = true
 
 	return transaction.Commit()
+}
+
+func saveRegularField(ctx context.Context, cnf *SaveConfig, field queries.SaveableField) error {
+	return field.Save(ctx)
+}
+
+func saveDependantField(ctx context.Context, cnf *SaveConfig, field queries.SaveableDependantField) error {
+	return field.Save(ctx, cnf.this)
+}
+
+func saveField[T attrs.FieldDefinition](ctx context.Context, cnf *SaveConfig, field T, save func(ctx context.Context, cnf *SaveConfig, field T) error) error {
+	var err error
+
+	if saver, ok := any(field).(T); ok {
+		err = save(ctx, cnf, saver)
+	}
+
+	if err != nil {
+		if !errors.Is(err, query_errors.ErrNotImplemented) {
+			return fmt.Errorf(
+				"failed to save field %q in model %T: %w",
+				field.Name(), cnf.this, err,
+			)
+		}
+
+		logger.Warnf(
+			"field %q in model %T is not saveable, skipping: %v",
+			field.Name(), cnf.this, err,
+		)
+	}
+
+	return nil
 }

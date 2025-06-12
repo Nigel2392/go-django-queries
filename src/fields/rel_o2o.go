@@ -20,6 +20,7 @@ func NewOneToOneField[T any](forModel attrs.Definer, name string, conf *FieldCon
 			typ:      attrs.RelOneToOne,
 		}
 	}
+
 	var f = &OneToOneField[T]{
 		RelationField: NewRelatedField[T](
 			forModel,

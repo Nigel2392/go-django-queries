@@ -79,7 +79,8 @@ type QuerySetInternals struct {
 	ForUpdate   bool
 	Distinct    bool
 
-	joinsMap map[string]bool
+	joinsMap map[string]struct{}
+	proxyMap map[string]struct{}
 
 	// a pointer to the annotations field info
 	// to avoid having to create a new one every time
@@ -92,12 +93,12 @@ type QuerySetInternals struct {
 
 func (i *QuerySetInternals) AddJoin(join JoinDef) {
 	if i.joinsMap == nil {
-		i.joinsMap = make(map[string]bool)
+		i.joinsMap = make(map[string]struct{})
 	}
 
 	var key = join.JoinDefCondition.String()
 	if _, exists := i.joinsMap[key]; !exists {
-		i.joinsMap[key] = true
+		i.joinsMap[key] = struct{}{}
 		i.Joins = append(i.Joins, join)
 	}
 }
@@ -667,7 +668,7 @@ func (qs *QuerySet[T]) attrFields(obj attrs.Definer) (attrs.Definitions, []attrs
 	return defs, fields
 }
 
-func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, proxyM map[string]struct{}, joinM map[string]bool) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
+func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, proxyM, joinM map[string]struct{}) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
 	var (
 		target      = foreignKey.Model()
 		relField    = foreignKey.Field()
@@ -761,7 +762,7 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 
 	var key = join.JoinDefCondition.String()
 	if _, ok := joinM[key]; !ok {
-		joinM[key] = true
+		joinM[key] = struct{}{}
 		joins = append(joins, join)
 	}
 
@@ -775,7 +776,7 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 	return infos, joins
 }
 
-func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, proxyM map[string]struct{}, joinM map[string]bool) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
+func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, proxyM, joinM map[string]struct{}) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
 	var through = manyToMany.Through()
 	if through == nil {
 		panic(fmt.Errorf("manyToMany relation %T.%s does not have a through table", manyToMany.Model(), field.Name()))
@@ -906,11 +907,11 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 	)
 	if _, ok := joinM[key1]; !ok {
 		joins = append(joins, join1)
-		joinM[key1] = true
+		joinM[key1] = struct{}{}
 	}
 	if _, ok := joinM[key2]; !ok {
 		joins = append(joins, join2)
-		joinM[key2] = true
+		joinM[key2] = struct{}{}
 	}
 
 	var includedFields []attrs.FieldDefinition
@@ -956,7 +957,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 	return infos, joins
 }
 
-func (qs *QuerySet[T]) addJoinForO2O(oneToOne attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, proxyM map[string]struct{}, joinM map[string]bool) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
+func (qs *QuerySet[T]) addJoinForO2O(oneToOne attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, proxyM, joinM map[string]struct{}) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
 	var through = oneToOne.Through()
 	if through == nil {
 		return qs.addJoinForFK(oneToOne, parentDefs, parentField, field, chain, aliases, all, proxyM, joinM)
@@ -964,7 +965,7 @@ func (qs *QuerySet[T]) addJoinForO2O(oneToOne attrs.Relation, parentDefs attrs.D
 	return qs.addJoinForM2M(oneToOne, parentDefs, parentField, field, chain, aliases, all, proxyM, joinM)
 }
 
-func addProxyChain[T attrs.Definer](qs *QuerySet[T], chain []string, proxyM map[string]struct{}, joinM map[string]bool, info *FieldInfo[attrs.FieldDefinition], aliases []string) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
+func addProxyChain[T attrs.Definer](qs *QuerySet[T], chain []string, proxyM, joinM map[string]struct{}, info *FieldInfo[attrs.FieldDefinition], aliases []string) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
 	var (
 		chainKey = strings.Join(chain, ".")
 		infos    = make([]*FieldInfo[attrs.FieldDefinition], 0, 1)
@@ -981,7 +982,7 @@ func addProxyChain[T attrs.Definer](qs *QuerySet[T], chain []string, proxyM map[
 			var key = join.JoinDefCondition.String()
 			if _, ok := joinM[key]; !ok {
 				joins = append(joins, join)
-				joinM[key] = true
+				joinM[key] = struct{}{}
 			}
 		}
 	}
@@ -1147,14 +1148,16 @@ func (qs *QuerySet[T]) Select(fields ...any) *QuerySet[T] {
 
 	qs.internals.Fields = make([]*FieldInfo[attrs.FieldDefinition], 0)
 	if qs.internals.joinsMap == nil {
-		qs.internals.joinsMap = make(map[string]bool, len(qs.internals.Joins))
+		qs.internals.joinsMap = make(map[string]struct{}, len(qs.internals.Joins))
+	}
+
+	if qs.internals.proxyMap == nil {
+		qs.internals.proxyMap = make(map[string]struct{}, 0)
 	}
 
 	if len(fields) == 0 {
 		fields = []any{"*"}
 	}
-
-	var seenProxies = make(map[string]struct{})
 
 fieldsLoop:
 	for _, selectedFieldObj := range fields {
@@ -1200,7 +1203,7 @@ fieldsLoop:
 
 			// add proxy chain for the model
 			var subInfos, subJoins = addProxyChain(
-				qs, []string{}, seenProxies, qs.internals.joinsMap, currInfo, []string{},
+				qs, []string{}, qs.internals.proxyMap, qs.internals.joinsMap, currInfo, []string{},
 			)
 			qs.internals.Fields = append(qs.internals.Fields, subInfos...)
 			qs.internals.Joins = append(qs.internals.Joins, subJoins...)
@@ -1271,13 +1274,13 @@ fieldsLoop:
 
 			switch rel.Type() {
 			case attrs.RelManyToOne:
-				infos, join = qs.addJoinForFK(rel, parentDefs, parentField, field, chain, aliases, allFields, seenProxies, qs.internals.joinsMap)
+				infos, join = qs.addJoinForFK(rel, parentDefs, parentField, field, chain, aliases, allFields, qs.internals.proxyMap, qs.internals.joinsMap)
 			case attrs.RelOneToOne:
-				infos, join = qs.addJoinForO2O(rel, parentDefs, parentField, field, chain, aliases, allFields, seenProxies, qs.internals.joinsMap)
+				infos, join = qs.addJoinForO2O(rel, parentDefs, parentField, field, chain, aliases, allFields, qs.internals.proxyMap, qs.internals.joinsMap)
 			case attrs.RelManyToMany:
-				infos, join = qs.addJoinForM2M(rel, parentDefs, parentField, field, chain, aliases, allFields, seenProxies, qs.internals.joinsMap)
+				infos, join = qs.addJoinForM2M(rel, parentDefs, parentField, field, chain, aliases, allFields, qs.internals.proxyMap, qs.internals.joinsMap)
 			case attrs.RelOneToMany:
-				infos, join = qs.addJoinForFK(rel, parentDefs, parentField, field, chain, aliases, allFields, seenProxies, qs.internals.joinsMap)
+				infos, join = qs.addJoinForFK(rel, parentDefs, parentField, field, chain, aliases, allFields, qs.internals.proxyMap, qs.internals.joinsMap)
 			default:
 				panic(fmt.Errorf("field %q (%T) is not a relation %s", field.Name(), field, rel.Type()))
 			}
@@ -1306,7 +1309,7 @@ fieldsLoop:
 		// add proxy chain for the model
 		// the root model always has an empty chain key
 		var subInfos, subJoins = addProxyChain(
-			qs, []string{}, seenProxies, qs.internals.joinsMap, currInfo, []string{},
+			qs, []string{}, qs.internals.proxyMap, qs.internals.joinsMap, currInfo, []string{},
 		)
 		qs.internals.Fields = append(qs.internals.Fields, subInfos...)
 		qs.internals.Joins = append(qs.internals.Joins, subJoins...)

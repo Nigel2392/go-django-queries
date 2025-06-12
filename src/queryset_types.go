@@ -47,7 +47,7 @@ type JoinDefCondition struct {
 	Next       *JoinDefCondition // The next join condition, if any
 }
 
-func writeCol(sb strings.Builder, col *expr.TableColumn) {
+func writeCol(sb *strings.Builder, col *expr.TableColumn) {
 	var (
 		length int = 0
 		list       = make([]string, 0, 6)
@@ -92,7 +92,7 @@ func writeCol(sb strings.Builder, col *expr.TableColumn) {
 }
 
 func (j *JoinDefCondition) String() string {
-	var sb = strings.Builder{}
+	var sb = &strings.Builder{}
 	var curr = j
 	for curr != nil {
 

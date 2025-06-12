@@ -387,6 +387,7 @@ func (qs *QuerySet[T]) Clone() *QuerySet[T] {
 			ForUpdate:   qs.internals.ForUpdate,
 			Distinct:    qs.internals.Distinct,
 			joinsMap:    maps.Clone(qs.internals.joinsMap),
+			proxyMap:    maps.Clone(qs.internals.proxyMap),
 
 			// annotations are not cloned
 			// this is to prevent the previous annotations

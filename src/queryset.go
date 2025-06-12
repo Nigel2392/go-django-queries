@@ -1314,6 +1314,7 @@ fieldsLoop:
 		qs.internals.Fields = append(qs.internals.Fields, currInfo)
 
 		// add proxy chain for the model
+		// the root model always has an empty chain key
 		if _, ok := seenProxies[""]; !ok {
 			seenProxies[""] = struct{}{}
 

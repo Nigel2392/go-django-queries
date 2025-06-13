@@ -2555,11 +2555,11 @@ func (qs *QuerySet[T]) BatchCreate(objects []T) ([]T, error) {
 	defer tx.Rollback()
 
 	var createdObjects = make([]T, 0, len(objects))
-	for _, batch := range qs.batch(objects, qs.internals.Limit) {
+	for batchNum, batch := range qs.batch(objects, qs.internals.Limit) {
 		var result, err = qs.BulkCreate(batch)
 		if err != nil {
 			return nil, errors.Wrapf(
-				err, "failed to create batch of %d objects", len(batch),
+				err, "failed to create batch %d of %d objects", batchNum, len(batch),
 			)
 		}
 
@@ -2595,19 +2595,19 @@ func (qs *QuerySet[T]) BatchUpdate(objects []T, exprs ...expr.NamedExpression) (
 	defer tx.Rollback()
 
 	var updatedObjects int64 = 0
-	for _, batch := range qs.batch(objects, qs.internals.Limit) {
+	for batchNum, batch := range qs.batch(objects, qs.internals.Limit) {
 		var count, err = qs.BulkUpdate(batch, exprs...)
 		if err != nil {
 			return 0, errors.Wrapf(
-				err, "failed to update batch of %d objects", len(batch),
+				err, "failed to update batch %d of %d objects", batchNum, len(batch),
 			)
 		}
 
 		if count == 0 {
 			return 0, errors.Wrapf(
 				query_errors.ErrNoRows,
-				"no rows updated for %T",
-				qs.internals.Model.Object,
+				"no rows updated for batch %d of %T",
+				batchNum, qs.internals.Model.Object,
 			)
 		}
 

@@ -136,7 +136,9 @@ func (g *ExprGroup) SQL(sb *strings.Builder) []any {
 	if g.not {
 		sb.WriteString("NOT ")
 	}
-	sb.WriteString("(")
+	if len(g.children) > 1 {
+		sb.WriteString("(")
+	}
 	var args = make([]any, 0)
 	for i, child := range g.children {
 		if i > 0 {
@@ -149,7 +151,9 @@ func (g *ExprGroup) SQL(sb *strings.Builder) []any {
 
 		args = append(args, child.SQL(sb)...)
 	}
-	sb.WriteString(")")
+	if len(g.children) > 1 {
+		sb.WriteString(")")
+	}
 	return args
 }
 

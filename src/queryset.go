@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"iter"
 	"maps"
 	"reflect"
 	"slices"
@@ -638,35 +639,6 @@ func (qs *QuerySet[T]) unpackFields(fields ...any) (infos []FieldInfo[attrs.Fiel
 	}
 
 	return infos, hasRelated
-}
-
-func (qs *QuerySet[T]) attrFields(obj attrs.Definer) (attrs.Definitions, []attrs.Field) {
-	var defs = obj.FieldDefs()
-	var fields []attrs.Field
-	if len(qs.internals.Fields) > 0 {
-		fields = make([]attrs.Field, 0, len(qs.internals.Fields))
-		for _, info := range qs.internals.Fields {
-			for _, field := range info.Fields {
-				var f, ok = defs.Field(field.Name())
-				if !ok {
-					panic(fmt.Errorf("field %q not found in %T", field.Name(), obj))
-				}
-				fields = append(fields, f)
-			}
-		}
-	} else {
-		var all = defs.Fields()
-		fields = make([]attrs.Field, 0, len(all))
-		for _, field := range all {
-			var val = field.GetValue()
-			var rVal = reflect.ValueOf(val)
-			if rVal.IsValid() && rVal.IsZero() {
-				continue
-			}
-			fields = append(fields, field)
-		}
-	}
-	return defs, fields
 }
 
 func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.Definitions, parentField attrs.Field, field attrs.Field, chain, aliases []string, all bool, proxyM, joinM map[string]struct{}) ([]*FieldInfo[attrs.FieldDefinition], []JoinDef) {
@@ -2458,7 +2430,7 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 			}
 		}
 
-		var defs, fields = qs.attrFields(obj)
+		var defs, fields = qs.updateFields(obj)
 		var info = UpdateInfo{
 			FieldInfo: FieldInfo[attrs.Field]{
 				Model: obj,
@@ -2563,6 +2535,88 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 	return res, tx.Commit()
 }
 
+// BatchCreate is used to create multiple objects in the database.
+//
+// It takes a list of definer objects as arguments and returns a Query that can be executed
+// to get the result, which is a slice of the created objects.
+//
+// The query is executed in a transaction, so if any error occurs, the transaction is rolled back.
+// You can specify the batch size to limit the number of objects created in a single query.
+//
+// The batch size is based on the [Limit] method of the queryset, which defaults to 1000.
+func (qs *QuerySet[T]) BatchCreate(objects []T) ([]T, error) {
+
+	var tx, err = qs.getTransaction()
+	if err != nil {
+		return nil, errors.Wrapf(
+			err, "failed to get transaction for %T", qs.internals.Model.Object,
+		)
+	}
+	defer tx.Rollback()
+
+	var createdObjects = make([]T, 0, len(objects))
+	for _, batch := range qs.batch(objects, qs.internals.Limit) {
+		var result, err = qs.BulkCreate(batch)
+		if err != nil {
+			return nil, errors.Wrapf(
+				err, "failed to create batch of %d objects", len(batch),
+			)
+		}
+
+		createdObjects = append(
+			createdObjects,
+			result...,
+		)
+	}
+
+	return createdObjects, tx.Commit()
+}
+
+// BatchUpdate is used to update multiple objects in the database.
+//
+// It takes a list of definer objects as arguments and returns a Query that can be executed
+// to get the result, which is a slice of the updated objects.
+//
+// The query is executed in a transaction, so if any error occurs, the transaction is rolled back.
+// You can specify the batch size to limit the number of objects updated in a single query.
+//
+// The batch size is based on the [Limit] method of the queryset, which defaults to 1000.
+func (qs *QuerySet[T]) BatchUpdate(objects []T, exprs ...expr.NamedExpression) (int64, error) {
+	if len(objects) == 0 {
+		return 0, nil // No objects to update
+	}
+
+	var tx, err = qs.getTransaction()
+	if err != nil {
+		return 0, errors.Wrapf(
+			err, "failed to get transaction for %T", qs.internals.Model.Object,
+		)
+	}
+	defer tx.Rollback()
+
+	var updatedObjects int64 = 0
+	for _, batch := range qs.batch(objects, qs.internals.Limit) {
+		var count, err = qs.BulkUpdate(batch, exprs...)
+		if err != nil {
+			return 0, errors.Wrapf(
+				err, "failed to update batch of %d objects", len(batch),
+			)
+		}
+
+		if count == 0 {
+			return 0, errors.Wrapf(
+				query_errors.ErrNoRows,
+				"no rows updated for %T",
+				qs.internals.Model.Object,
+			)
+		}
+
+		updatedObjects += count
+	}
+
+	return updatedObjects, tx.Commit()
+}
+
 // Delete is used to delete an object from the database.
 //
 // It returns a CountQuery that can be executed to get the result, which is the number of rows affected.
@@ -2621,6 +2675,66 @@ func (qs *QuerySet[T]) Row(sqlStr string, args ...interface{}) *sql.Row {
 // It uses the same context and transaction as the rest of the QuerySet.
 func (qs *QuerySet[T]) Exec(sqlStr string, args ...interface{}) (sql.Result, error) {
 	return qs.compiler.DB().ExecContext(qs.Context(), sqlStr, args...)
+}
+
+// updateFields is used to get the field definitions and fields to be updated for the given object.
+// It returns the field definitions and the fields to be updated based on the current QuerySet selection.
+func (qs *QuerySet[T]) updateFields(obj attrs.Definer) (attrs.Definitions, []attrs.Field) {
+	var defs = obj.FieldDefs()
+	var fields []attrs.Field
+	if len(qs.internals.Fields) > 0 {
+		fields = make([]attrs.Field, 0, len(qs.internals.Fields))
+		for _, info := range qs.internals.Fields {
+			for _, field := range info.Fields {
+				var f, ok = defs.Field(field.Name())
+				if !ok {
+					panic(fmt.Errorf("field %q not found in %T", field.Name(), obj))
+				}
+				fields = append(fields, f)
+			}
+		}
+	} else {
+		var all = defs.Fields()
+		fields = make([]attrs.Field, 0, len(all))
+		for _, field := range all {
+			var val = field.GetValue()
+			var rVal = reflect.ValueOf(val)
+			if rVal.IsValid() && rVal.IsZero() {
+				continue
+			}
+			fields = append(fields, field)
+		}
+	}
+	return defs, fields
+}
+
+// batch is used to batch a list of objects into smaller chunks.
+func (qs *QuerySet[T]) batch(objects []T, size int) iter.Seq2[int, []T] {
+	if len(objects) == 0 {
+		return func(yield func(int, []T) bool) {}
+	}
+
+	if size <= 0 {
+		size = MAX_DEFAULT_RESULTS
+	}
+
+	return func(yield func(int, []T) bool) {
+		var batchNum int
+		for i := 0; i < len(objects); i += size {
+			var end = min(i+size, len(objects))
+			var batch = objects[i:end]
+
+			if len(batch) == 0 {
+				continue
+			}
+
+			if !yield(batchNum, batch) {
+				return
+			}
+
+			batchNum++
+		}
+	}
 }
 
 func calcJoinType(rel attrs.Relation, parentField attrs.FieldDefinition) JoinType {

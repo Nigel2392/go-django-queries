@@ -540,6 +540,52 @@ func Test_Annotated_Get(t *testing.T) {
 	}
 }
 
+func Test_Annotated_OrderBy(t *testing.T) {
+	// Create test data
+	test1 := &TestStruct{
+		Name: "test1",
+		Text: "Test_Annotated_OrderBy",
+	}
+	test2 := &TestStruct{
+		Name: "test2",
+		Text: "Test_Annotated_OrderBy",
+	}
+
+	if err := queries.CreateObject(test1); err != nil {
+		t.Fatalf("Failed to create object 1: %v", err)
+	}
+	if err := queries.CreateObject(test2); err != nil {
+		t.Fatalf("Failed to create object 2: %v", err)
+	}
+
+	qs := queries.Objects[attrs.Definer](&TestStruct{}).
+		Select("*").
+		Filter("Text", "Test_Annotated_OrderBy").
+		Annotate("UpperName", expr.FuncUpper("Name")).
+		OrderBy("-UpperName")
+
+	rows, err := qs.All()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+
+	if rows[0].Annotations["UpperName"] != "TEST2" || rows[1].Annotations["UpperName"] != "TEST1" {
+		t.Errorf("expected UpperName annotations to be 'TEST2' and 'TEST1', got %v and %v",
+			rows[0].Annotations["UpperName"], rows[1].Annotations["UpperName"])
+	}
+
+	if _, err := queries.DeleteObject(test1); err != nil {
+		t.Fatalf("Failed to delete object 1: %v", err)
+	}
+	if _, err := queries.DeleteObject(test2); err != nil {
+		t.Fatalf("Failed to delete object 2: %v", err)
+	}
+}
+
 func Test_Annotated_ValuesList(t *testing.T) {
 	qs := queries.Objects[attrs.Definer](&TestStruct{}).
 		Annotate("Combined", &expr.RawExpr{

@@ -2,6 +2,7 @@ package queries
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"maps"
 	"reflect"
@@ -736,7 +737,7 @@ func (qs *QuerySet[T]) addJoinForFK(foreignKey attrs.Relation, parentDefs attrs.
 		)
 	} else {
 		join = JoinDef{
-			TypeJoin: TypeJoinLeft,
+			TypeJoin: calcJoinType(foreignKey, parentField),
 			Table: Table{
 				Name:  targetTable,
 				Alias: condB_Alias,
@@ -859,7 +860,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 	} else {
 		// JOIN through table
 		join1 = JoinDef{
-			TypeJoin: TypeJoinLeft,
+			TypeJoin: TypeJoinInner,
 			Table: Table{
 				Name:  throughTable,
 				Alias: aliasThrough,
@@ -879,7 +880,7 @@ func (qs *QuerySet[T]) addJoinForM2M(manyToMany attrs.Relation, parentDefs attrs
 
 		// JOIN target table
 		join2 = JoinDef{
-			TypeJoin: TypeJoinLeft,
+			TypeJoin: TypeJoinInner,
 			Table: Table{
 				Name:  targetTable,
 				Alias: alias,
@@ -1012,19 +1013,21 @@ func (qs *QuerySet[T]) addSubProxies(info *FieldInfo[attrs.FieldDefinition], nod
 			head.Value.Name(),
 		)
 
-		var rel = head.Value.Rel()
-		var targetModel = rel.Model()
-		var targetDefs = targetModel.FieldDefs()
-		var targetTableName = targetDefs.TableName()
-		var subAliasses = append(
-			aliasses,
-			qs.AliasGen.GetTableAlias(targetTableName, chain),
+		var (
+			rel             = head.Value.Rel()
+			targetModel     = rel.Model()
+			targetDefs      = targetModel.FieldDefs()
+			targetTableName = targetDefs.TableName()
+			condA_Alias     = sourceTableName
+			condB_Alias     = targetTableName
+			subAliasses     = append( // initialize a new slice for sub aliasses
+				aliasses,
+				qs.AliasGen.GetTableAlias(
+					targetTableName, chain,
+				),
+			)
 		)
 
-		var (
-			condA_Alias = sourceTableName
-			condB_Alias = targetTableName
-		)
 		if len(subAliasses) == 1 {
 			condB_Alias = subAliasses[0]
 		} else if len(subAliasses) > 1 {
@@ -1087,7 +1090,7 @@ func (qs *QuerySet[T]) addSubProxies(info *FieldInfo[attrs.FieldDefinition], nod
 		}
 
 		var join = JoinDef{
-			TypeJoin: TypeJoinLeft,
+			TypeJoin: calcJoinType(rel, head.Value),
 			Table: Table{
 				Name:  targetTableName,
 				Alias: condB_Alias,
@@ -1358,8 +1361,16 @@ func (qs *QuerySet[T]) GroupBy(fields ...any) *QuerySet[T] {
 // The field names can be prefixed with a minus sign (-) to indicate descending order.
 func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
 	var nqs = qs.Clone()
-	nqs.internals.OrderBy = make([]OrderBy, 0, len(fields))
+	nqs.internals.OrderBy = nqs.compileOrderBy(fields...)
+	return nqs
+}
 
+// compileOrderBy is used to compile the order by fields into a slice of OrderBy structs.
+//
+// it processes the field names, checks for descending order (indicated by a leading minus sign),
+// and generates the appropriate TableColumn and FieldAlias for each field.
+func (qs *QuerySet[T]) compileOrderBy(fields ...string) []OrderBy {
+	var orderBy = make([]OrderBy, 0, len(fields))
 	for _, field := range fields {
 		var ord = strings.TrimSpace(field)
 		var desc = false
@@ -1378,6 +1389,7 @@ func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
 			if !ok {
 				panic(err)
 			}
+			obj = qs.internals.Model.Object
 		}
 
 		var defs = obj.FieldDefs()
@@ -1400,7 +1412,7 @@ func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
 			field = nil
 		}
 
-		nqs.internals.OrderBy = append(nqs.internals.OrderBy, OrderBy{
+		orderBy = append(orderBy, OrderBy{
 			Column: expr.TableColumn{
 				TableOrAlias: tableAlias,
 				FieldColumn:  field,
@@ -1409,8 +1421,7 @@ func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
 			Desc: desc,
 		})
 	}
-
-	return nqs
+	return orderBy
 }
 
 // Reverse is used to reverse the order of the results of a query.
@@ -2589,6 +2600,56 @@ func (qs *QuerySet[T]) Delete(objects ...T) (int64, error) {
 	}
 
 	return res, tx.Commit()
+}
+
+// Raw is used to execute a raw SQL query on the compilers' current database.
+//
+// It returns a *sql.Rows object that can be used to iterate over the results.
+// The same transaction and context as the rest of the QuerySet will be used.
+func (qs *QuerySet[T]) Raw(sqlStr string, args ...interface{}) (*sql.Rows, error) {
+	return qs.compiler.DB().QueryContext(qs.Context(), sqlStr, args...)
+}
+
+// Row is used to execute a raw SQL query on the compilers' current database
+// and returns a single row.
+func (qs *QuerySet[T]) Row(sqlStr string, args ...interface{}) *sql.Row {
+	return qs.compiler.DB().QueryRowContext(qs.Context(), sqlStr, args...)
+}
+
+// Exec executes the given SQL on the compilers' current database and returns the result.
+//
+// It uses the same context and transaction as the rest of the QuerySet.
+func (qs *QuerySet[T]) Exec(sqlStr string, args ...interface{}) (sql.Result, error) {
+	return qs.compiler.DB().ExecContext(qs.Context(), sqlStr, args...)
+}
+
+func calcJoinType(rel attrs.Relation, parentField attrs.FieldDefinition) JoinType {
+	var relType = rel.Type()
+	switch relType {
+	case attrs.RelManyToOne:
+		if !parentField.AllowNull() {
+			return TypeJoinInner
+		}
+		return TypeJoinLeft
+
+	case attrs.RelOneToOne:
+		if rel.Through() != nil {
+			return TypeJoinInner
+		}
+		if !parentField.AllowNull() {
+			return TypeJoinInner
+		}
+		return TypeJoinLeft
+
+	case attrs.RelOneToMany:
+		return TypeJoinLeft
+
+	case attrs.RelManyToMany:
+		return TypeJoinInner
+
+	default:
+		panic(fmt.Errorf("unknown relation type %d for field %q", relType, parentField.Name()))
+	}
 }
 
 func getDatabaseName(model attrs.Definer, database ...string) string {

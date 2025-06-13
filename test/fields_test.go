@@ -426,8 +426,8 @@ func Test_Annotated_Filter(t *testing.T) {
 	qs := queries.Objects[attrs.Definer](&TestStruct{}).
 		Select("*").
 		Filter("Name", "TEST1").
-		Annotate("LowerName", expr.FuncLower("Name")).
-		Filter("LowerName", "test1")
+		Filter("LowerName", "test1").
+		Annotate("LowerName", expr.FuncLower("Name"))
 	rows, err := qs.All()
 	if err != nil {
 		t.Fatal(err)

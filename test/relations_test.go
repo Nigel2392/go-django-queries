@@ -1,6 +1,7 @@
 package queries_test
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -1217,6 +1218,15 @@ var manyToManyTests = []ManyToManyTest{
 						if revTarget.Title != expectedRev[j].Title {
 							t.Fatalf("Expected revTarget[%d].Title to be %q, got %q", j, expectedRev[j].Title, revTarget.Title)
 						}
+
+						t.Run(fmt.Sprintf("TestModelsThroughModelSetOnTarget-%d-%d", revTarget.ID, target.ID), func(t *testing.T) {
+							if revTarget.ThroughModel.(*ModelManyToMany_Through).TargetModel.ID != target.ID {
+								t.Fatalf("Expected revTarget[%d].ThroughModel.TargetModel.ID to be %d, got %d", j, target.ID, revTarget.ThroughModel.(*ModelManyToMany_Through).TargetModel.ID)
+							}
+							if revTarget.ThroughModel.(*ModelManyToMany_Through).SourceModel.ID != revTarget.ID {
+								t.Fatalf("Expected revTarget[%d].ThroughModel.SourceModel.ID to be %d, got %d", j, row.Object.ID, revTarget.ThroughModel.(*ModelManyToMany_Through).SourceModel.ID)
+							}
+						})
 					}
 					idx++
 				}

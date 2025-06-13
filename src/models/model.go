@@ -870,7 +870,7 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 
 	// Start transaction, if one was already started this is a no-op.
 	var transaction queries.Transaction
-	if queries.CREATE_IMPLICIT_TRANSACTION {
+	if queries.QUERYSET_CREATE_IMPLICIT_TRANSACTION {
 		ctx, transaction, err = queries.StartTransaction(ctx)
 		if err != nil {
 			return fmt.Errorf(

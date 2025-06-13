@@ -48,7 +48,7 @@ var QUERYSET_USE_CACHE_DEFAULT = true
 //
 // If false, the queryset will not automatically start a transaction
 // on each write / update / delete operation to the database.
-var CREATE_IMPLICIT_TRANSACTION = true
+var QUERYSET_CREATE_IMPLICIT_TRANSACTION = true
 
 // Basic information about the model used in the QuerySet.
 // It contains the model's meta information, primary key field, all fields,
@@ -358,7 +358,7 @@ func (qs *QuerySet[T]) WithTransaction(tx Transaction) (Transaction, error) {
 // getTransaction returns the rollback and commit functions for the current transaction
 // these will result in a no-op if the transaction was not started by the QuerySet itself.
 func (qs *QuerySet[T]) getTransaction() (tx Transaction, err error) {
-	if !qs.compiler.InTransaction() && CREATE_IMPLICIT_TRANSACTION {
+	if !qs.compiler.InTransaction() && QUERYSET_CREATE_IMPLICIT_TRANSACTION {
 		return qs.StartTransaction(qs.context)
 	}
 	tx = &nullTransaction{qs.compiler.DB()}

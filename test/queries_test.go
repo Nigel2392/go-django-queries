@@ -1351,6 +1351,72 @@ func TestQueryValuesList(t *testing.T) {
 	}
 }
 
+func TestValues(t *testing.T) {
+	var user = &User{
+		Name: "TestValues",
+	}
+
+	if err := queries.CreateObject(user); err != nil || user.ID == 0 {
+		t.Fatalf("Failed to insert user: %v", err)
+	}
+
+	var todos = []*Todo{
+		{Title: "TestValues 1", Description: "Description 1", Done: false, User: user},
+		{Title: "TestValues 2", Description: "Description 2", Done: true, User: user},
+		{Title: "TestValues 3", Description: "Description 3", Done: false, User: user},
+	}
+
+	todos, err := queries.GetQuerySet(&Todo{}).BulkCreate(todos)
+	if err != nil {
+		t.Fatalf("Failed to insert todos: %v", err)
+	}
+
+	values, err := queries.GetQuerySet[attrs.Definer](&Todo{}).
+		Filter("Title__icontains", "testvalues").
+		OrderBy("ID", "-User.Name").
+		Values("ID", "Title", "Description", "Done", "User.ID", "User.Name")
+	if err != nil {
+		t.Fatalf("Failed to get values: %v", err)
+	}
+	if len(values) != 3 {
+		t.Fatalf("Expected 3 values, got %d", len(values))
+	}
+
+	for i, value := range values {
+		var todo = todos[i]
+		if len(value) != 6 {
+			t.Fatalf("Expected 6 values, got %d", len(value))
+		}
+
+		t.Logf("Got todo values: %+v", value)
+
+		if value["ID"] != todo.ID {
+			t.Fatalf("Expected todo ID %d, got %v", todo.ID, value["ID"])
+		}
+
+		if value["Title"] != todo.Title {
+			t.Fatalf("Expected todo title %q, got %v", todo.Title, value["Title"])
+		}
+
+		if value["Description"] != todo.Description {
+			t.Fatalf("Expected todo description %q, got %v", todo.Description, value["Description"])
+		}
+
+		if value["Done"] != todo.Done {
+			t.Fatalf("Expected todo done %v, got %v", todo.Done, value["Done"])
+		}
+
+		if value["User.ID"] != todo.User.ID {
+			t.Fatalf("Expected todo user ID %d, got %v", todo.User.ID, value["User.ID"])
+		}
+
+		if value["User.Name"] != todo.User.Name {
+			t.Fatalf("Expected todo user name %q, got %v", todo.User.Name, value["User.Name"])
+		}
+	}
+
+}
+
 func TestQueryNestedRelated(t *testing.T) {
 	var image = &Image{
 		Path: "test/path/to/image.jpg",

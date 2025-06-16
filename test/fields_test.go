@@ -2,6 +2,7 @@ package queries_test
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
@@ -537,6 +538,73 @@ func Test_Annotated_Get(t *testing.T) {
 
 	if _, err := queries.DeleteObject(test); err != nil {
 		t.Fatalf("Failed to delete object: %v", err)
+	}
+}
+
+func Test_Annotated_Values(t *testing.T) {
+	var tests, err = queries.Objects(&TestStruct{}).BulkCreate([]*TestStruct{
+		{
+			Name: "test1",
+			Text: "Test_Annotated_Values",
+		},
+		{
+			Name: "test2",
+			Text: "Test_Annotated_Values",
+		},
+		{
+			Name: "test3",
+			Text: "Test_Annotated_Values",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create test objects: %v", err)
+	}
+
+	defer func(t *testing.T) {
+		_, err = queries.Objects(&TestStruct{}).Delete(tests...)
+		if err != nil {
+			t.Fatalf("Failed to delete test objects: %v", err)
+		}
+	}(t)
+
+	values, err := queries.Objects[attrs.Definer](&TestStruct{}).
+		Annotate("UpperName", expr.FuncUpper("Name")).
+		Filter("Text", "Test_Annotated_Values").
+		OrderBy("ID").
+		Values("*")
+	if err != nil {
+		t.Fatalf("Failed to get values: %v", err)
+	}
+
+	if len(values) != 3 {
+		t.Fatalf("expected 3 values, got %d", len(values))
+	}
+
+	for i, v := range values {
+		var test = tests[i]
+		// 6 fields + 1 for annotation
+		if len(v) != 7 {
+			t.Errorf("expected 7 fields per row, got %d (%+v)", len(v), v)
+		}
+
+		if v["ID"] != test.ID {
+			t.Errorf("expected ID = %d, got %v", test.ID, v["ID"])
+		}
+
+		if v["UpperName"] != strings.ToUpper(test.Name) {
+			t.Errorf("expected UpperName = %s, got %v", strings.ToUpper(test.Name), v["UpperName"])
+		}
+
+		if v["TestNameUpper"] != strings.ToUpper(test.Name) {
+			t.Errorf("expected TestNameUpper = %s, got %v", strings.ToUpper(test.Name), v["TestNameUpper"])
+		}
+
+		if v["TestNameLower"] != strings.ToLower(test.Name) {
+			t.Errorf("expected TestNameLower = %s, got %v", strings.ToLower(test.Name), v["TestNameLower"])
+		}
+
+		t.Logf("Row %d: ID=%d, UpperName=%s, TestNameUpper=%s, TestNameLower=%s",
+			i, v["ID"], v["UpperName"], v["TestNameUpper"], v["TestNameLower"])
 	}
 }
 

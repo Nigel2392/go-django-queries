@@ -19,6 +19,7 @@ import (
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/models"
+	"github.com/elliotchance/orderedmap/v2"
 	"github.com/pkg/errors"
 
 	_ "unsafe"
@@ -68,7 +69,7 @@ type modelInfo struct {
 // the compiler to build a query out of.
 type QuerySetInternals struct {
 	Model       modelInfo
-	Annotations map[string]attrs.Field
+	Annotations *orderedmap.OrderedMap[string, attrs.Field]
 	Fields      []*FieldInfo[attrs.FieldDefinition]
 	Where       []expr.ClauseExpression
 	Having      []expr.ClauseExpression
@@ -218,7 +219,7 @@ func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
 				Fields:    definitions.Fields(),
 				TableName: tableName,
 			},
-			Annotations: make(map[string]attrs.Field),
+			Annotations: orderedmap.NewOrderedMap[string, attrs.Field](),
 			Where:       make([]expr.ClauseExpression, 0),
 			Having:      make([]expr.ClauseExpression, 0),
 			Joins:       make([]JoinDef, 0),
@@ -376,7 +377,7 @@ func (qs *QuerySet[T]) Clone() *QuerySet[T] {
 		AliasGen: qs.AliasGen.Clone(),
 		internals: &QuerySetInternals{
 			Model:       qs.internals.Model,
-			Annotations: maps.Clone(qs.internals.Annotations),
+			Annotations: qs.internals.Annotations.Copy(),
 			Fields:      slices.Clone(qs.internals.Fields),
 			Where:       slices.Clone(qs.internals.Where),
 			Having:      slices.Clone(qs.internals.Having),
@@ -575,7 +576,7 @@ func (qs *QuerySet[T]) unpackFields(fields ...any) (infos []FieldInfo[attrs.Fiel
 			qs.internals.Model.Object, selectedField, qs.AliasGen,
 		)
 		if err != nil {
-			field, ok := qs.internals.Annotations[selectedField]
+			field, ok := qs.internals.Annotations.Get(selectedField)
 			if ok {
 				infos = append(infos, FieldInfo[attrs.FieldDefinition]{
 					Table: Table{
@@ -1174,7 +1175,10 @@ fieldsLoop:
 				Fields: ForSelectAllFields[attrs.FieldDefinition](qs.internals.Model.Object),
 			}
 
-			qs.internals.Fields = append(qs.internals.Fields, currInfo)
+			// Add the current model fields to the queryset selection
+			qs.internals.Fields = append(
+				qs.internals.Fields, currInfo,
+			)
 
 			// add proxy chain for the model
 			var subInfos, subJoins = addProxyChain(
@@ -1182,6 +1186,23 @@ fieldsLoop:
 			)
 			qs.internals.Fields = append(qs.internals.Fields, subInfos...)
 			qs.internals.Joins = append(qs.internals.Joins, subJoins...)
+
+			// reselect all annotations
+			// this is needed to ensure that annotations are not lost
+			// on selecting all fields
+			if qs.internals.Annotations.Len() > 0 {
+				var info = &FieldInfo[attrs.FieldDefinition]{
+					Table:  Table{Name: qs.internals.Model.TableName},
+					Fields: make([]attrs.FieldDefinition, 0, qs.internals.Annotations.Len()),
+				}
+
+				for head := qs.internals.Annotations.Front(); head != nil; head = head.Next() {
+					info.Fields = append(info.Fields, head.Value)
+				}
+
+				qs.internals.Fields = append(qs.internals.Fields, info)
+			}
+
 			continue fieldsLoop
 		}
 
@@ -1189,7 +1210,7 @@ fieldsLoop:
 			qs.internals.Model.Object, selectedField, qs.AliasGen,
 		)
 		if err != nil {
-			field, ok := qs.internals.Annotations[selectedField]
+			field, ok := qs.internals.Annotations.Get(selectedField)
 			if !ok {
 				panic(err)
 			}
@@ -1357,7 +1378,7 @@ func (qs *QuerySet[T]) compileOrderBy(fields ...string) []OrderBy {
 
 		if err != nil {
 			var ok bool
-			field, ok = qs.internals.Annotations[ord]
+			field, ok = qs.internals.Annotations.Get(ord)
 			if !ok {
 				panic(err)
 			}
@@ -1462,7 +1483,7 @@ func (qs *QuerySet[T]) annotate(alias string, expr expr.Expression) {
 			Table: Table{
 				Name: qs.internals.Model.TableName,
 			},
-			Fields: make([]attrs.FieldDefinition, 0, len(qs.internals.Annotations)),
+			Fields: make([]attrs.FieldDefinition, 0, qs.internals.Annotations.Len()),
 		}
 		qs.internals.Fields = append(
 			qs.internals.Fields, qs.internals.annotations,
@@ -1471,7 +1492,7 @@ func (qs *QuerySet[T]) annotate(alias string, expr expr.Expression) {
 
 	// Add the field to the annotations
 	var field = newQueryField[any](alias, expr)
-	qs.internals.Annotations[alias] = field
+	qs.internals.Annotations.Set(alias, field)
 	qs.internals.annotations.Fields = append(
 		qs.internals.annotations.Fields, field,
 	)
@@ -1714,6 +1735,82 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 	}
 
 	return rows.compile(qs)
+}
+
+// Values is used to retrieve a list of dictionaries from the database.
+//
+// It takes a list of field names as arguments and returns a list of maps.
+//
+// Each map contains the field names as keys and the field values as values.
+// If no fields are provided, it selects all fields from the model, see [Select] for more details.
+func (qs *QuerySet[T]) Values(fields ...any) ([]map[string]any, error) {
+	if qs.cached != nil && qs.useCache {
+		return qs.cached.([]map[string]any), nil
+	}
+
+	var resultQuery = qs.queryAll(fields...)
+	var results, err = resultQuery.Exec()
+	if err != nil {
+		return nil, err
+	}
+
+	var list = make([]map[string]any, len(results))
+	for i, row := range results {
+		var (
+			obj    = internal.NewObjectFromIface(qs.internals.Model.Object)
+			fields = getScannableFields(qs.internals.Fields, obj)
+			values = make(map[string]any, len(row))
+		)
+		for j, field := range fields {
+			var f = field.field
+			var val = row[j]
+
+			if err = f.Scan(val); err != nil {
+				return nil, errors.Wrapf(
+					err,
+					"failed to scan field %q in %T",
+					f.Name(), row,
+				)
+			}
+
+			// generate dict key for the field
+			var key string
+			if vf, ok := f.(AliasField); ok {
+				key = vf.Alias()
+			} else if len(field.chainKey) > 0 {
+				key = strings.Join(
+					append([]string{field.chainKey}, f.Name()),
+					".",
+				)
+			} else {
+				key = f.Name()
+			}
+
+			if key == "" {
+				return nil, fmt.Errorf(
+					"QuerySet.Values: empty key for field %q in %T",
+					f.Name(), row,
+				)
+			}
+
+			if _, ok := values[key]; ok {
+				return nil, fmt.Errorf(
+					"QuerySet.Values: duplicate key %q for field %q in %T",
+					key, f.Name(), row,
+				)
+			}
+
+			values[key] = f.GetValue()
+		}
+
+		list[i] = values
+	}
+
+	if qs.useCache {
+		qs.cached = list
+	}
+
+	return list, nil
 }
 
 // ValuesList is used to retrieve a list of values from the database.

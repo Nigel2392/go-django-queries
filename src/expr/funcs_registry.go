@@ -73,11 +73,6 @@ func (l *_lookups[T1, T2]) register(lookup T2, fn func(d driver.Driver, col T1, 
 	}
 }
 
-var typeLookups = &_lookups[string, string]{
-	m:   make(map[string]func(d driver.Driver, col string, value []any) (sql string, args []any, err error)),
-	d_m: make(map[reflect.Type]map[string]func(d driver.Driver, col string, value []any) (sql string, args []any, err error)),
-}
-
 func handleExprLookups[T1 comparable](col any, lookup T1, value []any) (any, []any, error) {
 	switch c := col.(type) {
 	case string:

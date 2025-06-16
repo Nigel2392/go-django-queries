@@ -7,6 +7,7 @@ import (
 	"github.com/Nigel2392/go-django-queries/internal"
 	"github.com/Nigel2392/go-django-queries/src/alias"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/elliotchance/orderedmap/v2"
 )
 
 type ExpressionLookupInfo struct {
@@ -127,7 +128,7 @@ type ExpressionInfo struct {
 	ForUpdate bool
 
 	// Annotations is a map of queryset annotations (fields).
-	Annotations map[string]attrs.Field
+	Annotations *orderedmap.OrderedMap[string, attrs.Field]
 }
 
 func (inf *ExpressionLookupInfo) FormatLogicalOpRHS(op LogicalOp, rhs string, values ...any) (string, []any) {
@@ -195,7 +196,7 @@ func newResolvedField(fieldPath, sqlText string, field attrs.FieldDefinition) *R
 func (inf *ExpressionInfo) ResolveExpressionField(field string) *ResolvedField {
 	var current, _, f, chain, aliases, isRelated, err = internal.WalkFields(inf.Model, field, inf.AliasGen)
 	if err != nil {
-		if fld, ok := inf.Annotations[field]; ok {
+		if fld, ok := inf.Annotations.Get(field); ok {
 			f = fld
 		} else {
 			panic(err)

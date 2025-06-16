@@ -62,6 +62,7 @@ type lookupRegistry struct {
 	lookupsGlobal    map[string]Lookup
 }
 
+// lookups and transforms both adhere to this interface
 type _sharedLookupTransform interface {
 	// returns the drivers that support this transform
 	// if empty, the transform is supported by all drivers

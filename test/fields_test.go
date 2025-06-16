@@ -302,12 +302,12 @@ func TestVirtualFieldsQuerySetSingleObjectTestStructNoObject(t *testing.T) {
 		t.Fatalf("Failed to create object: %v, %T", err, err)
 	}
 
-	var qs = queries.Objects[attrs.Definer](test)
-	qs = qs.Select("*")
-	qs = qs.Filter("ID", test.ID)
-	qs = qs.Filter("TestNameLower", "test1")
-	qs = qs.Filter("TestNameUpper", "TEST1")
-	qs = qs.OrderBy("-TestNameText")
+	var qs = queries.Objects[attrs.Definer](test).
+		Select("*").
+		Filter("ID", test.ID).
+		Filter("TestNameLower", "test1").
+		Filter("TestNameUpper", "TEST1").
+		OrderBy("-TestNameText")
 
 	var obj, err = qs.Get()
 	var (
@@ -543,18 +543,9 @@ func Test_Annotated_Get(t *testing.T) {
 
 func Test_Annotated_Values(t *testing.T) {
 	var tests, err = queries.Objects(&TestStruct{}).BulkCreate([]*TestStruct{
-		{
-			Name: "test1",
-			Text: "Test_Annotated_Values",
-		},
-		{
-			Name: "test2",
-			Text: "Test_Annotated_Values",
-		},
-		{
-			Name: "test3",
-			Text: "Test_Annotated_Values",
-		},
+		{Name: "test1", Text: "Test_Annotated_Values"},
+		{Name: "test2", Text: "Test_Annotated_Values"},
+		{Name: "test3", Text: "Test_Annotated_Values"},
 	})
 	if err != nil {
 		t.Fatalf("Failed to create test objects: %v", err)

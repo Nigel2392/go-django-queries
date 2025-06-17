@@ -125,6 +125,67 @@ func TestProxyModel(t *testing.T) {
 	//}
 }
 
+func TestProxyModelFilter(t *testing.T) {
+	attrs.RegisterModel(&ProxyModel{})
+
+	var tables = quest.Table(t,
+		&ProxyModel{},
+		&ProxiedModel{},
+	)
+
+	tables.Create()
+	defer tables.Drop()
+
+	var proxyModel = models.Setup(&ProxiedModel{
+		ProxyModel: &ProxyModel{
+			Title:       "Test Proxy",
+			Description: "This is a test proxy model",
+		},
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	})
+
+	var ctx = context.Background()
+	if err := proxyModel.Save(ctx); err != nil {
+		t.Fatalf("Failed to save proxy model: %v", err)
+	}
+
+	var loadedModel, err = queries.GetQuerySet(&ProxiedModel{}).
+		WithContext(ctx).
+		Filter("ProxyModel.Title", "Test Proxy").
+		First()
+	if err != nil {
+		t.Fatalf("Failed to load proxy model: %v", err)
+	}
+	if loadedModel == nil {
+		t.Fatal("Expected to load a proxy model, but got nil")
+	}
+	if loadedModel.Object.ID != proxyModel.ID {
+		t.Fatalf("Expected loaded model ID to be %d, but got %d", proxyModel.ID, loadedModel.Object.ID)
+	}
+	if loadedModel.Object.CreatedAt.IsZero() || loadedModel.Object.UpdatedAt.IsZero() {
+		t.Fatal("Expected CreatedAt and UpdatedAt to be set, but they are zero values")
+	}
+	if loadedModel.Object.ProxyModel == nil {
+		t.Fatal("Expected ProxyModel to be initialized, but it is nil")
+	}
+	//if loadedModel.Object.ProxyModel.ID != 1 {
+	//	t.Fatalf("Expected TargetID to be %d, but got %d", 1, loadedModel.Object.ProxyModel.ID)
+	//}
+	if loadedModel.Object.ProxyModel.Title != "Test Proxy" {
+		t.Fatalf("Expected ProxyModel Title to be 'Test Proxy', but got '%s'", loadedModel.Object.ProxyModel.Title)
+	}
+	if loadedModel.Object.ProxyModel.Description != "This is a test proxy model" {
+		t.Fatalf("Expected ProxyModel Description to be 'This is a test proxy model', but got '%s'", loadedModel.Object.ProxyModel.Description)
+	}
+	//if loadedModel.Object.ProxyModel.TargetCType != contenttypes.NewContentType[attrs.Definer](loadedModel.Object).TypeName() {
+	//	t.Fatalf("Expected TargetCType to be '%s', but got '%s'", contenttypes.NewContentType[attrs.Definer](loadedModel.Object).TypeName(), loadedModel.Object.ProxyModel.TargetCType)
+	//}
+	//if loadedModel.Object.ProxyModel.TargetID != loadedModel.Object.ID {
+	//	t.Fatalf("Expected TargetID to be %d, but got %d", loadedModel.Object.ID, loadedModel.Object.ProxyModel.TargetID)
+	//}
+}
+
 func TestLinkedToProxiedModel(t *testing.T) {
 	var tables = quest.Table(t,
 		&ProxyModel{},

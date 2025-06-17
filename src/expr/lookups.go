@@ -23,12 +23,12 @@ func init() {
 	//	RegisterLookup(logicalLookup(LOOKUP_DIV, DIV, nil))
 	//	RegisterLookup(logicalLookup(LOOKUP_MOD, MOD, nil))
 
-	//	RegisterLookup(logicalLookup(LOOKUP_BITAND, BITAND, nil))
-	//	RegisterLookup(logicalLookup(LOOKUP_BITOR, BITOR, nil))
-	//	RegisterLookup(logicalLookup(LOOKUP_BITXOR, BITXOR, nil))
-	//	RegisterLookup(logicalLookup(LOOKUP_BITLSH, BITLSH, nil))
-	//	RegisterLookup(logicalLookup(LOOKUP_BITRSH, BITRSH, nil))
-	//	RegisterLookup(logicalLookup(LOOKUP_BITNOT, BITNOT, nil))
+	RegisterLookup(logicalLookup(LOOKUP_BITAND, BITAND, nil))
+	RegisterLookup(logicalLookup(LOOKUP_BITOR, BITOR, nil))
+	RegisterLookup(logicalLookup(LOOKUP_BITXOR, BITXOR, nil))
+	RegisterLookup(logicalLookup(LOOKUP_BITLSH, BITLSH, nil))
+	RegisterLookup(logicalLookup(LOOKUP_BITRSH, BITRSH, nil))
+	RegisterLookup(logicalLookup(LOOKUP_BITNOT, BITNOT, nil))
 
 	RegisterLookup(patternLookup(LOOKUP_IEXACT, "%s"))
 	RegisterLookup(patternLookup(LOOKUP_CONTAINS, "%%%s%%"))
@@ -115,12 +115,13 @@ const (
 	//	LOOKUP_MUL         = "mul"
 	//	LOOKUP_DIV         = "div"
 	//	LOOKUP_MOD         = "mod"
-	//	LOOKUP_BITAND      = "bitand"
-	//	LOOKUP_BITOR       = "bitor"
-	//	LOOKUP_BITXOR      = "bitxor"
-	//	LOOKUP_BITLSH      = "bitlsh"
-	//	LOOKUP_BITRSH      = "bitrsh"
-	//	LOOKUP_BITNOT      = "bitnot"
+
+	LOOKUP_BITAND = "bitand"
+	LOOKUP_BITOR  = "bitor"
+	LOOKUP_BITXOR = "bitxor"
+	LOOKUP_BITLSH = "bitlsh"
+	LOOKUP_BITRSH = "bitrsh"
+	LOOKUP_BITNOT = "bitnot"
 
 	LOOKUP_IEXACT      = "iexact"
 	LOOKUP_CONTAINS    = "contains"

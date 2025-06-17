@@ -91,12 +91,8 @@ func (t *TestStruct) FieldDefs() attrs.Definitions {
 			"![Name] || ' ' || ![Text] || ' ' || ?",
 			"test",
 		)),
-		fields.NewVirtualField[string](t, t, "TestNameLower", expr.Raw(
-			"LOWER(![Name])",
-		)),
-		fields.NewVirtualField[string](t, t, "TestNameUpper", expr.Raw(
-			"UPPER(![Name])",
-		)),
+		fields.NewVirtualField[string](t, t, "TestNameLower", expr.FuncLower("Name")),
+		fields.NewVirtualField[string](t, t, "TestNameUpper", expr.FuncUpper("Name")),
 	).WithTableName("test_struct")
 }
 

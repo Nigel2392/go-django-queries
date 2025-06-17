@@ -28,6 +28,7 @@ var _, _ = attrs.OnModelRegister.Listen(func(s signals.Signal[attrs.SignalModelM
 
 type proxyTree struct {
 	object  attrs.Definer
+	defs    attrs.Definitions
 	proxies *orderedmap.OrderedMap[string, *proxyFieldNode]
 	fields  *orderedmap.OrderedMap[string, ProxyField]
 }
@@ -64,14 +65,14 @@ func buildProxyFieldMap(definer attrs.Definer) *proxyTree {
 		}
 	}
 
+	var newDefiner = attrs.NewObject[attrs.Definer](definer)
 	var node = &proxyTree{
-		object:  definer,
+		object:  newDefiner,
+		defs:    newDefiner.FieldDefs(),
 		fields:  orderedmap.NewOrderedMap[string, ProxyField](),
 		proxies: orderedmap.NewOrderedMap[string, *proxyFieldNode](),
 	}
-	var newDefiner = attrs.NewObject[attrs.Definer](definer)
-	var defs = newDefiner.FieldDefs()
-	for _, field := range defs.Fields() {
+	for _, field := range node.defs.Fields() {
 		var proxyField, ok = field.(ProxyField)
 		if !ok || !proxyField.IsProxy() {
 			continue

@@ -21,9 +21,9 @@ This library brings Django-style ORM queries to Go-Django, allowing you to:
   * [QuerySet](./docs/queryset/queryset.md)
   * [Writing Queries](./docs/queryset/writing_queries.md) (WIP)
 * [Relations & Joins](./docs/relations/relations.md) (WIP)
-* [Expressions](./docs/expressions/expressions.md) (WIP)
+* [Expressions](./docs/expressions/expressions.md)
   * [Lookups](./docs/expressions/lookups.md)
-  * [Case Expressions](./docs/expressions/cases.md) (WIP)
+  * [Case Expressions](./docs/expressions/cases.md)
 * [Advanced: Virtual Fields](./docs/virtual_fields.md) (WIP)
 
 ---

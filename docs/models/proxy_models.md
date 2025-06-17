@@ -1,8 +1,8 @@
 # Proxy models documentation
 
 Proxy models are a powerful feature in Go-Django Queries that allow you to embed other models into your own model.
-These models provide a way to create a model that is a "view" or "wrapper" around another model, allowing you to extend or modify its behavior without changing the original model.
-There is a caveat to this however, please refer to the [Caveats](#caveats) section below.
+These models provide a way to create a model that is always joined with the source model by default, this cannot be disabled.
+This might be useful for embedding models that are always used together, such as a `Page` model that is always used with a `BlogPage` model.
 
 ---
 
@@ -10,11 +10,8 @@ There is a caveat to this however, please refer to the [Caveats](#caveats) secti
 
 There are however a few rules for proxy models:
 
-* A model can have no more than one proxy model.
 * A proxy model must embed the `models.Model` struct (much like a regular model).
 * A proxy model must implement the `attrs.Definer` interface.
-* A proxy model must implement the `CanTargetDefiner` interface, which
-  allows the proxy model to effectively generate a join to the target model.
 * The top-level (embedder) model must embed the `models.Model` struct.
 * The top-level model must implement the `attrs.Definer` interface.
 * The top-level model must embed a pointer to the proxy model, not a value.
@@ -95,66 +92,46 @@ type BlogPage struct {
 
 func (m *BlogPage) FieldDefs() attrs.Definitions {
     return m.Model.Define(m,
-        // Embed the fields of the Page model
+        // Embed the fields of the Page model.
+        // These fields will be available if Page is not nil.
         fields.Embed("Page"),
         attrs.NewField(m, "Author"),
     )
 }
-```
 
-## Caveats
+// Optionally the proxy model can be implemented like so:
 
-When using proxy models, there is a caveat to be aware of: the proxy model must be used in conjunction with the top-level model.
-This means that any proxy models from fields in the top-level model will not be available automatically.
-
-Example:
-
-```go
-type BaseUser struct {
+type ProxyModel struct {
     models.Model
-    ID        int
-    Name      string
-    UserID    int
-    UserCType *contenttypes.BaseContentType[attrs.Definer]
+    ID          int64
 }
 
-// ... other required methods for BaseUser (CanTargetDefiner interface)
-
-func (m *BaseUser) FieldDefs() attrs.Definitions {
-    // ...
+func (b *ProxyModel) FieldDefs() attrs.Definitions {
+    return b.Model.Define(b,
+        attrs.Unbound("ID", &attrs.FieldConfig{Primary: true}),
+    )
 }
 
-type BaseProfile struct {
+type ProxiedModel struct {
     models.Model
-    ID           int
-    Email        string
-    ProfileID    int
-    ProfileCType *contenttypes.BaseContentType[attrs.Definer]
+    ProxyModel *ProxyModel
+    ID         int64
+    CreatedAt  time.Time
+    UpdatedAt  time.Time
 }
 
-// ... other required methods for BaseProfile (CanTargetDefiner interface)
-
-func (m *BaseProfile) FieldDefs() attrs.Definitions {
-    // ...
-}
-
-type Profile struct {
-    models.Model
-    *BaseProfile // Embedding the BaseProfile model
-}
-func (m *Profile) FieldDefs() attrs.Definitions {
-    // ...
-}
-
-type User struct {
-    models.Model
-    *BaseUser // Embedding the BaseUser model
-    Profile *Profile
-}
-func (m *User) FieldDefs() attrs.Definitions {
-    // ...
+func (p *ProxiedModel) FieldDefs() attrs.Definitions {
+    return p.Model.Define(p,
+        attrs.Unbound("ID", &attrs.FieldConfig{Primary: true}),
+        // Embed a O2O field with the IsProxy flag set to true.
+        // This will ensure that the field is treated as a proxy model, and automatically
+        // joined with the source model.
+        fields.OneToOne[*ProxyModel]("ProxyModel", &fields.FieldConfig{
+            IsProxy:  true,
+            Nullable: false, // Proxy models cannot be nullable!
+        }),
+        attrs.Unbound("CreatedAt"),
+        attrs.Unbound("UpdatedAt"),
+    )
 }
 ```
-
-For now it is impossible to automatically join the BaseProfile model when querying the User model.  
-This might be subject to change in the future.

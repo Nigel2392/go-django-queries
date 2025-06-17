@@ -2880,11 +2880,10 @@ func TestCaseExpression(t *testing.T) {
 		Select("ID", "Title", "Done").
 		Filter("Description", "Description CaseExpression").
 		Annotate("Status",
-			expr.Case(
-				expr.When("Done", true).Then("Completed"),
-				expr.When(expr.Logical("Done").EQ(false), "Pending"),
-				"Unknown",
-			),
+			expr.Case().
+				When("Done", true).Then("Completed").
+				When(expr.Logical("Done").EQ(false), "Pending").
+				Default("Unknown"),
 		).
 		Annotate("TitleIndex",
 			expr.Case(

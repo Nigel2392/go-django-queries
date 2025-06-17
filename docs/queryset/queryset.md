@@ -1,165 +1,86 @@
-# 📝 Querying Objects
+# QuerySet Reference
 
-The QuerySet type is used to build and execute queries against the database.
+This document provides a reference for the `QuerySet` type in the `go-django` ORM.
 
-## Documentation Structure
+It includes methods for building and executing queries, as well as managing transactions and context.
 
-* [Objects](#objects)
-* [ChangeObjectsType](#changeobjectstype)
-* [QuerySet Methods](#queryset-methods)
-  * [DB](#db)
-  * [Model](#model)
-  * [Compiler](#compiler)
-  * [LatestQuery](#latestquery)
-  * [StartTransaction](#starttransaction)
-  * [Clone](#clone)
-  * [String](#string)
-  * [GoString](#gostring)
-  * [Select](#select)
-  * [Filter](#filter)
-  * [Having](#having)
-  * [GroupBy](#groupby)
-  * [OrderBy](#orderby)
-  * [Reverse](#reverse)
-  * [Limit](#limit)
-  * [Offset](#offset)
-  * [ForUpdate](#forupdate)
-  * [Distinct](#distinct)
-  * [ExplicitSave](#explicitsave)
-  * [Annotate](#annotate)
-* [Executing Queries](#executing-queries)
-  * [All](#all)
-  * [ValuesList](#valueslist)
-  * [Aggregate](#aggregate)
-  * [Get](#get)
-  * [GetOrCreate](#getorcreate)
-  * [First](#first)
-  * [Last](#last)
-  * [Exists](#exists)
-  * [Count](#count)
-  * [Create](#create)
-  * [Update](#update)
-  * [Delete](#delete)
-
-## Objects
-
-Queries are built using the `queries.Objects` function, which takes a model type as an argument,  
-and returns a QuerySet.
-
-Example:
-
-```go
-var querySet = queries.Objects[*User](&User{})
-```
-
-## ChangeObjectsType
-
-The above example will return a `QuerySet[*User]`, this however proves some issues:
-
-The `QuerySet[*User]` object cannot be generically used in other functions.
-
-I.E. the following code will work:
-
-```go
-func ExecQuery(qs *QuerySet[*User]) error {
-    return qs.All()
-}
-
-var querySet = queries.Objects[*User](&User{})
-ExecQuery(querySet)
-```
-
-However, the following code will not work:
-
-```go
-
-var querySet = queries.Objects[attrs.Definer](&User{})
-ExecQuery(querySet) // error: cannot use qs (type *QuerySet[*User]) as type *QuerySet[attrs.Definer] in argument to ExecQuery
-```
-
-This is because the `QuerySet[*User]` object is not a `QuerySet[attrs.Definer]`, it is a `QuerySet[*User]`, which is a different type.
-
-To fix this issue, we should conver the queryset's type to a `QuerySet[attrs.Definer]`.
-
-This can be done with the `ChangeObjectsType` function:
-
-```go
-var querySet = queries.Objects[attrs.Definer](&User{})
-var newQuerySet = queries.ChangeObjectsType[attrs.Definer, *User](querySet)
-ExecQuery(newQuerySet)
-```
+---
 
 ## QuerySet Methods
 
-The QuerySet type provides a set of methods to use in queries.
+### `GoString() string`
 
-### DB
+GoString returns a string representation of the `QuerySet` for debugging purposes.
 
-**Signature:** `DB() queries.DB`
+It provides additional information about the query, such as the model type and any applied filters or annotations.
 
-Returns the database interface used by the compiler.
+### `String() string`
 
-This interface is compatible with `*sql.DB` and `*sql.Tx`.
+String returns a string representation of the `QuerySet`.
 
-If a transaction was started, it will return the transaction instead of the database connection.
+It will query the database to retrieve any results for the current query, and return a string representation of the list of results.
 
-### Model
+### `LatestQuery() QueryInfo`
 
-**Signature:** `Model() attrs.Definer`
+LatestQuery returns information about the most recently query executed by the `QuerySet`.
 
-The model which the queryset is for.
+It includes details such as the SQL query string and the parameters used in the query.
 
-### Compiler
+### `Model() attrs.Definer`
 
-**Signature:** `Compiler() queries.QueryCompiler`
+Model returns the model associated with the `QuerySet`.
 
-The underlying SQL compiler used by the queryset.
+It is the current model which the `QuerySet` is working on.
 
-### LatestQuery
+### `Clone() *QuerySet[T]`
 
-**Signature:** `LatestQuery() queries.QueryInfo`
+Clone creates a new `QuerySet` that is a copy of the current one.
 
-Returns the latest query that was executed on the queryset.
+The new queryset is not able to mutate the original queryset and can be modified independently.
 
-See [`QueryInfo`](../interfaces.md#queryinfo) for more details.
+### `Compiler() QueryCompiler`
 
-### StartTransaction
+Returns the `QueryCompiler` used by the `QuerySet`.
 
-**Signature:** `StartTransaction(ctx context.Context) (Transaction, error)`
+This is the underlying SQL builder that generates the SQL queries for the `QuerySet`.
 
-StartTransaction starts a new transaction on the underlying database.
+### `DB() DB`
 
-It returns a Transaction object which will put the compiler in transaction mode.
+Returns the database connection used by the `QuerySet`.
 
-If a transaction was already started, it will return `query_errors.ErrTransactionStarted`
+If the `Compiler` is in a transaction, that transaction (`*sql.Tx`) will be returned instead.
 
-See [`Transaction`](../interfaces.md#transaction) for more details.
+### `StartTransaction(ctx context.Context) (Transaction, error)`
 
-### Clone
+Starts a new transaction for the `QuerySet`.
 
-**Signature:** `Clone() *QuerySet[T]`
+It returns a `Transaction` object that can be used to execute queries within the transaction context.
 
-Perform a clone of the current queryset.
+The transaction will be automatically added to the `Queryset`s' context, allowing it to be used for subsequent queries.
 
-It returns a new QuerySet with the same parameters as the original one.
+### `WithTransaction(tx Transaction) (Transaction, error)`
 
-The new QuerySet will not be able to modify values in the original QuerySet.
+WithTransaction sets the `QuerySet` to use the provided transaction.
 
-### String
+It allows the `QuerySet` to execute queries within the context of the provided transaction.
 
-**Signature:** `String() string`
+The queryset will copy the transaction to its `context.Context`, allowing it to be used for subsequent queries.
 
-Return a cut-down string representation of the queryset.
+### `Context() context.Context`
 
-### GoString
+Context returns the context associated with the `QuerySet`.
 
-**Signature:** `GoString() string`
+### `WithContext(ctx context.Context) *QuerySet[T]`
 
-Return a detailed string representation of the queryset.
+WithContext sets the context for the `QuerySet`.
 
-### Select
+If there is a transaction present in the context, it will be used for subsequent queries.
 
-**Signature:** `Select(fields ...any) *QuerySet[T]`
+### `Prefix(prefix string) *QuerySet[T]`
+
+Prefix sets a prefix for the SQL queries generated by the `QuerySet`.
+
+### `Select(fields ...any) *QuerySet[T]`
 
 Select is used to select specific fields from the model.
 
@@ -167,319 +88,279 @@ It takes a list of field names as arguments and returns a new QuerySet with the 
 
 If no fields are provided, it selects all fields from the model.
 
-If the first field is "*", it selects all fields from the model,
+If the first field is "*", it selects all fields from the model,  
 extra fields (i.e. relations) can be provided thereafter - these will also be added to the selection.
 
 How to call Select:
 
-* `Select("*")`
-* `Select("Field1", "Field2")`
-* `Select("Field1", "Field2", "Relation.*")`
-* `Select("*", "Relation.*")`
-* `Select("Relation.*")`
-* `Select("*", "Relation.Field1", "Relation.Field2", "Relation.Nested.*")`
+* `qs = qs.Select("*")`
+* `qs = qs.Select("Field1", "Field2")`
+* `qs = qs.Select("Field1", "Field2", "Relation.*")`
+* `qs = qs.Select("*", "Relation.*")`
+* `qs = qs.Select("Relation.*")`
+* `qs = qs.Select("*", "Relation.Field1", "Relation.Field2", "Relation.Nested.*")`
+* `qs = qs.Select("*", "Relation.Field1", "Relation.Field2", expr.FuncLower("Relation.Field3"))`
 
-### Filter
+### `Distinct() *QuerySet[T]`
 
-**Signature:** `Filter(key interface{}, vals ...interface{}) *QuerySet[T]`
+Distinct is used to ensure that the results of the query are unique.
 
-Filter is used to filter the results of a query.
+It modifies the `QuerySet` to include a `DISTINCT` clause in the SQL query.
 
-It takes a key and a list of values as arguments and returns a new QuerySet with the filtered results.
+If this is not supported by the database, a panic will occur.
 
-The key can be a field name (string), an expr.Expression (expr.Expression) or a map of field names to values.
+### `Filter(key interface{}, vals ...interface{}) *QuerySet[T]`
 
-By default the `__exact` (=) operator is used, each where clause is separated by `AND`.
+Filter is used to filter the results of the query based on specific conditions.
 
-See [`expressions](./expressions.md) for more details on expressions and lookups.
+It takes a key (field name or expression) and one or more values to filter by.
 
-Example:
+It returns a new `QuerySet` with the applied filter.
+
+The field name can be a string representing the field - [lookups](../expressions/lookups.md) are supported, e.g. `Field__contains`, `Field__gt`, etc.
+
+### `Having(key interface{}, vals ...interface{}) *QuerySet[T]`
+
+Having is used to filter the results of the query based on conditions applied to aggregated values.
+
+It takes a key (field name or expression) and one or more values to filter by.
+
+It returns a new `QuerySet` with the applied having condition.
+
+### `Limit(n int) *QuerySet[T]`
+
+Limit is used to limit the number of results returned by the query.
+
+It takes an integer `n` as an argument and returns a new `QuerySet` with the limit applied.
+
+### `Offset(n int) *QuerySet[T]`
+
+Offset is used to skip a specified number of results in the query.
+
+It takes an integer `n` as an argument and returns a new `QuerySet` with the offset applied.
+
+### `OrderBy(fields ...string) *QuerySet[T]`
+
+OrderBy is used to order the results of the query by one or more fields.
+
+It takes a list of field names as arguments and returns a new `QuerySet` with the specified order.
+
+The field names can be prefixed with a minus sign (`-`) to indicate descending order.
+
+Example usage:
 
 ```go
-var qs = queries.Objects[*User](&User{}).
-    Filter("Name", "John Doe").           // exact match
-    Filter("Email__istartswith", "JOHN"). // case insensitive starts with
-    Filter("Age__lt", 30).                // less than
-    Filter(
-        // Lower(Name) LIKE LOWER("JOHN") AND LOWER(Email) LIKE doe%,
-        expr.Q("Name__icontains", "JOHN"),
-        expr.Q("Email__icontains", "doe"),
-    ).
-    Filter(
-        // Lower(Name) LIKE LOWER("JOHN") OR LOWER(Email) LIKE doe%,
-        expr.Q("Name__icontains", "JOHN").
-            Or("Email__icontains", "doe"),
-    )
+qs = qs.OrderBy("Field1", "-Field2")
 ```
 
-### Having
+### `Reverse() *QuerySet[T]`
 
-**Signature:** `Having(key interface, vals ...interface{}) *QuerySet[T]`
+Reverse is used to reverse the order of the results in the query.
 
-Having is used to filter the results of a query after grouping.
+It modifies the `QuerySet` to reverse the order of the results based on the last applied `OrderBy` clause.
 
-It takes a key and a list of values as arguments and returns a new QuerySet with the filtered results.
+### `ExplicitSave() *QuerySet[T]`
 
-The key can be a field name (string), an expr.Expression (expr.Expression) or a map of field names to values.
+ExplicitSave is used to indicate that the `QuerySet` should not automatically save changes using the model's `Save(context.Context)` method.
 
-See ['Filter'](#filter) for more details on filtering results.
+This will force the `QuerySet` itself to handle saving changes explicitly, allowing for more control over the save process  
+and also allowing models to use the `QuerySet` inside it's `Save` method.
 
-See [`expressions](./expressions.md) for more details on expressions and lookups.
+### `ForUpdate() *QuerySet[T]`
 
-### GroupBy
+ForUpdate is used to lock the rows returned by the query for update.
 
-**Signature:** `GroupBy(fields ...string) *QuerySet[T]`
+It modifies the `QuerySet` to include a `FOR UPDATE` clause in the SQL query, ensuring that the rows are locked for the duration of the transaction.
 
-GroupBy is used to group the results of a query.
+### `GroupBy(fields ...any) *QuerySet[T]`
 
-It takes a list of field names as arguments and returns a new QuerySet with the grouped results.
+GroupBy is used to group the results of the query by one or more fields.
 
-### OrderBy
+It takes a list of field names as arguments and returns a new `QuerySet` with the specified grouping.
 
-**Signature:** `OrderBy(fields ...string) *QuerySet[T]`
+It is typically used in conjunction with aggregation functions to calculate values for each group.
 
-OrderBy is used to order the results of a query.
+### `Annotate(aliasOrAliasMap interface{}, exprs ...expr.Expression) *QuerySet[T]`
 
-It takes a list of field names as arguments and returns a new QuerySet with the ordered results.
+Annotate is used to add annotations to the results of the query.
 
-The field names can be prefixed with a minus sign (-) to indicate descending order.
+It allows you to compute additional values based on the fields of the model or related models.
 
-Example: `OrderBy("-Field1", "Field2")`
+It takes either an alias string, `expr.NamedExpression` or a map of alias names to [expressions](../expressions/expressions.md) as the first argument, followed by one or more expressions.
 
-### Reverse
+### `Scope(scopes ...func(*QuerySet[T], *QuerySetInternals) *QuerySet[T]) *QuerySet[T]`
 
-**Signature:** `Reverse() *QuerySet[T]`
+Scope is used to apply one or more scopes to the `QuerySet`.
 
-Reverse is used after ordering to reverse the order of the OrderBy clause.
+It allows you to encapsulate common query logic into reusable functions.
 
-It returns a new QuerySet with the reversed order.
+It takes one or more functions as arguments, each of which takes a `QuerySet` and `QuerySetInternals` as parameters and returns a modified `QuerySet`.
 
-### Limit
-
-**Signature:** `Limit(n int) *QuerySet[T]`
-
-Limit is used to limit the number of results returned by a query.
-
-It takes an integer as an argument and returns a new QuerySet with the limited results.
-
-### Offset
-
-**Signature:** `Offset(n int) *QuerySet[T]`
-
-Offset is used to set the offset of the results returned by a query.
-
-It takes an integer as an argument and returns a new QuerySet with the offset results.
-
-### ForUpdate
-
-**Signature:** `ForUpdate() *QuerySet[T]`
-
-ForUpdate is used to lock the rows returned by a query for update.
-
-It is used to prevent other transactions from modifying the rows until the current transaction is committed or rolled back.
-
-It returns a new QuerySet with the locked rows.
-
-### Distinct
-
-**Signature:** `Distinct() *QuerySet[T]`
-
-Distinct is used to select distinct rows from the results of a query.
-
-It is used to remove duplicate rows from the results.
-
-It returns a new QuerySet with the distinct rows.
-
-### ExplicitSave
-
-**Signature:** `ExplicitSave() *QuerySet[T]`
-
-ExplicitSave is used to indicate that the save operation should be explicit.
-
-It is used to prevent the automatic save operation from being performed on the model.
-
-I.E. when using the `Create` method after calling `qs.ExplicitSave()`, it will **not** automatically
-save the model to the database using the model's own `Save` method.
-
-It returns a new QuerySet with the explicit save operation set.
-
-### Annotate
-
-**Signature:** `Annotate(aliasOrAliasMap interface{}, exprs ...expr.Expression) *QuerySet[T]`
-
-Annotate is used to add annotations to the results of a query.
-
-It takes a string or a map of strings to expr.Expressions as arguments and returns a new QuerySet with the annotations.
-
-If a string is provided, it is used as the alias for the expr.Expression.
-
-If a map is provided, the keys are used as aliases for the expr.Expressions.
-
-See [`expressions`](./expressions.md) for more details on expressions and lookups.
-
-## Executing Queries
-
-Queries can be executed using the below methods.
-
-These methods return a result and an error.
-
-After executing any of these methods, the `LatestQuery()`  
-method can be used to retrieve the latest query that was executed.
-
-### All
-
-**Signature:** `All() ([]*Row[T], error)`
-
-All is used to retrieve all rows from the database.
-
-Fields can be provided to select as strings or expressions.
-
-The fields provided have to exist in the model or be annotated.
-
-It returns a slice of Row objects, which contain the model object and a map of annotations.
-
-If no fields are provided, it selects all fields from the model with `Select(*)`, see `Select()` for more details.
+Example usage:
 
 ```go
-type Row[T attrs.Definer] struct {
-    Object      T
-    Annotations map[string]any
-}
+qs = qs.Scope(
+    func(qs *QuerySet[T], internals *QuerySetInternals) *QuerySet[T] {
+        return qs.Filter("Field", "value")
+    },
+    func(qs *QuerySet[T], internals *QuerySetInternals) *QuerySet[T] {
+        return qs.OrderBy("Field")
+    },
+)
 ```
 
-### ValuesList
+## QuerySet Query Methods
 
-**Signature:** `ValuesList(fields ...any) ([][]any, error)`
+The following methods are used to execute queries and retrieve results from the database.
 
-ValuesList is used to retrieve a list of values from the database.
+### `All() (Rows[T], error)`
 
-It takes a list of field names or expressions as arguments and returns a slice of slices of values.
+The `All` method retrieves all rows from the database for the current `QuerySet`.
 
-See [`expressions`](./expressions.md) for more details on expressions and lookups.
+It returns a `Rows[T]` object containing the results, or an error if the query fails.
 
-### Aggregate
+The `Rows[T]` object can be iterated over to access each row (it is an alias for []*Row[T]).
 
-**Signature:** `Aggregate(annotations map[string]expr.Expression) (map[string]any, error)`
+Each row contains the model object and any annotations that were applied to the query.
 
-Aggregate is used to perform aggregation on the results of a query.
+### `Aggregate(annotations map[string]expr.Expression) (map[string]any, error)`
 
-It takes a map of field names to expr.Expressions as arguments and returns a Query that can be executed to get the results.
+The `Aggregate` method performs aggregation on the results of the query.
 
-Example:
+It takes a map of annotation names to [expressions](../expressions/expressions.md) as an argument and returns a map of aggregated values.
 
-```go
-var agg, err = queries.Objects[*User](&User{}).
-    Aggregate(map[string]expr.Expression{
-        "Count": expr.FuncCount("ID"),
-    })
+### `BatchCreate(objects []T) ([]T, error)`
 
-var count = agg["Count"]
-```
+The `BatchCreate` method is used to create multiple objects in the database.
 
-See [`expressions`](./expressions.md) for more details on expressions and lookups.
+It takes a slice of objects of type `T` and returns a slice of created objects or an error if the operation fails.
 
-### Get
+The slice of objects will be chunked into batches of `qs.Limit(n int)` size, where `n` is the limit set on the `QuerySet`.
 
-**Signature:** `Get() (*Row[T], error)`
+### `BatchUpdate(objects []T, exprs ...expr.NamedExpression) (int64, error)`
 
-Get is used to retrieve a single row from the database.
+The `BatchUpdate` method is used to update multiple objects in the database.
 
-It returns a Row object and an error.
-The row object contains the model object and a map of annotations.
+It takes a slice of objects of type `T` and one or more [expressions](../expressions/expressions.md) to update the fields.
 
-If no rows are found, it returns queries.query_errors.ErrNoRows.
+It returns the number of rows affected by the update operation or an error if the operation fails.
 
-If multiple rows are found, it returns queries.query_errors.ErrMultipleRows.
+The slice of objects will be chunked into batches of `qs.Limit(n int)` size, where `n` is the limit set on the `QuerySet`.
 
-### First
+### `BulkCreate(objects []T) ([]T, error)`
 
-**Signature:** `First() (*Row[T], error)`
+The `BulkCreate` method is used to create multiple objects in the database in a single operation.
 
-First is used to retrieve the first row from the database.
+It takes a slice of objects of type `T` and returns a slice of created objects or an error if the operation fails.
 
-It returns a Row object and an error.
+### `BulkUpdate(objects []T, expressions ...expr.NamedExpression) (int64, error)`
 
-The row object contains the model object and a map of annotations.
+The `BulkUpdate` method is used to update multiple objects in the database in a single operation.
 
-### Last
+It takes a slice of objects of type `T` and one or more expressions to update the fields.
+It returns the number of rows affected by the update operation or an error if the operation fails.
 
-**Signature:** `Last() (*Row[T], error)`
+For most database drivers, this will always return 1, even if more than one row was updated.
 
-Last is used to retrieve the last row from the database.
+### `Count() (int64, error)`
 
-It returns a Row object and an error.
+The `Count` method returns the number of rows that match the query.
 
-The row object contains the model object and a map of annotations.
+It executes the query and returns the count of matching rows as an `int64`, or an error if the query fails.
 
-It reverses the order of the results and then calls First to get the last row.
+### `Create(value T) (T, error)`
 
-### Exists
+The `Create` method is used to create a single object in the database.
 
-**Signature:** `Exists() (bool, error)`
+It takes an object of type `T` and returns the created object with it's primary key set, or an error if the operation fails.
 
-Exists is used to check if any rows exist in the database.
+### `Update(value T, expressions ...expr.NamedExpression) (int64, error)`
 
-It returns a boolean indicating if any rows exist.
+The `Update` method is used to update a single object in the database.
 
-### Count
+It takes an object of type `T` and one or more [expressions](../expressions/expressions.md) to update the fields.
 
-**Signature:** `Count() (int64, error)`
+It returns the number of rows affected by the update operation or an error if the operation fails.
 
-Count is used to count the number of rows in the database.
+### `Delete(objects ...T) (int64, error)`
 
-It returns an int64 indicating the number of rows.
+The `Delete` method is used to delete one or more objects from the database.
 
-### Create
+It takes a variadic number of objects of type `T` and returns the number of rows affected by the delete operation or an error if the operation fails.
 
-**Signature:** `Create(value T) (T, error)`
+It requires either the objects to be passed, from which a primary key can be extracted, or the `QuerySet` to have a filter applied that matches the objects to be deleted.
 
-Create is used to create a new object in the database.
+### `Exists() (bool, error)`
 
-It takes a definer object as an argument and returns a Row object and an error.
-It panics if a non- nullable field is null or if the field is not found in the model.
+Exists checks if any rows match the current query.
 
-The model can adhere to django's `models.Saver` interface, in which case the `Save()` method will be called
-unless `ExplicitSave()` was called on the queryset.
+It returns `true` if at least one row matches the query, or `false` if no rows match,  
+or an error if the query fails.
 
-If `ExplicitSave()` was called, the `Create()` method will return a query that can be executed to create the object
-without calling the `Save()` method on the model.
+### `Get() (*Row[T], error)`
 
-### GetOrCreate
+Get retrieves a single row from the query results.
 
-See also: [`Get`](#get), [`Create`](#create)
+It returns a pointer to a `Row[T]` containing the result, or an error if the query fails or no results are found.
 
-**Signature:** `GetOrCreate(value T) (T, error)`
+It will return one of the following errors:
 
-GetOrCreate is used to retrieve a single row from the database or create it if it does not exist.
+* `query_errors.ErrNoRows` if no rows are found.
+* `query_errors.ErrMultipleRows` if more than one row is found.
 
-It returns the definer object and an error if any occurred.
+Or it will return the error from the database driver if the query fails.
 
-This method executes a transaction to ensure that the object is created only once.
+### `GetOrCreate(value T) (T, bool, error)`
 
-It panics if the queryset has no where clause.
+GetOrCreate retrieves a single row from the query results, or creates a new row if no matching row is found.
 
-### Update
+It takes an object of type `T` and returns the found or created object, a boolean indicating whether the object was created,
+and an error if the query fails or the creation fails.
 
-**Signature:** `Update(value T, expressions ...expr.NamedExpression) (int64, error)`
+### `First() (*Row[T], error)`
 
-Update is used to update an object in the database.
+First retrieves the first row from the query results.
 
-It takes a definer object as an argument and returns a CountQuery that can be executed
-to get the result, which is the number of rows affected.
+It returns a pointer to a `Row[T]` containing the first result, or an error if the query fails or no results are found.
 
-It panics if a non- nullable field is null or if the field is not found in the model.
+### `Last() (*Row[T], error)`
 
-If the model adheres to django's `models.Saver` interface, no where clause is provided
-and ExplicitSave() was not called, the `Save()` method will be called on the model
+Last retrieves the last row from the query results.
 
-### Delete
+This method will call `Reverse()` on the `QuerySet` to ensure that the last row is retrieved correctly.
 
-**Signature:** `Delete() (int64, error)`
+It returns a pointer to a `Row[T]` containing the last result, or an error if the query fails or no results are found.
 
-Delete is used to delete an object from the database.
+### `Exec(sqlStr string, args ...interface{}) (sql.Result, error)`
 
-It returns the number of rows affected and an error.
+The `Exec` method executes a raw SQL command against the database.
 
----
+It takes a SQL string and optional arguments, and returns the result of the execution as an `sql.Result`, or an error if the execution fails.
 
-See [Writing Queries](./writing_queries.md) for more advanced queries and information…
+### `Raw(sqlStr string, args ...interface{}) (*sql.Rows, error)`
+
+The `Raw` method executes a raw SQL query against the database.
+
+It takes a SQL string and optional arguments, and returns a pointer to `sql.Rows` containing the results of the query, or an error if the query fails.
+
+### `Row(sqlStr string, args ...interface{}) *sql.Row`
+
+The `Row` method executes a raw SQL query and returns a single row.
+
+It takes a SQL string and optional arguments, and returns a pointer to `sql.Row` containing the result of the query.
+
+### `Values(fields ...any) ([]map[string]any, error)`
+
+Values retrieves the values of the specified fields from the query results.
+
+It takes a list of field names as arguments and returns a slice of maps, where each map contains the field values for each row.
+
+If no fields are provided, it retrieves all fields from the model (and annotations if they are present).
+
+### `ValuesList(fields ...any) ([][]interface{}, error)`
+
+ValuesList retrieves the values of the specified fields from the query results as a slice of slices.
+
+It takes a list of field names as arguments and returns a slice of slices, where each inner slice contains the field values for each row.
+
+If no fields are provided, or `*` is provided, it retrieves all fields from the model (and annotations if they are present).

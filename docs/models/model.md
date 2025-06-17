@@ -186,11 +186,6 @@ Defines the fields of the model, and sets up the reverse relations and proxy mod
 
 Returns the data store for the model, which is used to store annotations and reverse relations.
 
-### `GetQuerySet() *queries.QuerySet[attrs.Definer]`
-
-Returns a `QuerySet` for the model, which can be used to query the model's data.  
-If the model has a proxy model, the queryset will automatically include a join to the proxy model.
-
 ### `ModelMeta() attrs.ModelMeta`
 
 Returns the model's metadata, which includes the model's name, table name, and field definitions.  

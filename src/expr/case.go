@@ -18,19 +18,18 @@ func When(keyOrExpr interface{}, vals ...any) *when {
 			panic("no values provided for when clause (rhs)")
 		}
 		return &when{
-			lhs: Field(v),
-			rhs: Value(vals[0]),
+			lhs: Q(v, vals...),
 		}
 
-	case LogicalExpression:
+	case LogicalExpression, ClauseExpression:
 		var whenExpr = when{
-			lhs: v,
+			lhs: v.(Expression),
 		}
 
 		// vals are the then clause
 		if len(vals) > 0 {
 			if len(vals) > 1 {
-				panic("only one value allowed for when clause with LogicalExpression")
+				panic("only one value allowed when using a LogicalExpression or ClauseExpression as lhs")
 			}
 
 			switch expr := vals[0].(type) {

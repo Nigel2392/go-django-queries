@@ -2885,6 +2885,14 @@ func TestCaseExpression(t *testing.T) {
 				expr.When(expr.Logical("Done").EQ(false), "Pending"),
 				"Unknown",
 			),
+		).
+		Annotate("TitleIndex",
+			expr.Case(
+				expr.When("Title__icontains", "1").Then("ONE"),
+				expr.When("Title", "CaseExpression2").Then("TWO"),
+				expr.When("Title__iendswith", "3").Then("THREE"),
+				"Unknown",
+			),
 		)
 
 	var results, err = qs.All()
@@ -2907,6 +2915,25 @@ func TestCaseExpression(t *testing.T) {
 		case false:
 			if result.Annotations["Status"] != "Pending" {
 				t.Errorf("Expected Status to be 'Pending', got %s", result.Annotations["Status"])
+			}
+		}
+
+		switch todo.Title {
+		case "CaseExpression1":
+			if result.Annotations["TitleIndex"] != "ONE" {
+				t.Errorf("Expected TitleIndex to be 'ONE', got %s", result.Annotations["TitleIndex"])
+			}
+		case "CaseExpression2":
+			if result.Annotations["TitleIndex"] != "TWO" {
+				t.Errorf("Expected TitleIndex to be 'TWO', got %s", result.Annotations["TitleIndex"])
+			}
+		case "CaseExpression3":
+			if result.Annotations["TitleIndex"] != "THREE" {
+				t.Errorf("Expected TitleIndex to be 'THREE', got %s", result.Annotations["TitleIndex"])
+			}
+		default:
+			if result.Annotations["TitleIndex"] != "Unknown" {
+				t.Errorf("Expected TitleIndex to be 'Unknown', got %s", result.Annotations["TitleIndex"])
 			}
 		}
 

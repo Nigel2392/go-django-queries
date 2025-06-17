@@ -34,6 +34,17 @@ func (r Rows[T]) Len() int {
 	return len(r)
 }
 
+// Objects returns a sequence of model objects from the rows.
+func (rows Rows[T]) Objects() iter.Seq[T] {
+	return iter.Seq[T](func(yield func(T) bool) {
+		for _, row := range rows {
+			if !yield(row.Object) {
+				return // Stop yielding if the yield function returns false
+			}
+		}
+	})
+}
+
 // Pluck returns a sequence of field values from the rows based on the provided path to the field.
 //
 // The path to the field is a dot-separated string that specifies the field to pluck from each row.

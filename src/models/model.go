@@ -568,6 +568,7 @@ func (m *Model) Define(def attrs.Definer, flds ...any) *attrs.ObjectDefinitions 
 				field = fields.NewOneToOneField[attrs.Definer](def, fieldName, &fields.FieldConfig{
 					ScanTo:      def,
 					IsProxy:     true,
+					AllowEdit:   true,
 					TargetField: proxy.targetFieldName,
 					Rel:         attrs.Relate(newProxyObj, proxy.targetFieldName, nil),
 					DataModelFieldConfig: fields.DataModelFieldConfig{

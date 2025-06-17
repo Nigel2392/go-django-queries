@@ -361,6 +361,10 @@ func (e *DataModelField[T]) AllowEdit() bool {
 	return false
 }
 
+func (e *DataModelField[T]) AllowDBEdit() bool {
+	return false
+}
+
 func (e *DataModelField[T]) GetValue() interface{} {
 	var val, _ = e.getQueryValue()
 	if e._Type.Kind() == reflect.Pointer && (e._Type.Comparable() && any(val) == any(*new(T)) || val == nil) {

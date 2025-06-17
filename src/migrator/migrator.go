@@ -37,8 +37,8 @@ type SchemaEditor interface {
 
 	Execute(ctx context.Context, query string, args ...any) (sql.Result, error)
 
-	CreateTable(table Table) error
-	DropTable(table Table) error
+	CreateTable(table Table, ifNotExists bool) error
+	DropTable(table Table, ifExists bool) error
 	RenameTable(table Table, newName string) error
 
 	AddIndex(table Table, index Index) error

@@ -86,9 +86,13 @@ func (m *MySQLSchemaEditor) Execute(ctx context.Context, query string, args ...a
 	return m.db.ExecContext(ctx, query, args...)
 }
 
-func (m *MySQLSchemaEditor) CreateTable(table migrator.Table) error {
+func (m *MySQLSchemaEditor) CreateTable(table migrator.Table, ifNotExists bool) error {
 	var w strings.Builder
-	w.WriteString("CREATE TABLE `")
+	w.WriteString("CREATE TABLE ")
+	if ifNotExists {
+		w.WriteString("IF NOT EXISTS ")
+	}
+	w.WriteString("`")
 	w.WriteString(table.TableName())
 	w.WriteString("` (")
 
@@ -109,9 +113,16 @@ func (m *MySQLSchemaEditor) CreateTable(table migrator.Table) error {
 	return err
 }
 
-func (m *MySQLSchemaEditor) DropTable(table migrator.Table) error {
-	query := fmt.Sprintf("DROP TABLE `%s`;", table.TableName())
-	_, err := m.db.Exec(query)
+func (m *MySQLSchemaEditor) DropTable(table migrator.Table, ifExists bool) error {
+	var w strings.Builder
+	w.WriteString("DROP TABLE ")
+	if ifExists {
+		w.WriteString("IF EXISTS ")
+	}
+	w.WriteString("`")
+	w.WriteString(table.TableName())
+	w.WriteString("`;")
+	_, err := m.db.Exec(w.String())
 	return err
 }
 

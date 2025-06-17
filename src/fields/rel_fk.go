@@ -37,6 +37,10 @@ func (e *ForeignKeyField[T]) AllowEdit() bool {
 	return true
 }
 
+func (e *ForeignKeyField[T]) AllowDBEdit() bool {
+	return true
+}
+
 func (m *ForeignKeyField[T]) ForSelectAll() bool {
 	return true
 }

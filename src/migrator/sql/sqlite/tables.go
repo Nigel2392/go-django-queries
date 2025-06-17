@@ -112,9 +112,13 @@ func (m *SQLiteSchemaEditor) RemoveMigration(appName string, modelName string, m
 	return nil
 }
 
-func (m *SQLiteSchemaEditor) CreateTable(table migrator.Table) error {
+func (m *SQLiteSchemaEditor) CreateTable(table migrator.Table, ifNotExists bool) error {
 	var w strings.Builder
-	w.WriteString("CREATE TABLE `")
+	w.WriteString("CREATE TABLE ")
+	if ifNotExists {
+		w.WriteString("IF NOT EXISTS ")
+	}
+	w.WriteString("`")
 	w.WriteString(table.TableName())
 	w.WriteString("` (")
 	w.WriteString("\n")
@@ -145,9 +149,13 @@ func (m *SQLiteSchemaEditor) CreateTable(table migrator.Table) error {
 	return err
 }
 
-func (m *SQLiteSchemaEditor) DropTable(table migrator.Table) error {
+func (m *SQLiteSchemaEditor) DropTable(table migrator.Table, ifExists bool) error {
 	var w strings.Builder
-	w.WriteString("DROP TABLE `")
+	w.WriteString("DROP TABLE ")
+	if ifExists {
+		w.WriteString("IF EXISTS ")
+	}
+	w.WriteString("`")
 	w.WriteString(table.TableName())
 	w.WriteString("`;")
 	w.WriteString("\n")
@@ -408,7 +416,7 @@ func (m *SQLiteSchemaEditor) AlterField(
 	}
 
 	// Step 3: Create temp table
-	if err := m.CreateTable(newTable); err != nil {
+	if err := m.CreateTable(newTable, false); err != nil {
 		return fmt.Errorf("create temp table: %w", err)
 	}
 
@@ -425,7 +433,7 @@ func (m *SQLiteSchemaEditor) AlterField(
 	}
 
 	// Step 5: Drop original table
-	if err := m.DropTable(table); err != nil {
+	if err := m.DropTable(table, false); err != nil {
 		return fmt.Errorf("drop original table: %w", err)
 	}
 

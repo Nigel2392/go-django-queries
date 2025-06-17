@@ -103,12 +103,12 @@ func (t *TestMigrationEngine) Execute(ctx context.Context, query string, args ..
 	t.RawSQL = append(t.RawSQL, SQL{SQL: query, Params: args})
 	return nil, nil
 }
-func (t *TestMigrationEngine) CreateTable(table migrator.Table) error {
+func (t *TestMigrationEngine) CreateTable(table migrator.Table, _ bool) error {
 	t.t.Logf("Creating table: %s for object %T", table.TableName(), table.Model())
 	t.Actions = append(t.Actions, Action{Type: migrator.ActionCreateTable, Table: table})
 	return nil
 }
-func (t *TestMigrationEngine) DropTable(table migrator.Table) error {
+func (t *TestMigrationEngine) DropTable(table migrator.Table, _ bool) error {
 	t.t.Logf("Dropping table: %s for object %T", table.TableName(), table.Model())
 	t.Actions = append(t.Actions, Action{Type: migrator.ActionDropTable, Table: table})
 	return nil

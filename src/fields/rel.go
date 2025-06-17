@@ -198,7 +198,15 @@ type (
 func (r *RelationField[T]) AllowEdit() bool {
 	switch r.cnf.Rel.Type() {
 	case attrs.RelOneToOne, attrs.RelManyToOne:
-		return r.cnf.IsProxy
+		return r.cnf.IsProxy && r.cnf.AllowEdit
+	}
+	return r.cnf.AllowEdit
+}
+
+func (r *RelationField[T]) AllowDBEdit() bool {
+	switch r.cnf.Rel.Type() {
+	case attrs.RelOneToOne, attrs.RelManyToOne:
+		return r.cnf.IsProxy && r.cnf.AllowEdit
 	}
 	return false
 }

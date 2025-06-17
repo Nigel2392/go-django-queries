@@ -2274,7 +2274,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 				primary = field
 			}
 
-			if isPrimary || !field.AllowEdit() {
+			if isPrimary || !ForDBEdit(field) {
 				continue
 			}
 
@@ -2547,7 +2547,7 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 			}
 
 			var isPrimary = field.IsPrimary()
-			if isPrimary || !field.AllowEdit() {
+			if isPrimary || !ForDBEdit(field) {
 				continue
 			}
 

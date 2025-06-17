@@ -180,6 +180,32 @@ func ForSelectAll(f attrs.FieldDefinition) bool {
 	return true
 }
 
+// ForDBEditableField returns true if the field should be saved to the database.
+// If the field is nil, it returns false.
+type ForDBEditableField interface {
+	attrs.Field
+	AllowDBEdit() bool
+}
+
+// ForDBEdit returns true if the field should be saved to the database.
+//
+// * If the field is nil, it returns false.
+// * If the field has no column name, it returns false.
+// * If the field is a ForUseInQueriesField, it checks if it is for select all.
+// * If the field implements ForDBEditableField, it checks if it is for edit.
+func ForDBEdit(f attrs.FieldDefinition) bool {
+	if f == nil {
+		return false
+	}
+	if f.ColumnName() == "" { // dont save fields without a column name
+		return false
+	}
+	if f, ok := f.(ForDBEditableField); ok {
+		return f.AllowDBEdit()
+	}
+	return true
+}
+
 func ForSelectAllFields[T any](fields any) []T {
 	switch fieldsValue := fields.(type) {
 	case []attrs.Field:

@@ -11,6 +11,7 @@ type FieldConfig struct {
 	DataModelFieldConfig
 	ScanTo      any
 	Nullable    bool
+	AllowEdit   bool
 	IsProxy     bool
 	ReverseName string
 	ColumnName  string

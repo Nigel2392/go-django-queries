@@ -75,9 +75,13 @@ func (m *PostgresSchemaEditor) Execute(ctx context.Context, query string, args .
 	return m.db.ExecContext(ctx, query, args...)
 }
 
-func (m *PostgresSchemaEditor) CreateTable(table migrator.Table) error {
+func (m *PostgresSchemaEditor) CreateTable(table migrator.Table, ifNotExists bool) error {
 	var w strings.Builder
-	w.WriteString(`CREATE TABLE "`)
+	w.WriteString(`CREATE TABLE `)
+	if ifNotExists {
+		w.WriteString(`IF NOT EXISTS `)
+	}
+	w.WriteString(`"`)
 	w.WriteString(table.TableName())
 	w.WriteString(`" (`)
 
@@ -100,9 +104,13 @@ func (m *PostgresSchemaEditor) CreateTable(table migrator.Table) error {
 	return err
 }
 
-func (m *PostgresSchemaEditor) DropTable(table migrator.Table) error {
+func (m *PostgresSchemaEditor) DropTable(table migrator.Table, ifExists bool) error {
 	var w strings.Builder
-	w.WriteString(`DROP TABLE IF EXISTS "`)
+	w.WriteString(`DROP TABLE `)
+	if ifExists {
+		w.WriteString(`IF EXISTS `)
+	}
+	w.WriteString(`"`)
 	w.WriteString(table.TableName())
 	w.WriteString(`" CASCADE;`)
 	_, err := m.db.Exec(w.String())

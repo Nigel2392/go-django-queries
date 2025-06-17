@@ -279,9 +279,9 @@ func (m *MigrationEngine) Migrate() error {
 			var err error
 			switch action.ActionType {
 			case ActionCreateTable:
-				err = m.SchemaEditor.CreateTable(n.mig.Table)
+				err = m.SchemaEditor.CreateTable(n.mig.Table, false)
 			case ActionDropTable:
-				err = m.SchemaEditor.DropTable(action.Table.Old)
+				err = m.SchemaEditor.DropTable(action.Table.Old, false)
 			case ActionRenameTable:
 				err = m.SchemaEditor.RenameTable(action.Table.Old, action.Table.New.TableName())
 			case ActionAddField:

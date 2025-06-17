@@ -164,11 +164,11 @@ func equalityFormat(op expr.LogicalOp) func(string, []any) (string, []any) {
 	}
 }
 
-//	func mathOpFormat(op expr.LogicalOp) func(string, []any) (string, []any) {
-//		return func(rhs string, value []any) (string, []any) {
-//			return fmt.Sprintf("%s %s = %s", op, rhs, rhs), []any{value[0], value[0]}
-//		}
-//	}
+func mathOpFormat(op expr.LogicalOp) func(string, []any) (string, []any) {
+	return func(rhs string, value []any) (string, []any) {
+		return fmt.Sprintf("%s %s = %s", op, rhs, rhs), []any{value[0], value[0]}
+	}
+}
 
 var defaultCompilerLogicalOperators = map[expr.LogicalOp]func(rhs string, value []any) (string, []any){
 	expr.EQ:  equalityFormat(expr.EQ),  // = %s
@@ -182,12 +182,12 @@ var defaultCompilerLogicalOperators = map[expr.LogicalOp]func(rhs string, value 
 	//expr.MUL:    mathOpFormat(expr.MUL),    // * %s = %s
 	//expr.DIV:    mathOpFormat(expr.DIV),    // / %s = %s
 	//expr.MOD:    mathOpFormat(expr.MOD),    // % %s = %s
-	//expr.BITAND: mathOpFormat(expr.BITAND), // & %s = %s
-	//expr.BITOR:  mathOpFormat(expr.BITOR),  // | %s = %s
-	//expr.BITXOR: mathOpFormat(expr.BITXOR), // ^ %s = %s
-	//expr.BITLSH: mathOpFormat(expr.BITLSH), // << %s = %s
-	//expr.BITRSH: mathOpFormat(expr.BITRSH), // >> %s = %s
-	//expr.BITNOT: mathOpFormat(expr.BITNOT), // ~ %s = %s
+	expr.BITAND: mathOpFormat(expr.BITAND), // & %s = %s
+	expr.BITOR:  mathOpFormat(expr.BITOR),  // | %s = %s
+	expr.BITXOR: mathOpFormat(expr.BITXOR), // ^ %s = %s
+	expr.BITLSH: mathOpFormat(expr.BITLSH), // << %s = %s
+	expr.BITRSH: mathOpFormat(expr.BITRSH), // >> %s = %s
+	expr.BITNOT: mathOpFormat(expr.BITNOT), // ~ %s = %s
 }
 
 func (g *genericQueryBuilder) LogicalOpRHS() map[expr.LogicalOp]func(rhs string, value []any) (string, []any) {

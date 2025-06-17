@@ -2888,7 +2888,10 @@ func TestCaseExpression(t *testing.T) {
 		).
 		Annotate("TitleIndex",
 			expr.Case(
-				expr.When("Title__icontains", "1").Then("ONE"),
+				expr.When(
+					expr.Q("Title__icontains", "NOT FOUND").
+						Or(expr.Q("Title", "CaseExpression1")),
+				).Then("ONE"),
 				expr.When("Title", "CaseExpression2").Then("TWO"),
 				expr.When("Title__iendswith", "3").Then("THREE"),
 				"Unknown",

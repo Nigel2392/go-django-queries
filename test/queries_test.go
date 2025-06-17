@@ -1781,7 +1781,7 @@ func TestQueryGetMultipleRows(t *testing.T) {
 
 	var _, err = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("*").
-		Filter("Title__icontains", "TestQueryGetMultipleRows").
+		Filter("Title__icontains", expr.Value("TestQueryGetMultipleRows")).
 		Get()
 	if err == nil {
 		t.Fatalf("Expected an error, got nil")
@@ -2333,7 +2333,7 @@ func TestQuerySetChaining(t *testing.T) {
 		Filter("Title__icontains", "TestQuerySetChaining").
 		Filter("Done", false)
 
-	qs = qs.Filter("ID", todos[0].ID)
+	qs = qs.Filter("ID", expr.Value(todos[0].ID))
 
 	todosList, err := qs.All()
 	if err != nil {
@@ -2860,6 +2860,57 @@ func TestRunInTransaction(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Failed to run transaction: %v", err)
+	}
+}
+
+func TestCaseExpression(t *testing.T) {
+	var todos = []*Todo{
+		{Title: "CaseExpression1", Description: "Description CaseExpression", Done: false},
+		{Title: "CaseExpression2", Description: "Description CaseExpression", Done: true},
+		{Title: "CaseExpression3", Description: "Description CaseExpression", Done: false},
+	}
+
+	for _, todo := range todos {
+		if err := queries.CreateObject(todo); err != nil {
+			t.Fatalf("Failed to insert todo: %v", err)
+		}
+	}
+
+	var qs = queries.GetQuerySet(&Todo{}).
+		Select("ID", "Title", "Done").
+		Filter("Description", "Description CaseExpression").
+		Annotate("Status",
+			expr.Case(
+				expr.When("Done", true).Then("Completed"),
+				expr.When(expr.Logical("Done").EQ(false), "Pending"),
+				"Unknown",
+			),
+		)
+
+	var results, err = qs.All()
+	if err != nil {
+		t.Fatalf("Failed to get todos with case expression: %v", err)
+	}
+
+	if len(results) != len(todos) {
+		t.Fatalf("Expected %d todos, got %d", len(todos), len(results))
+	}
+
+	for i, result := range results {
+		var todo = result.Object
+
+		switch todo.Done {
+		case true:
+			if result.Annotations["Status"] != "Completed" {
+				t.Errorf("Expected Status to be 'Completed', got %s", result.Annotations["Status"])
+			}
+		case false:
+			if result.Annotations["Status"] != "Pending" {
+				t.Errorf("Expected Status to be 'Pending', got %s", result.Annotations["Status"])
+			}
+		}
+
+		t.Logf("Todo %d: %+v, Status: %s", i+1, todo, result.Annotations["Status"])
 	}
 }
 

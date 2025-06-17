@@ -157,6 +157,9 @@ func (g *genericQueryBuilder) FormatLookupCol(lookupName string, inner string) s
 
 func equalityFormat(op expr.LogicalOp) func(string, []any) (string, []any) {
 	return func(rhs string, value []any) (string, []any) {
+		if len(value) == 0 {
+			return fmt.Sprintf("%s %s", op, rhs), []any{}
+		}
 		return fmt.Sprintf("%s %s", op, rhs), []any{value[0]}
 	}
 }

@@ -14,7 +14,16 @@ import (
 // It is used to compare two values in a logical expression.
 // The logical operators are used in the WHERE clause of a SQL query,
 // or inside of queryset join conditions.
-type LogicalOp = String
+type LogicalOp string
+
+func (op LogicalOp) Resolve(*ExpressionInfo) Expression { return op }
+func (op LogicalOp) Clone() Expression                  { return op }
+func (op LogicalOp) SQL(sb *strings.Builder) []any {
+	sb.WriteString(" ")
+	sb.WriteString(string(op))
+	sb.WriteString(" ")
+	return []any{}
+}
 
 const (
 	EQ  LogicalOp = "="

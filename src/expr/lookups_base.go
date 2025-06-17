@@ -32,8 +32,9 @@ func (l *BaseLookup) Arity() (min, max int) {
 
 func (l *BaseLookup) NormalizeArgs(inf *ExpressionInfo, values []any) ([]any, error) {
 	if l.Normalize == nil {
-		return values, nil
+		return values, nil // no normalization function, return as is
 	}
+
 	var newValues = make([]any, len(values))
 	for i, v := range values {
 		newValues[i] = l.Normalize(v)
@@ -56,6 +57,20 @@ type LogicalLookup struct {
 	Operator LogicalOp
 }
 
+func (l *LogicalLookup) NormalizeArgs(inf *ExpressionInfo, values []any) ([]any, error) {
+	if len(values) != 1 {
+		return nil, fmt.Errorf("lookup %s requires exactly one value", l.Identifier)
+	}
+
+	var v = values[0]
+	switch v := v.(type) {
+	case Expression:
+		return []any{v.Resolve(inf)}, nil
+	}
+
+	return l.BaseLookup.NormalizeArgs(inf, values)
+}
+
 func (l *LogicalLookup) Resolve(inf *ExpressionInfo, lhsResolved ResolvedExpression, values []any) func(sb *strings.Builder) []any {
 	return func(sb *strings.Builder) []any {
 		var lhsExpr strings.Builder
@@ -67,10 +82,14 @@ func (l *LogicalLookup) Resolve(inf *ExpressionInfo, lhsResolved ResolvedExpress
 
 		switch arg := values[0].(type) {
 		case Expression:
-			panic(fmt.Sprintf(
-				"lookup %q cannot be used with an expression as argument, got %T",
-				l.Identifier, arg,
-			))
+			var inner strings.Builder
+			var innerArgs = arg.SQL(&inner)
+			args = append(args, innerArgs...)
+
+			var opRHS, _ = inf.Lookups.FormatLogicalOpRHS(
+				l.Operator, inf.Lookups.FormatLookupCol(l.Identifier, inner.String()),
+			)
+			sb.WriteString(opRHS)
 		default:
 			var opRHS, exprArgs = inf.Lookups.FormatLogicalOpRHS(
 				l.Operator, inf.Lookups.FormatLookupCol(l.Identifier, inf.Placeholder), arg,
@@ -96,7 +115,7 @@ func (l *PatternLookup) NormalizeArgs(inf *ExpressionInfo, value []any) ([]any, 
 	var v = value[0]
 	switch v := v.(type) {
 	case Expression:
-		return []any{v}, nil
+		return []any{v.Resolve(inf)}, nil
 	}
 
 	var rVal = reflect.ValueOf(v)

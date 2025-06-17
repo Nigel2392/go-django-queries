@@ -58,7 +58,7 @@ func ParseExprStatement(statement string, value []any) (newStatement string, fie
 	return statement, fields, values
 }
 
-func expressionFromInterface[T Expression](exprValue interface{}) []T {
+func expressionFromInterface[T Expression](exprValue interface{}, asValue bool) []T {
 	var exprs = make([]T, 0)
 	switch v := exprValue.(type) {
 	case Expression:
@@ -71,10 +71,14 @@ func expressionFromInterface[T Expression](exprValue interface{}) []T {
 		exprs = append(exprs, v...)
 	case []any:
 		for _, expr := range v {
-			exprs = append(exprs, expressionFromInterface[T](expr)...)
+			exprs = append(exprs, expressionFromInterface[T](expr, asValue)...)
 		}
 	case string:
-		exprs = append(exprs, Field(v).(T))
+		if asValue {
+			exprs = append(exprs, Value(v).(T))
+		} else {
+			exprs = append(exprs, Field(v).(T))
+		}
 	default:
 		var rTyp = reflect.TypeOf(exprValue)
 		var rVal = reflect.ValueOf(exprValue)
@@ -82,7 +86,7 @@ func expressionFromInterface[T Expression](exprValue interface{}) []T {
 		case reflect.Slice, reflect.Array:
 			for i := 0; i < rVal.Len(); i++ {
 				var elem = rVal.Index(i).Interface()
-				exprs = append(exprs, expressionFromInterface[T](elem)...)
+				exprs = append(exprs, expressionFromInterface[T](elem, asValue)...)
 			}
 		default:
 			exprs = append(exprs, Value(v).(T))

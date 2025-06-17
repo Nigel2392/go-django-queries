@@ -86,11 +86,15 @@ type value struct {
 }
 
 func Value(v any, unsafe ...bool) Expression {
+	if expr, ok := v.(Expression); ok {
+		return expr
+	}
+
 	var s bool
 	if len(unsafe) > 0 && unsafe[0] {
 		s = true
 	}
-	return &value{v: v, unsafe: s}
+	return &value{v: normalizeDefinerArg(v), unsafe: s}
 }
 
 func (e *value) SQL(sb *strings.Builder) []any {

@@ -44,7 +44,7 @@ type ExprNode struct {
 }
 
 func Expr(field any, operation string, value ...any) *ExprNode {
-	var exprs = expressionFromInterface[NamedExpression](field)
+	var exprs = expressionFromInterface[NamedExpression](field, false)
 	if len(exprs) == 0 {
 		panic(fmt.Errorf("field must be a string or an expression, got %T", field))
 	}
@@ -216,7 +216,7 @@ func Logical(expr ...any) LogicalExpression {
 
 		inner = append(
 			inner,
-			expressionFromInterface[Expression](e)...,
+			expressionFromInterface[Expression](e, false)...,
 		)
 	}
 
@@ -324,14 +324,14 @@ func (l *logicalChainExpr) chain(op LogicalOp, key interface{}, vals ...interfac
 	if key != nil {
 		copyExprs = append(
 			copyExprs,
-			expressionFromInterface[Expression](key)...,
+			expressionFromInterface[Expression](key, false)...,
 		)
 	}
 
 	for _, val := range vals {
 		copyExprs = append(
 			copyExprs,
-			expressionFromInterface[Expression](val)...,
+			expressionFromInterface[Expression](val, false)...,
 		)
 	}
 

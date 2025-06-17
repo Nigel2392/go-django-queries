@@ -74,14 +74,14 @@ func F(statement any, value ...any) NamedExpression {
 		return &chainExpr{
 			inner: append(
 				[]Expression{v},
-				expressionFromInterface[Expression](value)...,
+				expressionFromInterface[Expression](value, false)...,
 			),
 		}
 	default:
 		return &chainExpr{
 			inner: append(
-				expressionFromInterface[Expression](statement),
-				expressionFromInterface[Expression](value)...,
+				expressionFromInterface[Expression](statement, false),
+				expressionFromInterface[Expression](value, false)...,
 			),
 		}
 

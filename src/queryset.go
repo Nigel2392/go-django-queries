@@ -356,9 +356,9 @@ func (qs *QuerySet[T]) WithTransaction(tx Transaction) (Transaction, error) {
 	return tx, err //, nil
 }
 
-// getTransaction returns the rollback and commit functions for the current transaction
-// these will result in a no-op if the transaction was not started by the QuerySet itself.
-func (qs *QuerySet[T]) getTransaction() (tx Transaction, err error) {
+// GetOrCreateTransaction returns the current transaction if one exists,
+// or starts a new transaction if the QuerySet is not already in a transaction and QUERYSET_CREATE_IMPLICIT_TRANSACTION is true.
+func (qs *QuerySet[T]) GetOrCreateTransaction() (tx Transaction, err error) {
 	if !qs.compiler.InTransaction() && QUERYSET_CREATE_IMPLICIT_TRANSACTION {
 		return qs.StartTransaction(qs.context)
 	}
@@ -1979,7 +1979,7 @@ func (qs *QuerySet[T]) GetOrCreate(value T) (T, bool, error) {
 
 	// If the queryset is already in a transaction, that transaction will be used
 	// automatically.
-	var tx, err = qs.getTransaction()
+	var tx, err = qs.GetOrCreateTransaction()
 	if err != nil {
 		return *new(T), false, errors.Wrapf(
 			err, "failed to get transaction for %T", qs.internals.Model.Object,
@@ -2097,7 +2097,7 @@ func (qs *QuerySet[T]) Count() (int64, error) {
 // without calling the `Save()` method on the model.
 func (qs *QuerySet[T]) Create(value T) (T, error) {
 
-	var tx, err = qs.getTransaction()
+	var tx, err = qs.GetOrCreateTransaction()
 	if err != nil {
 		return *new(T), errors.Wrapf(
 			err, "failed to get transaction for %T", qs.internals.Model.Object,
@@ -2166,7 +2166,7 @@ func (qs *QuerySet[T]) Create(value T) (T, error) {
 // If the model adheres to django's `models.Saver` interface, no where clause is provided
 // and ExplicitSave() was not called, the `Save()` method will be called on the model
 func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int64, error) {
-	var tx, err = qs.getTransaction()
+	var tx, err = qs.GetOrCreateTransaction()
 	if err != nil {
 		return 0, errors.Wrapf(
 			err, "failed to get transaction for %T", qs.internals.Model.Object,
@@ -2219,7 +2219,7 @@ func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int
 // It takes a list of definer objects as arguments and returns a Query that can be executed
 // to get the result, which is a slice of the created objects.
 func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
-	var tx, err = qs.getTransaction()
+	var tx, err = qs.GetOrCreateTransaction()
 	if err != nil {
 		return nil, errors.Wrapf(
 			err, "failed to get transaction for %T", qs.internals.Model.Object,
@@ -2454,7 +2454,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 // It does not try to call any save methods on the objects.
 func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpression) (int64, error) {
 
-	var tx, err = qs.getTransaction()
+	var tx, err = qs.GetOrCreateTransaction()
 	if err != nil {
 		return 0, errors.Wrapf(
 			err, "failed to get transaction for %T", qs.internals.Model.Object,
@@ -2643,7 +2643,7 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 // The batch size is based on the [Limit] method of the queryset, which defaults to 1000.
 func (qs *QuerySet[T]) BatchCreate(objects []T) ([]T, error) {
 
-	var tx, err = qs.getTransaction()
+	var tx, err = qs.GetOrCreateTransaction()
 	if err != nil {
 		return nil, errors.Wrapf(
 			err, "failed to get transaction for %T", qs.internals.Model.Object,
@@ -2683,7 +2683,7 @@ func (qs *QuerySet[T]) BatchUpdate(objects []T, exprs ...expr.NamedExpression) (
 		return 0, nil // No objects to update
 	}
 
-	var tx, err = qs.getTransaction()
+	var tx, err = qs.GetOrCreateTransaction()
 	if err != nil {
 		return 0, errors.Wrapf(
 			err, "failed to get transaction for %T", qs.internals.Model.Object,
@@ -2719,7 +2719,7 @@ func (qs *QuerySet[T]) BatchUpdate(objects []T, exprs ...expr.NamedExpression) (
 // It returns a CountQuery that can be executed to get the result, which is the number of rows affected.
 func (qs *QuerySet[T]) Delete(objects ...T) (int64, error) {
 
-	var tx, err = qs.getTransaction()
+	var tx, err = qs.GetOrCreateTransaction()
 	if err != nil {
 		return 0, errors.Wrapf(
 			err, "failed to get transaction for %T", qs.internals.Model.Object,

@@ -21,7 +21,7 @@ func TestSelectFuncExpr(t *testing.T) {
 
 	t.Run("SelectNameSubString", func(t *testing.T) {
 		var rows, err = queries.Objects[attrs.Definer](test).
-			Select("ID", expr.SUBSTR(expr.UPPER("Name"), expr.Value(0), expr.Value(9)), "Text").
+			Select("ID", expr.SUBSTR(expr.UPPER("Name"), expr.Value(1), expr.Value(9)), "Text").
 			Filter("ID", test.ID).
 			All()
 
@@ -37,9 +37,9 @@ func TestSelectFuncExpr(t *testing.T) {
 			t.Errorf("expected ID = %d, got %d", test.ID, rows[0].Object.(*TestStruct).ID)
 		}
 
-		if rows[0].Object.(*TestStruct).Name != strings.ToUpper(test.Name[0:8]) {
+		if rows[0].Object.(*TestStruct).Name != strings.ToUpper(test.Name[0:9]) {
 			// Note: Name is aliassed to Substr(Name, 0, 9)
-			t.Errorf("expected Name = %q, got %q", strings.ToUpper(test.Name[0:4]), rows[0].Object.(*TestStruct).Name)
+			t.Errorf("expected Name = %q, got %q", strings.ToUpper(test.Name[0:9]), rows[0].Object.(*TestStruct).Name)
 		}
 
 		t.Logf("Row: %#v", rows[0].Object.(*TestStruct))

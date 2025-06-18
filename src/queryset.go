@@ -1680,6 +1680,15 @@ func (qs *QuerySet[T]) All() (Rows[T], error) {
 					alias = f.Name()
 				}
 
+				// If the value is a byte slice, convert it to a string
+				// It is highly unlikely that a byte slice will be used as an annotation,
+				// thus we convert it to a string in case the database driver returns the wrong type.
+				// This is a workaround for some drivers that return []byte instead of string.
+				// This should also be done in [Aggregate], [Values] and [ValuesList].
+				if bytes, ok := val.([]byte); ok {
+					val = string(bytes)
+				}
+
 				annotations[alias] = val
 
 				if datastore != nil {
@@ -1775,8 +1784,19 @@ func (qs *QuerySet[T]) Values(fields ...any) ([]map[string]any, error) {
 
 			// generate dict key for the field
 			var key string
+			var value = f.GetValue()
 			if vf, ok := f.(AliasField); ok {
 				key = vf.Alias()
+
+				// If the value is a byte slice, convert it to a string
+				// It is highly unlikely that a byte slice will be used as an annotation,
+				// thus we convert it to a string in case the database driver returns the wrong type.
+				// This is a workaround for some drivers that return []byte instead of string.
+				// This should also be done in [All], [Aggregate] and [ValuesList].
+				if bytes, ok := value.([]byte); ok {
+					value = string(bytes)
+				}
+
 			} else if len(field.chainKey) > 0 {
 				key = strings.Join(
 					append([]string{field.chainKey}, f.Name()),
@@ -1800,7 +1820,7 @@ func (qs *QuerySet[T]) Values(fields ...any) ([]map[string]any, error) {
 				)
 			}
 
-			values[key] = f.GetValue()
+			values[key] = value
 		}
 
 		list[i] = values
@@ -1845,6 +1865,17 @@ func (qs *QuerySet[T]) ValuesList(fields ...any) ([][]interface{}, error) {
 			}
 
 			var v = f.GetValue()
+			// If the value is a byte slice, convert it to a string
+			// It is highly unlikely that a byte slice will be used as an annotation,
+			// thus we convert it to a string in case the database driver returns the wrong type.
+			// This is a workaround for some drivers that return []byte instead of string.
+			// This should also be done in [All], [Aggregate] and [Values].
+			if _, ok := f.(AliasField); ok {
+				if bytes, ok := v.([]byte); ok {
+					v = string(bytes)
+				}
+			}
+
 			values[j] = v
 		}
 
@@ -1895,7 +1926,18 @@ func (qs *QuerySet[T]) Aggregate(annotations map[string]expr.Expression) (map[st
 			if err := vf.Scan(row[i]); err != nil {
 				return nil, err
 			}
-			out[vf.Alias()] = vf.GetValue()
+
+			// If the value is a byte slice, convert it to a string
+			// It is highly unlikely that a byte slice will be used as an annotation,
+			// thus we convert it to a string in case the database driver returns the wrong type.
+			// This is a workaround for some drivers that return []byte instead of string.
+			// This should also be done in [All], [ValuesList] and [Values].
+			var value = vf.GetValue()
+			if bytes, ok := value.([]byte); ok {
+				value = string(bytes)
+			}
+
+			out[vf.Alias()] = value
 		}
 	}
 
@@ -2228,8 +2270,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 	defer tx.Rollback()
 
 	var (
-		values  = make([]any, 0, len(objects))
-		infos   = make([]*FieldInfo[attrs.Field], 0, len(objects))
+		infos   = make([]UpdateInfo, 0, len(objects))
 		primary attrs.Field
 	)
 
@@ -2253,13 +2294,15 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 
 		var defs = object.FieldDefs()
 		var fields = defs.Fields()
-		var infoFields = make([]attrs.Field, 0, len(fields))
-		var info = &FieldInfo[attrs.Field]{
-			Model: object,
-			Table: Table{
-				Name: defs.TableName(),
+		var info = UpdateInfo{
+			FieldInfo: FieldInfo[attrs.Field]{
+				Model: object,
+				Table: Table{
+					Name: defs.TableName(),
+				},
+				Chain: make([]string, 0),
 			},
-			Chain: make([]string, 0),
+			Values: make([]any, 0, len(fields)),
 		}
 
 		for _, field := range fields {
@@ -2291,12 +2334,11 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 				))
 			}
 
-			infoFields = append(infoFields, field)
-			values = append(values, value)
+			info.Fields = append(info.Fields, field)
+			info.Values = append(info.Values, value)
 		}
 
 		// Copy all the fields from the model to the info fields
-		info.Fields = slices.Clone(infoFields)
 		infos = append(infos, info)
 	}
 
@@ -2306,7 +2348,6 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 		ChangeObjectsType[T, attrs.Definer](qs),
 		qs.internals,
 		infos,
-		values,
 	)
 	qs.latestQuery = resultQuery
 
@@ -2352,15 +2393,25 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 		}
 
 		for i, row := range objects {
-			var id = results[i][0].(int64)
+
 			var rowDefs = row.FieldDefs()
 			var prim = rowDefs.Primary()
-			if err := prim.SetValue(id, true); err != nil {
-				return nil, errors.Wrapf(
-					err,
-					"failed to set primary key %q in %T",
-					prim.Name(), row,
-				)
+			if prim != nil {
+				if len(results[i]) != 1 {
+					return nil, errors.Wrapf(
+						query_errors.ErrLastInsertId,
+						"expected 1 result returned after insert, got %d (%+v)",
+						len(results[i]), results[i],
+					)
+				}
+				var id = results[i][0].(int64)
+				if err := prim.SetValue(id, true); err != nil {
+					return nil, errors.Wrapf(
+						err,
+						"failed to set primary key %q in %T",
+						prim.Name(), row,
+					)
+				}
 			}
 
 			//	if prim != nil {
@@ -2388,7 +2439,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 
 		for i, row := range objects {
 			var (
-				scannables = getScannableFields([]*FieldInfo[attrs.Field]{infos[i]}, row)
+				scannables = getScannableFields([]*FieldInfo[attrs.Field]{&infos[i].FieldInfo}, row)
 				resLen     = len(results[i])
 				newDefs    = row.FieldDefs()
 				prim       = newDefs.Primary()

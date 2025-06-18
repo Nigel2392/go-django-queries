@@ -233,3 +233,25 @@ func Op(op any) (LogicalOp, bool) {
 	}
 	return "", false
 }
+
+/*
+	The following interfaces must be kept in sync with the interfaces in the 'src/queries.go' file.
+*/
+
+// A field can adhere to this interface to indicate that the field should be
+// aliased when generating the SQL for the field.
+//
+// For example: this is used in annotations to alias the field name.
+type AliasField interface {
+	attrs.Field
+	Alias() string
+}
+
+// A field can adhere to this interface to indicate that the field should be
+// rendered as SQL.
+//
+// For example: this is used in fields.ExpressionField to render the expression as SQL.
+type VirtualField interface {
+	attrs.Field
+	SQL(inf *ExpressionInfo) (string, []any)
+}

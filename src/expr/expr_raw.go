@@ -34,6 +34,7 @@ type RawNamedExpression struct {
 	Statement string
 	Params    []any
 	Fields    []string
+	fields    []*ResolvedField
 	Field     string
 	not       bool
 	used      bool
@@ -111,14 +112,17 @@ func (e *RawNamedExpression) SQL(sb *strings.Builder) []any {
 		return e.Params
 	}
 
+	var args = make([]any, 0, len(e.Params)+len(e.Fields))
 	var fields = make([]any, len(e.Fields))
-	for i, field := range e.Fields {
-		fields[i] = field
+	for i, field := range e.fields {
+		fields[i] = field.SQLText
+		args = append(args, field.SQLArgs...)
 	}
 
+	args = append(args, e.Params...)
 	var str = fmt.Sprintf(e.Statement, fields...)
 	sb.WriteString(str)
-	return e.Params
+	return args
 }
 
 func (e *RawNamedExpression) Clone() Expression {
@@ -139,9 +143,9 @@ func (e *RawNamedExpression) Resolve(inf *ExpressionInfo) Expression {
 	var nE = e.Clone().(*RawNamedExpression)
 	nE.used = true
 
+	nE.fields = make([]*ResolvedField, len(nE.Fields))
 	for i, field := range nE.Fields {
-		var resolved = inf.ResolveExpressionField(field)
-		nE.Fields[i] = resolved.SQLText
+		nE.fields[i] = inf.ResolveExpressionField(field)
 	}
 
 	return nE

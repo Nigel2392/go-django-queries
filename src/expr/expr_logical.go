@@ -261,6 +261,7 @@ func (l *logicalChainExpr) SQL(sb *strings.Builder) []any {
 		if l.forUpdate && l.field.SQLText != "" {
 			sb.WriteString(" = ")
 		}
+		args = append(args, l.field.SQLArgs...)
 	}
 	for _, inner := range l.inner {
 		args = append(args, inner.SQL(sb)...)

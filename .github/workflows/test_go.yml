@@ -19,5 +19,8 @@ jobs:
       with:
         go-version: '1.24'
 
-    - name: Normal Test
-      run: go test -v ./...
+    - name: Test SQLite queries
+      run: go test -v -tags=sqlite ./...
+
+    - name: Test MySQL queries
+      run: go test -v -tags=mysql ./...

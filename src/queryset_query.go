@@ -7,42 +7,43 @@ import (
 
 var (
 	_ CompiledQuery[int64] = &QueryObject[int64]{}
+	// _ CompiledQuery[[][]interface{}] = (*CombinedQuery[[]interface{}])(nil)
 
 	LogQueries = true
 )
 
 type QueryObject[T1 any] struct {
-	exec     func(sql string, args ...any) (T1, error)
-	model    attrs.Definer
-	args     []any
-	sql      string
-	compiler QueryCompiler
+	Execute func(sql string, args ...any) (T1, error)
+	Object  attrs.Definer
+	Params  []any
+	Stmt    string
+	Builder QueryCompiler
 }
 
 func (q *QueryObject[T1]) SQL() string {
-	return q.sql
+	return q.Stmt
 }
 
 func (q *QueryObject[T1]) Args() []any {
-	return q.args
+	return q.Params
 }
 
 func (q *QueryObject[T1]) Model() attrs.Definer {
-	return q.model
+	return q.Object
 }
 
 func (q *QueryObject[T1]) Exec() (T1, error) {
-	var result, err = q.exec(q.sql, q.args...)
+	var result, err = q.Execute(q.Stmt, q.Params...)
 	if LogQueries {
 		if err != nil {
-			logger.Errorf("Query (%T, %T): %s: %s %v", q.Model(), *new(T1), err.Error(), q.sql, q.args)
+			logger.Errorf("Query (%T, %T): %s: %s %v", q.Model(), *new(T1), err.Error(), q.Stmt, q.Params)
 			return result, err
 		}
-		logger.Debugf("Query (%T, %T): %s %v", q.Model(), *new(T1), q.sql, q.args)
+		logger.Debugf("Query (%T, %T): %s %v", q.Model(), *new(T1), q.Stmt, q.Params)
 	}
 	return result, err
 }
 
 func (q *QueryObject[T1]) Compiler() QueryCompiler {
-	return q.compiler
+	return q.Builder
 }

@@ -511,6 +511,16 @@ func (r *RelManyToManyQuerySet[T]) ClearTargets() (int64, error) {
 	}
 
 	var throughModel = newThroughProxy(r.rel.Through())
+	var throughIdsResult, err = r.qs.Select(r.qs.internals.Model.Primary.Name()).ValuesList()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get through object IDs: %w", err)
+	}
+
+	var throughIds = make([]any, 0, len(throughIdsResult))
+	for _, id := range throughIdsResult {
+		throughIds = append(throughIds, id[0])
+	}
+
 	var throughQs = GetQuerySet(throughModel.object).
 		Filter(
 			expr.Q(
@@ -518,15 +528,11 @@ func (r *RelManyToManyQuerySet[T]) ClearTargets() (int64, error) {
 				r.source.Object.FieldDefs().Primary().GetValue(),
 			),
 			expr.Expr(
-				throughModel.targetField.Name(), "in", Subquery(
-					ChangeObjectsType[T, attrs.Definer](
-						r.qs.Select(r.qs.internals.Model.Primary.Name()),
-					),
-				),
+				throughModel.targetField.Name(), expr.LOOKUP_IN, throughIds,
 			),
 		)
 
-	var deleted, err = throughQs.Delete()
+	deleted, err := throughQs.Delete()
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete through objects: %w", err)
 	}

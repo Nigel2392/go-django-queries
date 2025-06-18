@@ -1,7 +1,6 @@
 package queries_test
 
 import (
-	"database/sql"
 	"strings"
 	"testing"
 
@@ -38,35 +37,6 @@ const (
 var (
 	_ queries.DataModel = &TestStruct{}
 )
-
-func init() {
-	var db, err = sql.Open("sqlite3", "file:queries_memory?mode=memory&cache=shared")
-	if err != nil {
-		panic(err)
-	}
-
-	_, err = db.Exec(createTableTestStruct)
-	if err != nil {
-		panic(err)
-	}
-	_, err = db.Exec(createTableTestStructNoObject)
-	if err != nil {
-		panic(err)
-	}
-	_, err = db.Exec(createAuthor)
-	if err != nil {
-		panic(err)
-	}
-	_, err = db.Exec(createBook)
-	if err != nil {
-		panic(err)
-	}
-
-	attrs.RegisterModel(&TestStruct{})
-	attrs.RegisterModel(&TestStructNoObject{})
-	attrs.RegisterModel(&Author{})
-	attrs.RegisterModel(&Book{})
-}
 
 type TestStruct struct {
 	models.Model
@@ -117,16 +87,11 @@ func (t *TestStructNoObject) FieldDefs() attrs.Definitions {
 		attrs.NewField(t, "Text", &attrs.FieldConfig{
 			Column: "text",
 		}),
-		fields.NewVirtualField[string](t, &t.TestNameText, "TestNameText", expr.Raw(
-			"![Name] || ' ' || ![Text] || ' ' || ?",
-			"test",
+		fields.NewVirtualField[string](t, &t.TestNameText, "TestNameText", expr.CONCAT(
+			"Name", expr.Value(" ", true), "Text", expr.Value(" ", true), expr.Value("test"),
 		)),
-		fields.NewVirtualField[string](t, &t.TestNameLower, "TestNameLower", expr.Raw(
-			"LOWER(![Name])",
-		)),
-		fields.NewVirtualField[string](t, &t.TestNameUpper, "TestNameUpper", expr.Raw(
-			"UPPER(![Name])",
-		)),
+		fields.NewVirtualField[string](t, &t.TestNameLower, "TestNameLower", expr.LOWER("Name")),
+		fields.NewVirtualField[string](t, &t.TestNameUpper, "TestNameUpper", expr.UPPER("Name")),
 	).WithTableName("test_struct_no_object")
 }
 
@@ -151,7 +116,7 @@ func TestSetNameTestStruct(t *testing.T) {
 	)
 
 	if textV != "test1" {
-		t.Errorf("Expected TestNameText to be 'test1 test2', got %v", textV)
+		t.Errorf("Expected TestNameText to be 'test1 test2', got %v (%+v)", textV, test.Annotations)
 	}
 
 	if lowerV != "test2" {
@@ -326,9 +291,8 @@ func TestVirtualFieldsQuerySetSingleObjectTestStructNoObject(t *testing.T) {
 		t.Errorf("Expected Text to be %q, got %q", test.Text, o.Text)
 	}
 
-	var textV = o.TestNameText
-	if textV != "test1 test2 test" && obj.Annotations["TestNameText"] != "test1 test2 test" {
-		t.Errorf("Expected TestNameText to be 'test1 test2', got %v", textV)
+	if o.TestNameText != "test1 test2 test" || obj.Annotations["TestNameText"] != "test1 test2 test" {
+		t.Errorf("Expected TestNameText to be 'test1 test2 test', got \"%v\" OR \"%v\" (%+v)", o.TestNameText, obj.Annotations["TestNameText"], obj.Annotations)
 	}
 
 	var lowerV = o.TestNameLower
@@ -478,10 +442,9 @@ func Test_Annotated_Get(t *testing.T) {
 			Statement: "UPPER(%s)",
 			Fields:    []string{"Name"},
 		}).
-		Annotate("CustomAnnotation", &expr.RawExpr{
-			Statement: "UPPER(%s) || ' ' || %s",
-			Fields:    []string{"Name", "Text"},
-		})
+		Annotate("CustomAnnotation", expr.CONCAT(
+			expr.UPPER("Name"), expr.Value(" ", true), "Text",
+		))
 	row, err := qs.Get()
 	if err != nil {
 		t.Fatal(err)
@@ -546,6 +509,13 @@ func Test_Annotated_Values(t *testing.T) {
 		t.Fatalf("Failed to create test objects: %v", err)
 	}
 
+	var count, _ = queries.Objects(&TestStruct{}).
+		Filter("Text", "Test_Annotated_Values").
+		Count()
+	if count != 3 {
+		t.Fatalf("Expected 3 objects, got %d", count)
+	}
+
 	defer func(t *testing.T) {
 		_, err = queries.Objects(&TestStruct{}).Delete(tests...)
 		if err != nil {
@@ -563,7 +533,7 @@ func Test_Annotated_Values(t *testing.T) {
 	}
 
 	if len(values) != 3 {
-		t.Fatalf("expected 3 values, got %d", len(values))
+		t.Fatalf("expected 3 values, got %d: %+v", len(values), values)
 	}
 
 	for i, v := range values {
@@ -905,12 +875,16 @@ func TestAnnotatedValuesListWithSelectExpressions(t *testing.T) {
 
 	var qs = queries.Objects[attrs.Definer](test).
 		Filter("ID", test.ID).
-		Annotate("Combined", expr.Raw("![Name] || ' ' || ![Text]"))
+		// Annotate("Combined", expr.Raw("![Name] || ' ' || ![Text]"))
+		Annotate("Combined", expr.CONCAT("Name", expr.Value(" ", true), "Text"))
 
 	var rows, err = qs.ValuesList(
 		"ID",
 		"Combined",
-		expr.F("LOWER(![Text]) || ' ' || ?", "testSelectExpressions"),
+		// expr.F("LOWER(![Text]) || ' ' || ?", "testSelectExpressions"),
+		expr.CONCAT(
+			expr.LOWER("Text"), expr.Value(" ", true), expr.Value("testSelectExpressions"),
+		),
 	)
 	if err != nil {
 		t.Fatalf("Failed to execute query: %v", err)

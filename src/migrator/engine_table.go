@@ -149,6 +149,10 @@ func NewModelTable(obj attrs.Definer) *ModelTable {
 	})
 
 	for _, field := range fields {
+		if field.ColumnName() == "" {
+			continue
+		}
+
 		var col = NewTableColumn(t, field)
 		t.Fields.Set(field.Name(), col)
 	}

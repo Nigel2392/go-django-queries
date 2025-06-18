@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/Nigel2392/go-django-queries/internal"
@@ -21,12 +22,25 @@ func init() {
 	drivers.RegisterDriver(&drivers.DriverPostgres{}, "postgres", drivers.SupportsReturningColumns)
 	drivers.RegisterDriver(&drivers.DriverPostgres{}, "pgx", drivers.SupportsReturningColumns)
 
-	RegisterCompiler(&drivers.DriverMySQL{}, NewGenericQueryBuilder)
+	RegisterCompiler(&drivers.DriverMySQL{}, NewMySQLQueryBuilder)
 	RegisterCompiler(&drivers.DriverSQLite{}, NewGenericQueryBuilder)
 	RegisterCompiler(&drivers.DriverPostgres{}, NewGenericQueryBuilder)
 }
 
 func newExpressionInfo(g *genericQueryBuilder, qs *QuerySet[attrs.Definer], i *QuerySetInternals, updating bool) *expr.ExpressionInfo {
+	var dbName = internal.SqlxDriverName(g.queryInfo.DB)
+	var supportsWhereAlias bool
+	switch dbName {
+	case "mysql":
+		supportsWhereAlias = false // MySQL does not support WHERE alias
+	case "sqlite3":
+		supportsWhereAlias = true
+	case "postgres", "pgx":
+		supportsWhereAlias = true
+	default:
+		panic(fmt.Errorf("unknown database driver: %s", dbName))
+	}
+
 	return &expr.ExpressionInfo{
 		Driver: g.driver,
 		Model: attrs.NewObject[attrs.Definer](
@@ -43,8 +57,9 @@ func newExpressionInfo(g *genericQueryBuilder, qs *QuerySet[attrs.Definer], i *Q
 			OperatorsRHS:     g.LookupOperatorsRHS(),
 			PatternOpsRHS:    g.LookupPatternOperatorsRHS(),
 		},
-		ForUpdate:   updating,
-		Annotations: i.Annotations,
+		ForUpdate:          updating,
+		Annotations:        i.Annotations,
+		SupportsWhereAlias: supportsWhereAlias,
 	}
 }
 
@@ -56,6 +71,7 @@ type genericQueryBuilder struct {
 	support     drivers.SupportsReturningType
 	quote       string
 	driver      driver.Driver
+	self        QueryCompiler // for embedding purposes to link back to the top-most compiler
 }
 
 func NewGenericQueryBuilder(db string) QueryCompiler {
@@ -82,6 +98,13 @@ func NewGenericQueryBuilder(db string) QueryCompiler {
 	}
 }
 
+func (g *genericQueryBuilder) This() QueryCompiler {
+	if g.self == nil {
+		return g
+	}
+	return g.self
+}
+
 func (g *genericQueryBuilder) DatabaseName() string {
 	return g.queryInfo.DatabaseName
 }
@@ -106,9 +129,9 @@ func (g *genericQueryBuilder) QuoteString(s string) string {
 	sb.Grow(len(s) + 2)
 	switch internal.SqlxDriverName(g.queryInfo.DB) {
 	case "mysql":
-		sb.WriteString("`")
+		sb.WriteString("'")
 		sb.WriteString(s)
-		sb.WriteString("`")
+		sb.WriteString("'")
 	case "sqlite3":
 		sb.WriteString("'")
 		sb.WriteString(s)
@@ -248,12 +271,12 @@ func (g *genericQueryBuilder) LookupPatternOperatorsRHS() map[string]string {
 	switch internal.SqlxDriverName(g.queryInfo.DB) {
 	case "mysql":
 		return map[string]string{
-			"contains":    "LIKE LOWER(CONCAT('%%', %s, '%%'))",
-			"icontains":   "LIKE CONCAT('%%', %s, '%%')",
-			"startswith":  "LIKE LOWER(CONCAT(%s, '%%'))",
-			"istartswith": "LIKE CONCAT(%s, '%%')",
-			"endswith":    "LIKE LOWER(CONCAT('%%', %s))",
-			"iendswith":   "LIKE CONCAT('%%', %s)",
+			"contains":    "LIKE CONCAT('%%', %s, '%%')",
+			"icontains":   "LIKE LOWER(CONCAT('%%', %s, '%%'))",
+			"startswith":  "LIKE CONCAT(%s, '%%')",
+			"istartswith": "LIKE LOWER(CONCAT(%s, '%%'))",
+			"endswith":    "LIKE CONCAT('%%', %s)",
+			"iendswith":   "LIKE LOWER(CONCAT('%%', %s))",
 		}
 	case "postgres", "pgx":
 		return map[string]string{
@@ -440,10 +463,10 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 	}
 
 	return &QueryObject[[][]interface{}]{
-		sql:   g.queryInfo.DBX.Rebind(query.String()),
-		model: inf.Model,
-		args:  args,
-		exec: func(sql string, args ...any) ([][]interface{}, error) {
+		Stmt:   g.queryInfo.DBX.Rebind(query.String()),
+		Object: inf.Model,
+		Params: args,
+		Execute: func(sql string, args ...any) ([][]interface{}, error) {
 
 			rows, err := g.DB().QueryContext(ctx, sql, args...)
 			if err != nil {
@@ -506,10 +529,10 @@ func (g *genericQueryBuilder) BuildCountQuery(
 	args = append(args, g.writeLimitOffset(query, internals.Limit, internals.Offset)...)
 
 	return &QueryObject[int64]{
-		sql:   g.queryInfo.DBX.Rebind(query.String()),
-		model: inf.Model,
-		args:  args,
-		exec: func(query string, args ...any) (int64, error) {
+		Stmt:   g.queryInfo.DBX.Rebind(query.String()),
+		Object: inf.Model,
+		Params: args,
+		Execute: func(query string, args ...any) (int64, error) {
 			var count int64
 			var row = g.DB().QueryRowContext(ctx, query, args...)
 			if err := row.Scan(&count); err != nil {
@@ -527,8 +550,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 	ctx context.Context,
 	qs *GenericQuerySet,
 	internals *QuerySetInternals,
-	objects []*FieldInfo[attrs.Field],
-	values []any, // flattened list of values
+	objects []UpdateInfo,
 	// e.g. for 2 rows of 3 fields: [[1, 2, 4], [2, 3, 5]] -> [1, 2, 4, 2, 3, 5]
 ) CompiledQuery[[][]interface{}] {
 	var (
@@ -541,10 +563,10 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 
 	if len(objects) == 0 {
 		return &QueryObject[[][]interface{}]{
-			sql:   "",
-			model: model,
-			args:  nil,
-			exec: func(query string, args ...any) ([][]interface{}, error) {
+			Stmt:   "",
+			Object: model,
+			Params: nil,
+			Execute: func(query string, args ...any) ([][]interface{}, error) {
 				return nil, nil
 			},
 		}
@@ -571,6 +593,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 	query.WriteString(") VALUES ")
 
 	var written bool
+	var values = make([]any, 0, len(objects)*len(object.Fields))
 	for _, obj := range objects {
 		if written {
 			query.WriteString(", ")
@@ -585,6 +608,7 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 			query.WriteString(generic_PLACEHOLDER)
 		}
 		query.WriteString(")")
+		values = append(values, obj.Values...)
 		written = true
 	}
 
@@ -638,10 +662,10 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 	}
 
 	return &QueryObject[[][]interface{}]{
-		sql:   g.queryInfo.DBX.Rebind(query.String()),
-		model: model,
-		args:  values,
-		exec: func(query string, args ...any) ([][]interface{}, error) {
+		Stmt:   g.queryInfo.DBX.Rebind(query.String()),
+		Object: model,
+		Params: values,
+		Execute: func(query string, args ...any) ([][]interface{}, error) {
 			var err error
 			switch support {
 			case drivers.SupportsReturningLastInsertId:
@@ -794,10 +818,10 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 	}
 
 	return &QueryObject[int64]{
-		sql:   g.queryInfo.DBX.Rebind(query.String()),
-		model: inf.Model,
-		args:  args,
-		exec: func(sql string, args ...any) (int64, error) {
+		Stmt:   g.queryInfo.DBX.Rebind(query.String()),
+		Object: inf.Model,
+		Params: args,
+		Execute: func(sql string, args ...any) (int64, error) {
 			result, err := g.DB().ExecContext(ctx, sql, args...)
 			if err != nil {
 				return 0, err
@@ -836,10 +860,10 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 	)
 
 	return &QueryObject[int64]{
-		sql:   g.queryInfo.DBX.Rebind(query.String()),
-		model: inf.Model,
-		args:  args,
-		exec: func(sql string, args ...any) (int64, error) {
+		Stmt:   g.queryInfo.DBX.Rebind(query.String()),
+		Object: inf.Model,
+		Params: args,
+		Execute: func(sql string, args ...any) (int64, error) {
 			result, err := g.DB().ExecContext(ctx, sql, args...)
 			if err != nil {
 				return 0, err
@@ -978,6 +1002,256 @@ func (g *genericQueryBuilder) writeLimitOffset(sb *strings.Builder, limit int, o
 		args = append(args, offset)
 	}
 	return args
+}
+
+type mysqlQueryBuilder struct {
+	*genericQueryBuilder
+}
+
+func NewMySQLQueryBuilder(db string) QueryCompiler {
+	var inner = NewGenericQueryBuilder(db)
+	return &mysqlQueryBuilder{
+		genericQueryBuilder: inner.(*genericQueryBuilder),
+	}
+}
+
+type sqlQuery struct {
+	sql  string
+	args []any
+}
+
+var availableForLastInsertId = map[reflect.Kind]struct{}{
+	reflect.Int:    {},
+	reflect.Int8:   {},
+	reflect.Int16:  {},
+	reflect.Int32:  {},
+	reflect.Int64:  {},
+	reflect.Uint:   {},
+	reflect.Uint8:  {},
+	reflect.Uint16: {},
+	reflect.Uint32: {},
+	reflect.Uint64: {},
+}
+
+// mysql does not properly support returning last insert id
+// when multiple rows are inserted, so we need to use a different approach.
+// This is a workaround to ensure that we can still return the last inserted ID
+// when using MySQL, by using a separate query to get the last inserted ID.
+func (g *mysqlQueryBuilder) BuildCreateQuery(
+	ctx context.Context,
+	qs *GenericQuerySet,
+	internals *QuerySetInternals,
+	objects []UpdateInfo,
+) CompiledQuery[[][]interface{}] {
+
+	if len(objects) == 0 {
+		return &QueryObject[[][]interface{}]{
+			Stmt:   "",
+			Object: attrs.NewObject[attrs.Definer](qs.Model()),
+			Params: nil,
+			Execute: func(query string, args ...any) ([][]interface{}, error) {
+				return nil, nil
+			},
+		}
+	}
+
+	var (
+		queries       = make([]sqlQuery, 0, len(objects))
+		allValues     = make([]any, 0, len(objects)*len(objects[0].Fields))
+		fullStatement = make([]string, 0, len(objects))
+	)
+	for _, object := range objects {
+		var query = new(strings.Builder)
+		var values = make([]any, 0, len(objects)*len(object.Fields))
+
+		query.WriteString("INSERT INTO ")
+		query.WriteString(g.quote)
+		query.WriteString(internals.Model.TableName)
+		query.WriteString(g.quote)
+		query.WriteString(" (")
+
+		for i, field := range object.Fields {
+			if i > 0 {
+				query.WriteString(", ")
+			}
+
+			query.WriteString(g.quote)
+			query.WriteString(field.ColumnName())
+			query.WriteString(g.quote)
+		}
+
+		query.WriteString(") VALUES (")
+		for i := range object.Fields {
+			if i > 0 {
+				query.WriteString(", ")
+			}
+
+			query.WriteString(generic_PLACEHOLDER)
+		}
+		query.WriteString(")")
+		values = append(values, object.Values...)
+
+		var q = sqlQuery{
+			sql:  g.queryInfo.DBX.Rebind(query.String()),
+			args: values,
+		}
+
+		queries = append(queries, q)
+		fullStatement = append(fullStatement, q.sql)
+		allValues = append(allValues, q.args...)
+	}
+
+	return &QueryObject[[][]interface{}]{
+		Stmt:   strings.Join(fullStatement, "; "),
+		Params: allValues,
+		Object: attrs.NewObject[attrs.Definer](qs.Model()),
+		Execute: func(query string, args ...any) ([][]interface{}, error) {
+			var results = make([][]interface{}, 0, len(queries))
+
+			var (
+				transaction Transaction
+				err         error
+			)
+
+			if g.InTransaction() {
+				transaction = &nullTransaction{g.transaction}
+			} else {
+				transaction, err = g.StartTransaction(ctx)
+				if err != nil {
+					return nil, errors.Wrap(err, "failed to start transaction")
+				}
+			}
+
+			defer transaction.Rollback()
+
+			for _, q := range queries {
+				var result = make([]interface{}, 0, len(objects[0].Fields))
+				var res, err = g.DB().ExecContext(ctx, q.sql, q.args...)
+				if err != nil {
+					return nil, errors.Wrap(err, "failed to execute query")
+				}
+
+				var lastInsertId int64
+				if internals.Model.Primary != nil {
+					if _, ok := availableForLastInsertId[internals.Model.Primary.Type().Kind()]; ok {
+						lastInsertId, err = res.LastInsertId()
+						if err != nil {
+							return nil, errors.Wrap(err, "failed to get last insert id")
+						}
+						result = append(result, lastInsertId)
+					}
+				}
+
+				results = append(results, result)
+			}
+
+			return results, transaction.Commit()
+		},
+	}
+}
+
+func (g *mysqlQueryBuilder) BuildUpdateQuery(
+	ctx context.Context,
+	qs *GenericQuerySet,
+	internals *QuerySetInternals,
+	objects []UpdateInfo,
+) CompiledQuery[int64] {
+	if len(objects) == 0 {
+		return &QueryObject[int64]{
+			Stmt:    "",
+			Object:  attrs.NewObject[attrs.Definer](qs.Model()),
+			Params:  nil,
+			Execute: func(query string, args ...any) (int64, error) { return 0, nil },
+		}
+	}
+
+	var (
+		queries       = make([]sqlQuery, 0, len(objects))
+		allValues     = make([]any, 0)
+		fullStatement = make([]string, 0, len(objects))
+	)
+
+	for _, info := range objects {
+		var (
+			query   = new(strings.Builder)
+			args    = make([]any, 0)
+			inf     = newExpressionInfo(g.genericQueryBuilder, qs, internals, true)
+			written bool
+		)
+
+		query.WriteString("UPDATE ")
+		query.WriteString(g.quote)
+		query.WriteString(internals.Model.TableName)
+		query.WriteString(g.quote)
+		query.WriteString(" SET ")
+
+		var valuesIdx int
+		for _, f := range info.Fields {
+			if written {
+				query.WriteString(", ")
+			}
+
+			var a, isSQL, ok = info.WriteField(query, inf, f, true)
+			if !ok {
+				continue
+			}
+			if isSQL {
+				args = append(args, a...)
+			} else {
+				args = append(args, info.Values[valuesIdx])
+				valuesIdx++
+			}
+			written = true
+		}
+
+		inf.ForUpdate = false
+
+		args = append(args, g.writeJoins(query, info.Joins)...)
+		args = append(args, g.writeWhereClause(query, inf, info.Where)...)
+
+		sql := g.queryInfo.DBX.Rebind(query.String())
+
+		queries = append(queries, sqlQuery{sql: sql, args: args})
+		fullStatement = append(fullStatement, sql)
+		allValues = append(allValues, args...)
+	}
+
+	return &QueryObject[int64]{
+		Stmt:   strings.Join(fullStatement, "; "),
+		Object: attrs.NewObject[attrs.Definer](qs.Model()),
+		Params: allValues,
+		Execute: func(query string, args ...any) (int64, error) {
+			var (
+				totalAffected int64
+				transaction   Transaction
+				err           error
+			)
+
+			if g.InTransaction() {
+				transaction = &nullTransaction{g.transaction}
+			} else {
+				transaction, err = g.StartTransaction(ctx)
+				if err != nil {
+					return 0, errors.Wrap(err, "failed to start transaction")
+				}
+			}
+			defer transaction.Rollback()
+
+			for _, q := range queries {
+				res, err := g.DB().ExecContext(ctx, q.sql, q.args...)
+				if err != nil {
+					return 0, errors.Wrap(err, "failed to execute update")
+				}
+				rows, err := res.RowsAffected()
+				if err != nil {
+					return 0, errors.Wrap(err, "failed to get rows affected")
+				}
+				totalAffected += rows
+			}
+
+			return totalAffected, transaction.Commit()
+		},
+	}
 }
 
 // -----------------------------------------------------------------------------

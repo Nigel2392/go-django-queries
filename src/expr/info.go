@@ -127,6 +127,9 @@ type ExpressionInfo struct {
 	// This will automatically append "= ?" to the SQL TableColumn statement
 	ForUpdate bool
 
+	// SupportsWhereExpressionAlias indicates if the database supports WHERE expressions with aliases.
+	SupportsWhereAlias bool
+
 	// Annotations is a map of queryset annotations (fields).
 	Annotations *orderedmap.OrderedMap[string, attrs.Field]
 }
@@ -171,11 +174,12 @@ type ResolvedField struct {
 	FieldPath         string
 	Field             string
 	SQLText           string
+	SQLArgs           []any
 	AllowedTransforms []string
 	AllowedLookups    []string
 }
 
-func newResolvedField(fieldPath, sqlText string, field attrs.FieldDefinition) *ResolvedField {
+func newResolvedField(fieldPath, sqlText string, field attrs.FieldDefinition, args []any) *ResolvedField {
 	var (
 		transforms []string
 		lookups    []string
@@ -188,6 +192,7 @@ func newResolvedField(fieldPath, sqlText string, field attrs.FieldDefinition) *R
 		FieldPath:         fieldPath,
 		Field:             field.Name(),
 		SQLText:           sqlText,
+		SQLArgs:           args,
 		AllowedTransforms: transforms,
 		AllowedLookups:    lookups,
 	}
@@ -204,6 +209,7 @@ func (inf *ExpressionInfo) ResolveExpressionField(field string) *ResolvedField {
 	}
 
 	var col = &TableColumn{}
+	var args []any
 	if (!inf.ForUpdate) || (isRelated || len(chain) > 0) {
 		var aliasStr string
 		switch {
@@ -215,24 +221,33 @@ func (inf *ExpressionInfo) ResolveExpressionField(field string) *ResolvedField {
 			aliasStr = inf.Model.FieldDefs().TableName()
 		}
 
-		if vF, ok := f.(interface{ Alias() string }); ok {
-			col.FieldAlias = inf.AliasGen.GetFieldAlias(
-				aliasStr, vF.Alias(),
-			)
-		} else {
-			col.TableOrAlias = aliasStr
-			col.FieldColumn = f
+		if s, ok := f.(VirtualField); ok && !inf.SupportsWhereAlias {
+			// If the field is a virtual field and the database does not support
+			// WHERE expressions with aliases, we need to use the raw SQL of the
+			// virtual field.
+			var sql string
+			sql, args = s.SQL(inf)
+			col.RawSQL = sql
+			goto newField
 		}
 
+		if s, ok := f.(AliasField); ok {
+			// If the field is an alias field, we need to use the alias of the field.
+			col.FieldAlias = inf.AliasGen.GetFieldAlias(
+				aliasStr, s.Alias(),
+			)
+			goto newField
+		}
+
+		col.TableOrAlias = aliasStr
+		col.FieldColumn = f
+
+	newField:
 		var sql, _ = inf.FormatField(col)
-		return newResolvedField(
-			field, sql, f,
-		)
+		return newResolvedField(field, sql, f, args)
 	}
 
 	col.FieldColumn = f
 	var sql, _ = inf.FormatField(col)
-	return newResolvedField(
-		field, sql, f,
-	)
+	return newResolvedField(field, sql, f, []any{})
 }

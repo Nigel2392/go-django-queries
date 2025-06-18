@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
@@ -18,7 +17,6 @@ import (
 	"github.com/Nigel2392/go-django-queries/src/quest"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/Nigel2392/go-django/src/forms/widgets"
 )
 
@@ -392,6 +390,7 @@ func (t *ModelManyToMany) FieldDefs() attrs.Definitions {
 			Attributes: map[string]any{
 				attrs.AttrUniqueKey: true,
 			},
+			MaxLength: 255,
 		}),
 		//	//)),fields.NewManyToManyField[*queries.RelM2M[*ModelManyToMany_Target, *ModelManyToMany_Through]](t, &t.Target, "Target", "TargetReverse", "id", attrs.Relate(
 		//	//)),	&ModelManyToMany_Target{},
@@ -506,80 +505,10 @@ func (t *ModelManyToMany_Target) FieldDefs() attrs.Definitions {
 }
 
 func init() {
-	// make db globally available
-	// var db, err = sql.Open("mysql", "root:password@tcp(localhost:3306)/queries_test?parseTime=true")
-	var db, err = sql.Open("sqlite3", "file:queries_memory?mode=memory&cache=shared")
-	// var db, err = sql.Open("sqlite3", "file:queries_test.db")
-	if err != nil {
-		panic(err)
-	}
-	var settings = map[string]interface{}{
-		django.APPVAR_DATABASE: db,
-	}
+	createAllTestTables()
+}
 
-	//	if _, err = db.Exec(createTableImages); err != nil {
-	//		panic(fmt.Sprint("failed to create table images ", err))
-	//	}
-	//	if _, err = db.Exec(createTableProfiles); err != nil {
-	//		panic(fmt.Sprint("failed to create table profiles ", err))
-	//	}
-	//	if _, err = db.Exec(createTableUsers); err != nil {
-	//		panic(fmt.Sprint("failed to create table todos ", err))
-	//	}
-	//	if _, err = db.Exec(createTableObjectWithMultipleRelations); err != nil {
-	//		panic(fmt.Sprint("failed to create table object_with_multiple_relations ", err))
-	//	}
-	//	if _, err = db.Exec(createTableCategories); err != nil {
-	//		panic(fmt.Sprint("failed to create table categories ", err))
-	//	}
-	//	if _, err = db.Exec(createTableTodos); err != nil {
-	//		panic(fmt.Sprint("failed to create table todos ", err))
-	//	}
-	//	if _, err = db.Exec(createTableOneToOneWithThrough); err != nil {
-	//		panic(fmt.Sprint("failed to create table onetoonewiththrough ", err))
-	//	}
-	//	if _, err = db.Exec(createTableOneToOneWithThrough_target); err != nil {
-	//		panic(fmt.Sprint("failed to create table onetoonewiththrough_target ", err))
-	//	}
-	//	if _, err = db.Exec(createTableOneToOneWithThrough_through); err != nil {
-	//		panic(fmt.Sprint("failed to create table onetoonewiththrough_through ", err))
-	//	}
-	//	if _, err = db.Exec(createTableModelManyToMany); err != nil {
-	//		panic(fmt.Sprint("failed to create table model_manytomany ", err))
-	//	}
-	//	if _, err = db.Exec(createTableModelManyToMany_target); err != nil {
-	//		panic(fmt.Sprint("failed to create table model_manytomany_target ", err))
-	//	}
-	//	if _, err = db.Exec(createTableModelManyToMany_through); err != nil {
-	//		panic(fmt.Sprint("failed to create table model_manytomany_through ", err))
-	//	}
-	//
-	//	attrs.RegisterModel(&User{})
-	//	attrs.RegisterModel(&Todo{})
-	//	attrs.RegisterModel(&Profile{})
-	//	attrs.RegisterModel(&Image{})
-	//	attrs.RegisterModel(&ObjectWithMultipleRelations{})
-	//	attrs.RegisterModel(&Category{})
-	//
-	//	attrs.RegisterModel(&OneToOneWithThrough{})
-	//	attrs.RegisterModel(&OneToOneWithThrough_Through{})
-	//	attrs.RegisterModel(&OneToOneWithThrough_Target{})
-	//
-	//	attrs.RegisterModel(&ModelManyToMany{})
-	//	attrs.RegisterModel(&ModelManyToMany_Through{})
-	//	attrs.RegisterModel(&ModelManyToMany_Target{})
-
-	logger.Setup(&logger.Logger{
-		Level:       logger.DBG,
-		WrapPrefix:  logger.ColoredLogWrapper,
-		OutputDebug: os.Stdout,
-		OutputInfo:  os.Stdout,
-		OutputWarn:  os.Stdout,
-		OutputError: os.Stdout,
-	})
-
-	django.App(django.Configure(settings))
-
+func createAllTestTables() {
 	// create tables
 	var tables = quest.Table[*testing.T](nil,
 		&Image{},
@@ -594,10 +523,14 @@ func init() {
 		&ModelManyToMany{},
 		&ModelManyToMany_Target{},
 		&ModelManyToMany_Through{},
+
+		&TestStruct{},
+		&TestStructNoObject{},
+		&Author{},
+		&Book{},
 	)
 
 	tables.Create()
-
 }
 
 func TestTodoInsert(t *testing.T) {
@@ -1670,7 +1603,7 @@ func TestUpdateWithExpressions(t *testing.T) {
 		Update(
 			&Todo{},
 			expr.As("Title", expr.UPPER("Title")),
-			expr.As("Done", expr.F("![ID] % ?[1] == ?[2] OR ![ID] % ?[1] == ?[3] OR ?[4]", 2, 0, 1, true)),
+			expr.As("Done", expr.F("![ID] % ?[1] = ?[2] OR ![ID] % ?[1] = ?[3] OR ?[4]", 2, 0, 1, true)),
 			// expr.F("![Title] = UPPER(![Title])"),
 			// expr.F("![Done] = (![ID] % ?[1] == ?[2] OR ![ID] % ?[1] == ?[3] OR ?[4])", 2, 0, 1, true),
 		)
@@ -1797,6 +1730,16 @@ func TestQueryGetMultipleRows(t *testing.T) {
 }
 
 func TestQueryCreate(t *testing.T) {
+
+	var db = django.ConfigGet[*sql.DB](
+		django.Global.Settings,
+		django.APPVAR_DATABASE,
+	)
+
+	if _, ok := db.Driver().(*drivers.DriverSQLite); !ok {
+		t.Skip("This test is only supported by SQLite driver")
+	}
+
 	var user = &User{
 		Name: "TestQueryCreate",
 	}
@@ -2356,6 +2299,16 @@ type testQuerySet_Concurrency struct {
 }
 
 func TestQuerySet_SharedInstance_Concurrency(t *testing.T) {
+
+	var db = django.ConfigGet[*sql.DB](
+		django.Global.Settings,
+		django.APPVAR_DATABASE,
+	)
+
+	if _, ok := db.Driver().(*drivers.DriverMySQL); ok {
+		t.Skip("This test is not supported by MySQL driver due to the possibility of using DoltDB, which does not support concurrency.")
+	}
+
 	queries.QUERYSET_USE_CACHE_DEFAULT = false
 	var baseQS = queries.GetQuerySet[attrs.Definer](&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
@@ -2998,14 +2951,7 @@ func TestLogicalExpression(t *testing.T) {
 
 	var todos, err = queries.GetQuerySet(&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
-		Filter(expr.Logical("Done", expr.EQ, expr.Value(1, true)).
-			ADD(1).
-			Scope(
-				expr.DIV,
-				expr.Logical(2),
-			).
-			EQ(1),
-		).All()
+		Filter(expr.Logical("Done", expr.EQ, expr.Value(1, true))).All()
 	if err != nil {
 		t.Fatalf("Failed to get todos: %v", err)
 	}

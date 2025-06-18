@@ -10,6 +10,7 @@ import (
 
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	django "github.com/Nigel2392/go-django/src"
+	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/go-sql-driver/mysql"
 )
 
@@ -64,13 +65,13 @@ func (m *MySQLSchemaEditor) Setup() error {
 }
 
 func (m *MySQLSchemaEditor) StoreMigration(appName, modelName, migrationName string) error {
-	_, err := m.db.Exec(insertTableMigrations, appName, modelName, migrationName)
+	_, err := m.Execute(context.Background(), insertTableMigrations, appName, modelName, migrationName)
 	return err
 }
 
 func (m *MySQLSchemaEditor) HasMigration(appName, modelName, migrationName string) (bool, error) {
 	var count int
-	err := m.db.QueryRow(selectTableMigrations, appName, modelName, migrationName).Scan(&count)
+	err := m.queryRow(context.Background(), selectTableMigrations, appName, modelName, migrationName).Scan(&count)
 	if err != nil {
 		return false, err
 	}
@@ -78,12 +79,22 @@ func (m *MySQLSchemaEditor) HasMigration(appName, modelName, migrationName strin
 }
 
 func (m *MySQLSchemaEditor) RemoveMigration(appName, modelName, migrationName string) error {
-	_, err := m.db.Exec(deleteTableMigrations, appName, modelName, migrationName)
+	_, err := m.Execute(context.Background(), deleteTableMigrations, appName, modelName, migrationName)
 	return err
 }
 
+func (m *MySQLSchemaEditor) queryRow(ctx context.Context, query string, args ...any) *sql.Row {
+	// logger.Debugf("MySQLSchemaEditor.QueryRowContext:\n%s", query)
+	return m.db.QueryRowContext(ctx, query, args...)
+}
+
 func (m *MySQLSchemaEditor) Execute(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	return m.db.ExecContext(ctx, query, args...)
+	logger.Debugf("MySQLSchemaEditor.ExecContext:\n%s", query)
+	result, err := m.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (m *MySQLSchemaEditor) CreateTable(table migrator.Table, ifNotExists bool) error {
@@ -109,7 +120,7 @@ func (m *MySQLSchemaEditor) CreateTable(table migrator.Table, ifNotExists bool) 
 		written = true
 	}
 	w.WriteString("\n);")
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -122,13 +133,13 @@ func (m *MySQLSchemaEditor) DropTable(table migrator.Table, ifExists bool) error
 	w.WriteString("`")
 	w.WriteString(table.TableName())
 	w.WriteString("`;")
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
 func (m *MySQLSchemaEditor) RenameTable(table migrator.Table, newName string) error {
 	query := fmt.Sprintf("RENAME TABLE `%s` TO `%s`;", table.TableName(), newName)
-	_, err := m.db.Exec(query)
+	_, err := m.Execute(context.Background(), query)
 	return err
 }
 
@@ -156,7 +167,7 @@ func (m *MySQLSchemaEditor) AddIndex(table migrator.Table, index migrator.Index,
 		w.WriteString("`")
 	}
 	w.WriteString(");")
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -166,7 +177,7 @@ func (m *MySQLSchemaEditor) DropIndex(table migrator.Table, index migrator.Index
 	// If you want to check before dropping, you would need to query the information_schema.
 	// This is a workaround, as MySQL does not support IF EXISTS for DROP INDEX.
 	query := fmt.Sprintf("DROP INDEX `%s` ON `%s`;", index.Name(), table.TableName())
-	_, err := m.db.Exec(query)
+	_, err := m.Execute(context.Background(), query)
 	return err
 }
 
@@ -181,13 +192,13 @@ func (m *MySQLSchemaEditor) AddField(table migrator.Table, col migrator.Column) 
 	w.WriteString(table.TableName())
 	w.WriteString("` ADD COLUMN ")
 	WriteColumn(&w, col)
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
 func (m *MySQLSchemaEditor) RemoveField(table migrator.Table, col migrator.Column) error {
 	query := fmt.Sprintf("ALTER TABLE `%s` DROP COLUMN `%s`;", table.TableName(), col.Column)
-	_, err := m.db.Exec(query)
+	_, err := m.Execute(context.Background(), query)
 	return err
 }
 
@@ -196,7 +207,7 @@ func (m *MySQLSchemaEditor) AlterField(table migrator.Table, oldCol, newCol migr
 	var w strings.Builder
 	w.WriteString(query)
 	WriteColumn(&w, newCol)
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -207,34 +218,41 @@ func WriteColumn(w *strings.Builder, col migrator.Column) {
 	w.WriteString(migrator.GetFieldType(
 		&mysql.MySQLDriver{}, &col,
 	))
-	if col.Nullable {
-		w.WriteString(" NULL")
-	} else {
+
+	if !col.Nullable {
 		w.WriteString(" NOT NULL")
 	}
+
 	if col.Primary {
 		w.WriteString(" PRIMARY KEY")
 	}
+
 	if col.Auto {
 		w.WriteString(" AUTO_INCREMENT")
 	}
+
 	if col.Unique {
 		w.WriteString(" UNIQUE")
 	}
+
 	if col.HasDefault() {
 		w.WriteString(" DEFAULT ")
+
 		switch v := col.Default.(type) {
 		case string:
 			w.WriteString("'")
 			w.WriteString(v)
 			w.WriteString("'")
-		case int, int64, float32, float64:
-			w.WriteString(fmt.Sprintf("%v", v))
+		case int, int8, int16, int32, int64,
+			uint, uint8, uint16, uint32, uint64:
+			w.WriteString(fmt.Sprintf("%d", v))
+		case float64, float32:
+			w.WriteString(fmt.Sprintf("%f", v))
 		case bool:
 			if v {
-				w.WriteString("TRUE")
+				w.WriteString("1")
 			} else {
-				w.WriteString("FALSE")
+				w.WriteString("0")
 			}
 		case time.Time:
 			if v.IsZero() {
@@ -245,7 +263,9 @@ func WriteColumn(w *strings.Builder, col migrator.Column) {
 				w.WriteString("'")
 			}
 		default:
-			panic(fmt.Errorf("unsupported default type %T", v))
+			panic(fmt.Errorf(
+				"unsupported default value type %T (%v)", v, v,
+			))
 		}
 	}
 	if col.Rel != nil {

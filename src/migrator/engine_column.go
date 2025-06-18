@@ -223,7 +223,7 @@ func (c *Column) HasDefault() bool {
 	}
 	switch rv.Kind() {
 	case reflect.String:
-		return true // empty strings are valid defaults
+		return rv.String() != ""
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return rv.Int() != 0
 	case reflect.Float32, reflect.Float64:

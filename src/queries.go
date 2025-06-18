@@ -67,18 +67,13 @@ type SaveableDependantField interface {
 // aliased when generating the SQL for the field.
 //
 // For example: this is used in annotations to alias the field name.
-type AliasField interface {
-	attrs.Field
-	Alias() string
-}
+type AliasField = expr.AliasField
 
 // A field can adhere to this interface to indicate that the field should be
 // rendered as SQL.
 //
 // For example: this is used in fields.ExpressionField to render the expression as SQL.
-type VirtualField interface {
-	SQL(inf *expr.ExpressionInfo) (string, []any)
-}
+type VirtualField = expr.VirtualField
 
 // RelatedField is an interface that can be implemented by fields to indicate
 // that the field is a related field.
@@ -547,8 +542,7 @@ type QueryCompiler interface {
 		ctx context.Context,
 		qs *QuerySet[attrs.Definer],
 		internals *QuerySetInternals,
-		objects []*FieldInfo[attrs.Field],
-		values []any,
+		objects []UpdateInfo,
 	) CompiledQuery[[][]interface{}]
 
 	BuildUpdateQuery(

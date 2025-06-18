@@ -10,7 +10,6 @@ type Function struct {
 	sql        func(col []Expression, funcParams []any) (sql string, args []any, err error)
 	funcLookup string
 	fieldName  string
-	field      *ResolvedField
 	args       []any
 	used       bool
 	inner      []Expression
@@ -19,10 +18,6 @@ type Function struct {
 func (e *Function) FieldName() string {
 	if e.fieldName != "" {
 		return e.fieldName
-	}
-
-	if e.field != nil && e.field.Field != "" {
-		return e.field.Field
 	}
 
 	for _, expr := range e.inner {
@@ -66,7 +61,6 @@ func (e *Function) Clone() Expression {
 		sql:        e.sql,
 		funcLookup: e.funcLookup,
 		fieldName:  e.fieldName,
-		field:      e.field,
 		args:       slices.Clone(e.args),
 		used:       e.used,
 		inner:      inner,
@@ -96,10 +90,6 @@ func (e *Function) Resolve(inf *ExpressionInfo) Expression {
 
 	nE.sql = func(col []Expression, funcParams []any) (string, []any, error) {
 		return sql(inf, col, funcParams)
-	}
-
-	if nE.fieldName != "" {
-		nE.field = inf.ResolveExpressionField(nE.fieldName)
 	}
 
 	return nE

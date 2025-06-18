@@ -39,7 +39,7 @@ func (e *field) FieldName() string {
 
 func (e *field) SQL(sb *strings.Builder) []any {
 	sb.WriteString(e.field.SQLText)
-	return []any{}
+	return e.field.SQLArgs
 }
 
 func (e *field) Clone() Expression {
@@ -192,6 +192,13 @@ func (n *namedExpression) Resolve(inf *ExpressionInfo) Expression {
 
 	if nE.fieldName != "" && nE.forUpdate {
 		nE.field = inf.ResolveExpressionField(nE.fieldName)
+
+		if len(nE.field.SQLArgs) > 0 {
+			panic(fmt.Errorf(
+				"field %q cannot use arguments in an update expression, got %d (%v)",
+				nE.fieldName, len(nE.field.SQLArgs), nE.field.SQLArgs,
+			))
+		}
 	}
 
 	// Dereference the info to copy it,

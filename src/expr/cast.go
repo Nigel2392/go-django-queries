@@ -134,6 +134,14 @@ func (c *castExpr) Resolve(inf *ExpressionInfo) Expression {
 			panic(fmt.Errorf("%w: %d", ErrCastTypeNotImplemented, c.typ))
 		}
 	}
+
+	if funcEntry.Arity != len(nE.args) {
+		panic(fmt.Errorf(
+			"cast type %d requires %d arguments, got %d",
+			c.typ, funcEntry.Arity, len(nE.args),
+		))
+	}
+
 	nE.funcEntry = &funcEntry
 
 	return nE

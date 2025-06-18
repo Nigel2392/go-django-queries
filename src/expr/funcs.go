@@ -74,7 +74,7 @@ func init() {
 			concat = append(concat, sb.String())
 		}
 		switch d.(type) {
-		case *drivers.DriverMySQL:
+		case *drivers.DriverMySQL, *drivers.DriverMariaDB:
 			return fmt.Sprintf("CONCAT(%s)", strings.Join(concat, ", ")), args, nil
 		case *drivers.DriverPostgres:
 			return fmt.Sprintf("CONCAT(%s)", strings.Join(concat, ", ")), args, nil
@@ -122,7 +122,7 @@ func init() {
 
 		if endParam == "" {
 			switch d.(type) {
-			case *drivers.DriverMySQL:
+			case *drivers.DriverMySQL, *drivers.DriverMariaDB:
 				return fmt.Sprintf("SUBSTRING(%s, %s)", sb.String(), startParam), args, nil
 			case *drivers.DriverPostgres:
 				return fmt.Sprintf("SUBSTRING(%s FROM %s)", sb.String(), startParam), args, nil
@@ -133,7 +133,7 @@ func init() {
 		}
 
 		switch d.(type) {
-		case *drivers.DriverMySQL:
+		case *drivers.DriverMySQL, *drivers.DriverMariaDB:
 			return fmt.Sprintf("SUBSTRING(%s, %s, %s)", sb.String(), startParam, endParam), args, nil
 		case *drivers.DriverPostgres:
 			return fmt.Sprintf("SUBSTRING(%s FROM %s FOR %s)", sb.String(), startParam, endParam), args, nil
@@ -177,7 +177,7 @@ func init() {
 	})
 	RegisterFunc("NOW", func(d driver.Driver, value []Expression, funcParams []any) (sql string, args []any, err error) {
 		switch d.(type) {
-		case *drivers.DriverMySQL:
+		case *drivers.DriverMySQL, *drivers.DriverMariaDB:
 			return "NOW()", nil, nil
 		case *drivers.DriverPostgres:
 			return "CURRENT_TIMESTAMP", nil, nil

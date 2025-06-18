@@ -64,7 +64,7 @@ func MySQLDatabase(cnf DatabaseConfig) (QuestDatabase, error) {
 	}
 
 	if cnf.ServerConfig.Address == "" {
-		cnf.ServerConfig.Address = "127.0.0.1:3306"
+		cnf.ServerConfig.Address = "127.0.0.1:13306"
 	}
 
 	var db = memory.NewDatabase(cnf.DBName)

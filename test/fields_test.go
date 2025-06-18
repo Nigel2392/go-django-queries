@@ -1,13 +1,16 @@
 package queries_test
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/fields"
 	"github.com/Nigel2392/go-django-queries/src/models"
+	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
@@ -757,12 +760,12 @@ func Test_Annotate_With_Relation(t *testing.T) {
 		t.Errorf("expected BookCount = 3, got %v", rows[0].Annotations["BookCount"])
 	}
 
-	if _, err := queries.DeleteObject(author); err != nil {
-		t.Fatalf("failed to delete author: %v", err)
-	}
-
 	if _, err := queries.Objects[attrs.Definer](&Book{}).Delete(); err != nil {
 		t.Fatalf("failed to delete books: %v", err)
+	}
+
+	if _, err := queries.DeleteObject(author); err != nil {
+		t.Fatalf("failed to delete author: %v", err)
 	}
 }
 
@@ -805,12 +808,12 @@ func Test_Annotate_Relation(t *testing.T) {
 		}
 	}
 
-	if _, err := queries.DeleteObject(author); err != nil {
-		t.Fatalf("failed to delete author: %v", err)
-	}
-
 	if _, err := queries.Objects[attrs.Definer](&Book{}).Delete(); err != nil {
 		t.Fatalf("failed to delete books: %v", err)
+	}
+
+	if _, err := queries.DeleteObject(author); err != nil {
+		t.Fatalf("failed to delete author: %v", err)
 	}
 }
 
@@ -854,12 +857,12 @@ func Test_Aggregate_With_Join(t *testing.T) {
 		t.Errorf("expected CountBooks = 2, got %v", res["CountBooks"])
 	}
 
-	if _, err := queries.DeleteObject(author); err != nil {
-		t.Fatalf("failed to delete author: %v", err)
-	}
-
 	if _, err := queries.Objects[attrs.Definer](&Book{}).Delete(); err != nil {
 		t.Fatalf("failed to delete books: %v", err)
+	}
+
+	if _, err := queries.DeleteObject(author); err != nil {
+		t.Fatalf("failed to delete author: %v", err)
 	}
 }
 
@@ -952,6 +955,22 @@ func TestWhereFilterVirtualFieldAliassed(t *testing.T) {
 }
 
 func TestSubquery(t *testing.T) {
+
+	var db = django.ConfigGet[*sql.DB](
+		django.Global.Settings,
+		django.APPVAR_DATABASE,
+	)
+
+	if _, ok := db.Driver().(*drivers.DriverMySQL); ok {
+		t.Skip("MySQL does not support subqueries in this context")
+		return
+	}
+
+	if _, ok := db.Driver().(*drivers.DriverMariaDB); ok {
+		t.Skip("MySQL does not support subqueries in this context")
+		return
+	}
+
 	var test = &TestStruct{
 		Name: "TestSubquery",
 		Text: "TestSubquery",

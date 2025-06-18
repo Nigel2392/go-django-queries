@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/logger"
@@ -17,13 +18,24 @@ import (
 var _ migrator.SchemaEditor = &MySQLSchemaEditor{}
 
 func init() {
-	migrator.RegisterSchemaEditor(&mysql.MySQLDriver{}, func() (migrator.SchemaEditor, error) {
+	migrator.RegisterSchemaEditor(&drivers.DriverMySQL{}, func() (migrator.SchemaEditor, error) {
 		var db, ok = django.ConfigGetOK[*sql.DB](
 			django.Global.Settings,
 			django.APPVAR_DATABASE,
 		)
 		if !ok {
 			return nil, fmt.Errorf("migrator: mysql: no database connection found")
+		}
+		return NewMySQLSchemaEditor(db), nil
+	})
+
+	migrator.RegisterSchemaEditor(&drivers.DriverMariaDB{}, func() (migrator.SchemaEditor, error) {
+		var db, ok = django.ConfigGetOK[*sql.DB](
+			django.Global.Settings,
+			django.APPVAR_DATABASE,
+		)
+		if !ok {
+			return nil, fmt.Errorf("migrator: mariadb: no database connection found")
 		}
 		return NewMySQLSchemaEditor(db), nil
 	})

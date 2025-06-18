@@ -23,4 +23,4 @@ jobs:
       run: go test -v -tags=sqlite ./... --failfast
 
     - name: Test MySQL queries
-      run: go test -v -tags=mysql ./... --failfast
+      run: go test -v -tags=mysql_local ./... --failfast

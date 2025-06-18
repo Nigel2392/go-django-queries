@@ -12,6 +12,16 @@ import (
 	"github.com/Nigel2392/go-django/src/core/attrs"
 )
 
+func init() {
+	var tables = quest.Table[*testing.T](nil,
+		&ProxyModel{},
+		&ProxiedModel{},
+		&LinkedToProxiedModel{},
+	)
+
+	tables.Create()
+}
+
 type ProxyModel struct {
 	models.Model
 	ID          int64
@@ -65,15 +75,19 @@ func (l *LinkedToProxiedModel) FieldDefs() attrs.Definitions {
 	)
 }
 
+func mustDeleteAll(t *testing.T, modelTypes ...attrs.Definer) {
+	for _, modelType := range modelTypes {
+		var _, err = queries.GetQuerySet(modelType).
+			WithContext(context.Background()).
+			Delete()
+		if err != nil {
+			t.Fatalf("Failed to delete all records for model %T: %v", modelType, err)
+		}
+	}
+}
+
 func TestProxyModel(t *testing.T) {
 	attrs.RegisterModel(&ProxyModel{})
-	var tables = quest.Table(t,
-		&ProxyModel{},
-		&ProxiedModel{},
-	)
-
-	tables.Create()
-	defer tables.Drop()
 
 	var proxyModel = models.Setup(&ProxiedModel{
 		ProxyModel: &ProxyModel{
@@ -123,18 +137,12 @@ func TestProxyModel(t *testing.T) {
 	//if loadedModel.Object.ProxyModel.TargetID != loadedModel.Object.ID {
 	//	t.Fatalf("Expected TargetID to be %d, but got %d", loadedModel.Object.ID, loadedModel.Object.ProxyModel.TargetID)
 	//}
+
+	mustDeleteAll(t, &LinkedToProxiedModel{}, &ProxiedModel{}, &ProxyModel{})
 }
 
 func TestProxyModelFilter(t *testing.T) {
 	attrs.RegisterModel(&ProxyModel{})
-
-	var tables = quest.Table(t,
-		&ProxyModel{},
-		&ProxiedModel{},
-	)
-
-	tables.Create()
-	defer tables.Drop()
 
 	var proxyModel = models.Setup(&ProxiedModel{
 		ProxyModel: &ProxyModel{
@@ -161,7 +169,7 @@ func TestProxyModelFilter(t *testing.T) {
 		t.Fatal("Expected to load a proxy model, but got nil")
 	}
 	if loadedModel.Object.ID != proxyModel.ID {
-		t.Fatalf("Expected loaded model ID to be %d, but got %d", proxyModel.ID, loadedModel.Object.ID)
+		t.Fatalf("Expected loaded model ID to be %d, but got %d", loadedModel.Object.ID, proxyModel.ID)
 	}
 	if loadedModel.Object.CreatedAt.IsZero() || loadedModel.Object.UpdatedAt.IsZero() {
 		t.Fatal("Expected CreatedAt and UpdatedAt to be set, but they are zero values")
@@ -184,17 +192,11 @@ func TestProxyModelFilter(t *testing.T) {
 	//if loadedModel.Object.ProxyModel.TargetID != loadedModel.Object.ID {
 	//	t.Fatalf("Expected TargetID to be %d, but got %d", loadedModel.Object.ID, loadedModel.Object.ProxyModel.TargetID)
 	//}
+
+	mustDeleteAll(t, &LinkedToProxiedModel{}, &ProxiedModel{}, &ProxyModel{})
 }
 
 func TestLinkedToProxiedModel(t *testing.T) {
-	var tables = quest.Table(t,
-		&ProxyModel{},
-		&ProxiedModel{},
-		&LinkedToProxiedModel{},
-	)
-
-	tables.Create()
-	defer tables.Drop()
 
 	var proxyModel = models.Setup(&ProxiedModel{
 		ProxyModel: &ProxyModel{
@@ -253,6 +255,8 @@ func TestLinkedToProxiedModel(t *testing.T) {
 	if loadedLinkedModel.Object.ProxiedModel.ProxyModel.Description != "This is a test proxy model" {
 		t.Fatalf("Expected ProxyModel Description to be 'This is a test proxy model', but got '%s'", loadedLinkedModel.Object.ProxiedModel.ProxyModel.Description)
 	}
+
+	mustDeleteAll(t, &LinkedToProxiedModel{}, &ProxiedModel{}, &ProxyModel{})
 }
 
 func TestProxyFields(t *testing.T) {

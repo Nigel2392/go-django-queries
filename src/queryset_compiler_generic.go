@@ -18,20 +18,23 @@ import (
 
 func init() {
 	drivers.RegisterDriver(&drivers.DriverMySQL{}, "mysql", drivers.SupportsReturningLastInsertId)
+	drivers.RegisterDriver(&drivers.DriverMariaDB{}, "mariadb", drivers.SupportsReturningColumns)
 	drivers.RegisterDriver(&drivers.DriverSQLite{}, "sqlite3", drivers.SupportsReturningColumns)
 	drivers.RegisterDriver(&drivers.DriverPostgres{}, "postgres", drivers.SupportsReturningColumns)
 	drivers.RegisterDriver(&drivers.DriverPostgres{}, "pgx", drivers.SupportsReturningColumns)
 
 	RegisterCompiler(&drivers.DriverMySQL{}, NewMySQLQueryBuilder)
+	RegisterCompiler(&drivers.DriverMariaDB{}, NewMariaDBQueryBuilder)
 	RegisterCompiler(&drivers.DriverSQLite{}, NewGenericQueryBuilder)
 	RegisterCompiler(&drivers.DriverPostgres{}, NewGenericQueryBuilder)
+
 }
 
 func newExpressionInfo(g *genericQueryBuilder, qs *QuerySet[attrs.Definer], i *QuerySetInternals, updating bool) *expr.ExpressionInfo {
 	var dbName = internal.SqlxDriverName(g.queryInfo.DB)
 	var supportsWhereAlias bool
 	switch dbName {
-	case "mysql":
+	case "mysql", "mariadb":
 		supportsWhereAlias = false // MySQL does not support WHERE alias
 	case "sqlite3":
 		supportsWhereAlias = true
@@ -82,7 +85,7 @@ func NewGenericQueryBuilder(db string) QueryCompiler {
 
 	var quote = "`"
 	switch internal.SqlxDriverName(q.DB) {
-	case "mysql":
+	case "mysql", "mariadb":
 		quote = "`"
 	case "postgres", "pgx":
 		quote = "\""
@@ -128,7 +131,7 @@ func (g *genericQueryBuilder) QuoteString(s string) string {
 	var sb strings.Builder
 	sb.Grow(len(s) + 2)
 	switch internal.SqlxDriverName(g.queryInfo.DB) {
-	case "mysql":
+	case "mysql", "mariadb":
 		sb.WriteString("'")
 		sb.WriteString(s)
 		sb.WriteString("'")
@@ -148,7 +151,7 @@ func (g *genericQueryBuilder) PrepForLikeQuery(v any) string {
 	// For LIKE queries, we need to escape the percent and underscore characters.
 	// This is done by replacing them with their escaped versions.
 	switch internal.SqlxDriverName(g.queryInfo.DB) {
-	case "mysql":
+	case "mysql", "mariadb":
 		return strings.ReplaceAll(
 			strings.ReplaceAll(fmt.Sprint(v), "%", "\\%"),
 			"_", "\\_",
@@ -175,7 +178,7 @@ func (g *genericQueryBuilder) FormatLookupCol(lookupName string, inner string) s
 	switch lookupName {
 	case "iexact", "icontains", "istartswith", "iendswith":
 		switch internal.SqlxDriverName(g.queryInfo.DB) {
-		case "mysql":
+		case "mysql", "mariadb":
 			return fmt.Sprintf("LOWER(%s)", inner)
 		case "postgres", "pgx":
 			return fmt.Sprintf("LOWER(%s)", inner)
@@ -230,7 +233,7 @@ func (g *genericQueryBuilder) LogicalOpRHS() map[expr.LogicalOp]func(rhs string,
 
 func (g *genericQueryBuilder) LookupOperatorsRHS() map[string]string {
 	switch internal.SqlxDriverName(g.queryInfo.DB) {
-	case "mysql":
+	case "mysql", "mariadb":
 		return map[string]string{
 			"iexact":      "= LOWER(%s)",
 			"contains":    "LIKE LOWER(%s)",
@@ -269,7 +272,7 @@ func (g *genericQueryBuilder) LookupOperatorsRHS() map[string]string {
 
 func (g *genericQueryBuilder) LookupPatternOperatorsRHS() map[string]string {
 	switch internal.SqlxDriverName(g.queryInfo.DB) {
-	case "mysql":
+	case "mysql", "mariadb":
 		return map[string]string{
 			"contains":    "LIKE CONCAT('%%', %s, '%%')",
 			"icontains":   "LIKE LOWER(CONCAT('%%', %s, '%%'))",
@@ -1004,14 +1007,118 @@ func (g *genericQueryBuilder) writeLimitOffset(sb *strings.Builder, limit int, o
 	return args
 }
 
-type mysqlQueryBuilder struct {
+type mariaDBQueryBuilder struct {
 	*genericQueryBuilder
 }
 
-func NewMySQLQueryBuilder(db string) QueryCompiler {
+func NewMariaDBQueryBuilder(db string) QueryCompiler {
 	var inner = NewGenericQueryBuilder(db)
-	return &mysqlQueryBuilder{
+	return &mariaDBQueryBuilder{
 		genericQueryBuilder: inner.(*genericQueryBuilder),
+	}
+}
+
+func (g *mariaDBQueryBuilder) BuildUpdateQuery(
+	ctx context.Context,
+	qs *GenericQuerySet,
+	internals *QuerySetInternals,
+	objects []UpdateInfo,
+) CompiledQuery[int64] {
+	if len(objects) == 0 {
+		return &QueryObject[int64]{
+			Stmt:    "",
+			Object:  attrs.NewObject[attrs.Definer](qs.Model()),
+			Params:  nil,
+			Execute: func(query string, args ...any) (int64, error) { return 0, nil },
+		}
+	}
+
+	var (
+		queries       = make([]sqlQuery, 0, len(objects))
+		allValues     = make([]any, 0)
+		fullStatement = make([]string, 0, len(objects))
+	)
+
+	for _, info := range objects {
+		var (
+			query   = new(strings.Builder)
+			args    = make([]any, 0)
+			inf     = newExpressionInfo(g.genericQueryBuilder, qs, internals, true)
+			written bool
+		)
+
+		query.WriteString("UPDATE ")
+		query.WriteString(g.quote)
+		query.WriteString(internals.Model.TableName)
+		query.WriteString(g.quote)
+		query.WriteString(" SET ")
+
+		var valuesIdx int
+		for _, f := range info.Fields {
+			if written {
+				query.WriteString(", ")
+			}
+
+			var a, isSQL, ok = info.WriteField(query, inf, f, true)
+			if !ok {
+				continue
+			}
+			if isSQL {
+				args = append(args, a...)
+			} else {
+				args = append(args, info.Values[valuesIdx])
+				valuesIdx++
+			}
+			written = true
+		}
+
+		inf.ForUpdate = false
+
+		args = append(args, g.writeJoins(query, info.Joins)...)
+		args = append(args, g.writeWhereClause(query, inf, info.Where)...)
+
+		sql := g.queryInfo.DBX.Rebind(query.String())
+
+		queries = append(queries, sqlQuery{sql: sql, args: args})
+		fullStatement = append(fullStatement, sql)
+		allValues = append(allValues, args...)
+	}
+
+	return &QueryObject[int64]{
+		Stmt:   strings.Join(fullStatement, "; "),
+		Object: attrs.NewObject[attrs.Definer](qs.Model()),
+		Params: allValues,
+		Execute: func(query string, args ...any) (int64, error) {
+			var (
+				totalAffected int64
+				transaction   Transaction
+				err           error
+			)
+
+			if g.InTransaction() {
+				transaction = &nullTransaction{g.transaction}
+			} else {
+				transaction, err = g.StartTransaction(ctx)
+				if err != nil {
+					return 0, errors.Wrap(err, "failed to start transaction")
+				}
+			}
+			defer transaction.Rollback()
+
+			for _, q := range queries {
+				res, err := g.DB().ExecContext(ctx, q.sql, q.args...)
+				if err != nil {
+					return 0, errors.Wrap(err, "failed to execute update")
+				}
+				rows, err := res.RowsAffected()
+				if err != nil {
+					return 0, errors.Wrap(err, "failed to get rows affected")
+				}
+				totalAffected += rows
+			}
+
+			return totalAffected, transaction.Commit()
+		},
 	}
 }
 
@@ -1031,6 +1138,17 @@ var availableForLastInsertId = map[reflect.Kind]struct{}{
 	reflect.Uint16: {},
 	reflect.Uint32: {},
 	reflect.Uint64: {},
+}
+
+type mysqlQueryBuilder struct {
+	*mariaDBQueryBuilder
+}
+
+func NewMySQLQueryBuilder(db string) QueryCompiler {
+	var inner = NewMariaDBQueryBuilder(db)
+	return &mysqlQueryBuilder{
+		mariaDBQueryBuilder: inner.(*mariaDBQueryBuilder),
+	}
 }
 
 // mysql does not properly support returning last insert id
@@ -1146,110 +1264,6 @@ func (g *mysqlQueryBuilder) BuildCreateQuery(
 			}
 
 			return results, transaction.Commit()
-		},
-	}
-}
-
-func (g *mysqlQueryBuilder) BuildUpdateQuery(
-	ctx context.Context,
-	qs *GenericQuerySet,
-	internals *QuerySetInternals,
-	objects []UpdateInfo,
-) CompiledQuery[int64] {
-	if len(objects) == 0 {
-		return &QueryObject[int64]{
-			Stmt:    "",
-			Object:  attrs.NewObject[attrs.Definer](qs.Model()),
-			Params:  nil,
-			Execute: func(query string, args ...any) (int64, error) { return 0, nil },
-		}
-	}
-
-	var (
-		queries       = make([]sqlQuery, 0, len(objects))
-		allValues     = make([]any, 0)
-		fullStatement = make([]string, 0, len(objects))
-	)
-
-	for _, info := range objects {
-		var (
-			query   = new(strings.Builder)
-			args    = make([]any, 0)
-			inf     = newExpressionInfo(g.genericQueryBuilder, qs, internals, true)
-			written bool
-		)
-
-		query.WriteString("UPDATE ")
-		query.WriteString(g.quote)
-		query.WriteString(internals.Model.TableName)
-		query.WriteString(g.quote)
-		query.WriteString(" SET ")
-
-		var valuesIdx int
-		for _, f := range info.Fields {
-			if written {
-				query.WriteString(", ")
-			}
-
-			var a, isSQL, ok = info.WriteField(query, inf, f, true)
-			if !ok {
-				continue
-			}
-			if isSQL {
-				args = append(args, a...)
-			} else {
-				args = append(args, info.Values[valuesIdx])
-				valuesIdx++
-			}
-			written = true
-		}
-
-		inf.ForUpdate = false
-
-		args = append(args, g.writeJoins(query, info.Joins)...)
-		args = append(args, g.writeWhereClause(query, inf, info.Where)...)
-
-		sql := g.queryInfo.DBX.Rebind(query.String())
-
-		queries = append(queries, sqlQuery{sql: sql, args: args})
-		fullStatement = append(fullStatement, sql)
-		allValues = append(allValues, args...)
-	}
-
-	return &QueryObject[int64]{
-		Stmt:   strings.Join(fullStatement, "; "),
-		Object: attrs.NewObject[attrs.Definer](qs.Model()),
-		Params: allValues,
-		Execute: func(query string, args ...any) (int64, error) {
-			var (
-				totalAffected int64
-				transaction   Transaction
-				err           error
-			)
-
-			if g.InTransaction() {
-				transaction = &nullTransaction{g.transaction}
-			} else {
-				transaction, err = g.StartTransaction(ctx)
-				if err != nil {
-					return 0, errors.Wrap(err, "failed to start transaction")
-				}
-			}
-			defer transaction.Rollback()
-
-			for _, q := range queries {
-				res, err := g.DB().ExecContext(ctx, q.sql, q.args...)
-				if err != nil {
-					return 0, errors.Wrap(err, "failed to execute update")
-				}
-				rows, err := res.RowsAffected()
-				if err != nil {
-					return 0, errors.Wrap(err, "failed to get rows affected")
-				}
-				totalAffected += rows
-			}
-
-			return totalAffected, transaction.Commit()
 		},
 	}
 }

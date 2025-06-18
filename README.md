@@ -52,7 +52,24 @@ Continue with [Getting Started](./docs/getting_started.md)…
 
 We try to support as many features as possible, but some stuff is either not supported, implemented or tested yet.
 
-**The following features are currently supported:**
+### Tested Databases
+
+But more tests / databases will be added over time.
+
+* SQLite
+* MySQL
+* MariaDB (with returning support, custom driver - use "mariadb" in sql.Open(...))
+* [dolthub/go-mysql-server](https://github.com/dolthub/go-mysql-server)
+
+#### Caveats
+
+* MySQL does not support the `RETURNING` clause - to get around this and still be able to retrieve the `LastInsertID`,
+  we have to do each INSERT in a separate query.
+
+* MySQL and MariaDB do not support preparing multiple statements in a single query, we have to prepare each statement separately
+  this results in BulkUpdate not being properly supported, each update will be executed separately (in a transaction if one was not present).
+
+### The following features are currently supported
 
 * Selecting fields
 * Selecting forward and reverse relations

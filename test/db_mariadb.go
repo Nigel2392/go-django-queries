@@ -1,4 +1,4 @@
-//go:build (!mysql && !mysql_local && !postgres && !mariadb) || (!mysql && !mysql_local && !postgres && !mariadb && !sqlite)
+//go:build !sqlite && !postgres && !mysql && !mysql_local
 
 package queries_test
 
@@ -12,12 +12,11 @@ import (
 
 func init() {
 	// make db globally available
-	// var db, err = sql.Open("mysql", "root:my-secret-pw@tcp(127.0.0.1:3306)/queries_test?parseTime=true&multiStatements=true")
-	var db, err = sql.Open("sqlite3", "file:queries_memory?mode=memory&cache=shared")
-	// var db, err = sql.Open("sqlite3", "file:queries_test.db")
+	var db, err = sql.Open("mariadb", "root:my-secret-pw@tcp(127.0.0.1:3307)/queries_test?parseTime=true&multiStatements=true")
 	if err != nil {
 		panic(err)
 	}
+
 	var settings = map[string]interface{}{
 		django.APPVAR_DATABASE: db,
 	}
@@ -33,5 +32,5 @@ func init() {
 
 	django.App(django.Configure(settings))
 
-	logger.Debug("Using SQLite database for queries tests")
+	logger.Debug("Using MariaDB database for queries tests")
 }

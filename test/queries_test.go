@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"flag"
 	"fmt"
 	"strings"
 	"testing"
@@ -17,86 +18,11 @@ import (
 	"github.com/Nigel2392/go-django-queries/src/quest"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/Nigel2392/go-django/src/forms/widgets"
 )
 
 const (
-	createTableImages = `CREATE TABLE IF NOT EXISTS images (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	path TEXT
-)`
-
-	createTableProfiles = `CREATE TABLE IF NOT EXISTS profiles (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	image_id INTEGER REFERENCES images(id),
-	name TEXT,
-	email TEXT
-)`
-
-	createTableUsers = `CREATE TABLE IF NOT EXISTS users (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	profile_id INTEGER REFERENCES profiles(id),
-	name TEXT
-)`
-
-	createTableObjectWithMultipleRelations = `CREATE TABLE IF NOT EXISTS object_with_multiple_relations (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	obj1_id INTEGER REFERENCES users(id),
-	obj2_id INTEGER REFERENCES users(id)
-)`
-
-	createTableCategories = `CREATE TABLE IF NOT EXISTS categories (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	name TEXT,
-	parent_id INTEGER REFERENCES categories(id)
-)`
-
-	createTableTodos = `CREATE TABLE IF NOT EXISTS todos (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	title TEXT,
-	description TEXT,
-	done BOOLEAN,
-	user_id INTEGER REFERENCES users(id)
-)`
-	createTableOneToOneWithThrough = `CREATE TABLE onetoonewiththrough (
-    id INTEGER PRIMARY KEY,
-    title TEXT,
-	user_id INTEGER
-    -- through relation is virtual, not stored here
-)`
-
-	createTableOneToOneWithThrough_target = `CREATE TABLE onetoonewiththrough_target (
-    id INTEGER PRIMARY KEY,
-    name TEXT,
-    age INTEGER
-)`
-
-	createTableOneToOneWithThrough_through = `CREATE TABLE onetoonewiththrough_through (
-    source_id INTEGER NOT NULL,
-    target_id INTEGER NOT NULL,
-    FOREIGN KEY(source_id) REFERENCES onetoonewiththrough(id),
-    FOREIGN KEY(target_id) REFERENCES onetoonewiththrough_target(id)
-)`
-
-	createTableModelManyToMany = `CREATE TABLE model_manytomany (
-    id INTEGER PRIMARY KEY,
-    title TEXT,
-	user_id INTEGER
-)`
-
-	createTableModelManyToMany_target = `CREATE TABLE model_manytomany_target (
-    id INTEGER PRIMARY KEY,
-    name TEXT,
-    age INTEGER
-)`
-
-	createTableModelManyToMany_through = `CREATE TABLE model_manytomany_through (
-    source_id INTEGER NOT NULL,
-    target_id INTEGER NOT NULL,
-    FOREIGN KEY(source_id) REFERENCES model_manytomany(id),
-    FOREIGN KEY(target_id) REFERENCES model_manytomany_target(id)
-)`
-
 	selectTodo = `SELECT id, title, description, done, user_id FROM todos WHERE id = ?`
 )
 
@@ -505,10 +431,15 @@ func (t *ModelManyToMany_Target) FieldDefs() attrs.Definitions {
 }
 
 func init() {
-	createAllTestTables()
-}
 
-func createAllTestTables() {
+	testing.Init()
+
+	flag.Parse()
+
+	if !testing.Verbose() {
+		logger.SetLevel(logger.WRN)
+	}
+
 	// create tables
 	var tables = quest.Table[*testing.T](nil,
 		&Image{},
@@ -2305,8 +2236,8 @@ func TestQuerySet_SharedInstance_Concurrency(t *testing.T) {
 		django.APPVAR_DATABASE,
 	)
 
-	if _, ok := db.Driver().(*drivers.DriverMySQL); ok {
-		t.Skip("This test is not supported by MySQL driver due to the possibility of using DoltDB, which does not support concurrency.")
+	if _, ok := db.Driver().(*drivers.DriverSQLite); !ok {
+		t.Skip("This test is only supported by SQLite driver")
 	}
 
 	queries.QUERYSET_USE_CACHE_DEFAULT = false

@@ -34,47 +34,47 @@ const (
 )
 
 func init() {
-	registerCastTypeFunc(&drivers.DriverMySQL{}, 1, CastTypeString, "CAST(%s AS CHAR(%d))")
-	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeText, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeInt, "CAST(%s AS SIGNED)")
-	registerCastTypeFunc(&drivers.DriverMySQL{}, 2, CastTypeFloat, "CAST(%s AS DECIMAL(%d,%d))")
-	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeBool, "CAST(%s AS UNSIGNED)")
-	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeDate, "CAST(%s AS DATE)")
-	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeTime, "CAST(%s AS TIME)")
-	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeBytes, "CAST(%s AS BINARY)")
-	registerCastTypeFunc(&drivers.DriverMySQL{}, 2, CastTypeDecimal, "CAST(%s AS DECIMAL(%d,%d))")
-	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeJSON, "CAST(%s AS JSON)")
-	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeUUID, "CAST(%s AS CHAR(36))")
-	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeNull, "CAST(%s AS NULL)")
-	registerCastTypeFunc(&drivers.DriverMySQL{}, 0, CastTypeArray, "CAST(%s AS JSON)")
+	registerCastTypeFunc(1, CastTypeString, "CAST(%s AS CHAR(%d))", &drivers.DriverMySQL{}, &drivers.DriverMariaDB{})
+	registerCastTypeFunc(0, CastTypeText, "CAST(%s AS TEXT)", &drivers.DriverMySQL{}, &drivers.DriverMariaDB{})
+	registerCastTypeFunc(0, CastTypeInt, "CAST(%s AS SIGNED)", &drivers.DriverMySQL{}, &drivers.DriverMariaDB{})
+	registerCastTypeFunc(2, CastTypeFloat, "CAST(%s AS DECIMAL(%d,%d))", &drivers.DriverMySQL{}, &drivers.DriverMariaDB{})
+	registerCastTypeFunc(0, CastTypeBool, "CAST(%s AS UNSIGNED)", &drivers.DriverMySQL{}, &drivers.DriverMariaDB{})
+	registerCastTypeFunc(0, CastTypeDate, "CAST(%s AS DATE)", &drivers.DriverMySQL{}, &drivers.DriverMariaDB{})
+	registerCastTypeFunc(0, CastTypeTime, "CAST(%s AS TIME)", &drivers.DriverMySQL{}, &drivers.DriverMariaDB{})
+	registerCastTypeFunc(0, CastTypeBytes, "CAST(%s AS BINARY)", &drivers.DriverMySQL{}, &drivers.DriverMariaDB{})
+	registerCastTypeFunc(2, CastTypeDecimal, "CAST(%s AS DECIMAL(%d,%d))", &drivers.DriverMySQL{}, &drivers.DriverMariaDB{})
+	registerCastTypeFunc(0, CastTypeJSON, "CAST(%s AS JSON)", &drivers.DriverMySQL{}, &drivers.DriverMariaDB{})
+	registerCastTypeFunc(0, CastTypeUUID, "CAST(%s AS CHAR(36))", &drivers.DriverMySQL{}, &drivers.DriverMariaDB{})
+	registerCastTypeFunc(0, CastTypeNull, "CAST(%s AS NULL)", &drivers.DriverMySQL{}, &drivers.DriverMariaDB{})
+	registerCastTypeFunc(0, CastTypeArray, "CAST(%s AS JSON)", &drivers.DriverMySQL{}, &drivers.DriverMariaDB{})
 
-	registerCastTypeFunc(&drivers.DriverSQLite{}, 1, CastTypeString, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeText, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeInt, "CAST(%s AS INTEGER)")
-	registerCastTypeFunc(&drivers.DriverSQLite{}, 2, CastTypeFloat, "CAST(%s AS REAL)")
-	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeBool, "CAST(%s AS INTEGER)")
-	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeDate, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeTime, "CAST(%s AS TIMESTAMP)")
-	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeBytes, "CAST(%s AS BLOB)")
-	registerCastTypeFunc(&drivers.DriverSQLite{}, 2, CastTypeDecimal, "CAST(%s AS REAL)")
-	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeJSON, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeUUID, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeNull, "CAST(%s AS NULL)")
-	registerCastTypeFunc(&drivers.DriverSQLite{}, 0, CastTypeArray, "CAST(%s AS TEXT)")
+	registerCastTypeFunc(1, CastTypeString, "CAST(%s AS TEXT)", &drivers.DriverSQLite{})
+	registerCastTypeFunc(0, CastTypeText, "CAST(%s AS TEXT)", &drivers.DriverSQLite{})
+	registerCastTypeFunc(0, CastTypeInt, "CAST(%s AS INTEGER)", &drivers.DriverSQLite{})
+	registerCastTypeFunc(2, CastTypeFloat, "CAST(%s AS REAL)", &drivers.DriverSQLite{})
+	registerCastTypeFunc(0, CastTypeBool, "CAST(%s AS INTEGER)", &drivers.DriverSQLite{})
+	registerCastTypeFunc(0, CastTypeDate, "CAST(%s AS TEXT)", &drivers.DriverSQLite{})
+	registerCastTypeFunc(0, CastTypeTime, "CAST(%s AS TIMESTAMP)", &drivers.DriverSQLite{})
+	registerCastTypeFunc(0, CastTypeBytes, "CAST(%s AS BLOB)", &drivers.DriverSQLite{})
+	registerCastTypeFunc(2, CastTypeDecimal, "CAST(%s AS REAL)", &drivers.DriverSQLite{})
+	registerCastTypeFunc(0, CastTypeJSON, "CAST(%s AS TEXT)", &drivers.DriverSQLite{})
+	registerCastTypeFunc(0, CastTypeUUID, "CAST(%s AS TEXT)", &drivers.DriverSQLite{})
+	registerCastTypeFunc(0, CastTypeNull, "CAST(%s AS NULL)", &drivers.DriverSQLite{})
+	registerCastTypeFunc(0, CastTypeArray, "CAST(%s AS TEXT)", &drivers.DriverSQLite{})
 
-	registerCastTypeFunc(&drivers.DriverPostgres{}, 1, CastTypeString, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeText, "CAST(%s AS TEXT)")
-	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeInt, "CAST(%s AS INTEGER)")
-	registerCastTypeFunc(&drivers.DriverPostgres{}, 2, CastTypeFloat, "CAST(%s AS NUMERIC(%d,%d))")
-	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeBool, "CAST(%s AS BOOLEAN)")
-	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeDate, "CAST(%s AS DATE)")
-	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeTime, "CAST(%s AS TIME)")
-	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeBytes, "CAST(%s AS BYTEA)")
-	registerCastTypeFunc(&drivers.DriverPostgres{}, 2, CastTypeDecimal, "CAST(%s AS NUMERIC(%d,%d))")
-	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeJSON, "CAST(%s AS JSONB)")
-	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeUUID, "CAST(%s AS UUID)")
-	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeNull, "CAST(%s AS NULL)")
-	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeArray, "CAST(%s AS JSONB)")
+	registerCastTypeFunc(1, CastTypeString, "CAST(%s AS TEXT)", &drivers.DriverPostgres{})
+	registerCastTypeFunc(0, CastTypeText, "CAST(%s AS TEXT)", &drivers.DriverPostgres{})
+	registerCastTypeFunc(0, CastTypeInt, "CAST(%s AS INTEGER)", &drivers.DriverPostgres{})
+	registerCastTypeFunc(2, CastTypeFloat, "CAST(%s AS NUMERIC(%d,%d))", &drivers.DriverPostgres{})
+	registerCastTypeFunc(0, CastTypeBool, "CAST(%s AS BOOLEAN)", &drivers.DriverPostgres{})
+	registerCastTypeFunc(0, CastTypeDate, "CAST(%s AS DATE)", &drivers.DriverPostgres{})
+	registerCastTypeFunc(0, CastTypeTime, "CAST(%s AS TIME)", &drivers.DriverPostgres{})
+	registerCastTypeFunc(0, CastTypeBytes, "CAST(%s AS BYTEA)", &drivers.DriverPostgres{})
+	registerCastTypeFunc(2, CastTypeDecimal, "CAST(%s AS NUMERIC(%d,%d))", &drivers.DriverPostgres{})
+	registerCastTypeFunc(0, CastTypeJSON, "CAST(%s AS JSONB)", &drivers.DriverPostgres{})
+	registerCastTypeFunc(0, CastTypeUUID, "CAST(%s AS UUID)", &drivers.DriverPostgres{})
+	registerCastTypeFunc(0, CastTypeNull, "CAST(%s AS NULL)", &drivers.DriverPostgres{})
+	registerCastTypeFunc(0, CastTypeArray, "CAST(%s AS JSONB)", &drivers.DriverPostgres{})
 }
 
 var (
@@ -170,12 +170,15 @@ func Cast(typ CastType, col any, value ...any) NamedExpression {
 	}
 }
 
-func registerCastTypeFunc(d driver.Driver, arity int, castType CastType, sqlText string) {
-	if d == nil {
+func registerCastTypeFunc(arity int, castType CastType, sqlText string, d ...driver.Driver) {
+	if len(d) == 0 {
 		RegisterCastType(castType, CastFuncEntry{Arity: arity, SQL: sqlText})
 		return
 	}
-	RegisterCastType(castType, CastFuncEntry{Arity: arity, SQL: sqlText}, d)
+	// RegisterCastType(castType, CastFuncEntry{Arity: arity, SQL: sqlText}, d)
+	for _, drv := range d {
+		RegisterCastType(castType, CastFuncEntry{Arity: arity, SQL: sqlText}, drv)
+	}
 }
 
 func newCastFunc(typ CastType) func(col any, value ...any) NamedExpression {

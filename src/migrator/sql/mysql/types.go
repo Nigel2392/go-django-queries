@@ -41,6 +41,29 @@ func init() {
 	migrator.RegisterColumnType(&drivers.DriverMySQL{}, sql.NullTime{}, Type__datetime)
 	migrator.RegisterColumnType(&drivers.DriverMySQL{}, time.Time{}, Type__datetime)
 	migrator.RegisterColumnType(&drivers.DriverMySQL{}, []byte{}, Type__string)
+
+	// register kinds
+	migrator.RegisterColumnKind(&drivers.DriverMariaDB{}, []reflect.Kind{reflect.String}, Type__string)
+	migrator.RegisterColumnKind(&drivers.DriverMariaDB{}, []reflect.Kind{reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64}, Type__int)
+	migrator.RegisterColumnKind(&drivers.DriverMariaDB{}, []reflect.Kind{reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64}, Type__int)
+	migrator.RegisterColumnKind(&drivers.DriverMariaDB{}, []reflect.Kind{reflect.Float32, reflect.Float64}, Type__float)
+	migrator.RegisterColumnKind(&drivers.DriverMariaDB{}, []reflect.Kind{reflect.Bool}, Type__bool)
+	migrator.RegisterColumnKind(&drivers.DriverMariaDB{}, []reflect.Kind{reflect.Array, reflect.Slice, reflect.Map}, Type__string) // MySQL does not have a native array type, so we use string for JSON
+
+	// register types
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, (*contenttypes.ContentType)(nil), Type__string)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, contenttypes.BaseContentType[attrs.Definer]{}, Type__string)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, sql.NullString{}, Type__string)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, sql.NullFloat64{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, sql.NullInt64{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, sql.NullInt32{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, sql.NullInt16{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, sql.NullBool{}, Type__bool)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, sql.NullByte{}, Type__int)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, sql.NullTime{}, Type__datetime)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, time.Time{}, Type__datetime)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, []byte{}, Type__string)
+
 }
 
 func Type__string(c *migrator.Column) string {

@@ -1,31 +1,18 @@
-//go:build !sqlite && !postgres
+//go:build !sqlite && !postgres && !mariadb && !mysql_local
 
 package queries_test
 
 import (
+	"database/sql"
 	"os"
 
-	"github.com/Nigel2392/go-django-queries/src/quest"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/logger"
 )
 
 func init() {
 	// make db globally available
-	var questDb, err = quest.MySQLDatabase(quest.DatabaseConfig{
-		DBName: "queries_test",
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	go func() {
-		if err := questDb.Start(); err != nil {
-			panic(err)
-		}
-	}()
-
-	db, err := questDb.DB()
+	var db, err = sql.Open("mysql", "root:my-secret-pw@tcp(127.0.0.1:3306)/queries_test?parseTime=true&multiStatements=true")
 	if err != nil {
 		panic(err)
 	}
@@ -45,4 +32,6 @@ func init() {
 	django.App(django.Configure(settings))
 
 	logger.Debug("Using MySQL database for queries tests")
+
+	db.Exec("SET SESSION sql_mode = REPLACE(@@sql_mode, 'ONLY_FULL_GROUP_BY', '')")
 }

@@ -1344,10 +1344,11 @@ var manyToManyTests = []ManyToManyTest{
 			t.Logf("Created new ModelManyToMany object: %+v", obj)
 			t.Logf("Adding targets to new ModelManyToMany object %v", obj.Target)
 
-			var created, err = obj.Target.Objects().AddTarget(&ModelManyToMany_Target{
+			var target = &ModelManyToMany_Target{
 				Name: "TestManyToMany_Target_AddTarget_1",
 				Age:  40,
-			})
+			}
+			var created, err = obj.Target.Objects().AddTarget(target)
 			if err != nil {
 				t.Fatalf("Failed to add Target object: %v", err)
 			}
@@ -1379,6 +1380,19 @@ var manyToManyTests = []ManyToManyTest{
 				t.Logf("Row [2] Target item from queryset: %+v", through.SourceModel)
 				t.Logf("Row [3] Target item from queryset: %+v", through.TargetModel)
 			}
+
+			if _, err := queries.GetQuerySet(&ModelManyToMany{}).Filter("ID", obj.ID).Delete(); err != nil {
+				t.Fatalf("Failed to delete ModelManyToMany object: %v", err)
+			}
+
+			if _, err := queries.GetQuerySet(&ModelManyToMany_Target{}).Filter("ID", target.ID).Delete(); err != nil {
+				t.Fatalf("Failed to delete ModelManyToMany_Target object: %v", err)
+			}
+
+			if _, err := queries.GetQuerySet(&ModelManyToMany_Through{}).Filter("SourceModel", obj.ID).Filter("TargetModel", target.ID).Delete(); err != nil {
+				t.Fatalf("Failed to delete ModelManyToMany_Through object: %v", err)
+			}
+
 			return 0, 0, 0, 0, 0
 		},
 	},
@@ -1613,16 +1627,106 @@ func TestManyToMany(t *testing.T) {
 				})
 
 			var p, u, msrc, mthru, mtgt = test.Test(t, profiles, users, m2m_sources, m2m_targets, m2m_throughs)
-			profile_delete(p)
-			m2m_target_delete(mtgt)
-			m2m_source_delete(msrc)
-			m2m_through_delete(mthru)
-			user_delete(u)
+
+			t.Log("_________________________________________________________")
+			t.Logf("Test %s completed successfully", test.Name)
+
+			m2m_source_delete(msrc)   // model_manytomany
+			m2m_target_delete(mtgt)   // model_manytomany_target
+			m2m_through_delete(mthru) // model_manytomany_through
+			user_delete(u)            // users
+			profile_delete(p)         // profiles
 		})
 	}
 }
 
 func TestPluckRows(t *testing.T) {
+
+	var profiles, profiles_delete = quest.CreateObjects[*Profile](t,
+		&Profile{
+			Name: "TestPluckRowsProfile1",
+		},
+		&Profile{
+			Name: "TestPluckRowsProfile2",
+		},
+	)
+
+	var users, users_delete = quest.CreateObjects[*User](t,
+		&User{
+			Name:    "TestPluckRowsUser1",
+			Profile: &Profile{ID: int(profiles[0].ID)},
+		},
+		&User{
+			Name:    "TestPluckRowsUser2",
+			Profile: &Profile{ID: int(profiles[1].ID)},
+		},
+	)
+
+	var m2m_sources, m2m_source_delete = quest.CreateObjects[*ModelManyToMany](t,
+		&ModelManyToMany{
+			Title: "TestPluckRows1",
+			User:  &User{ID: int(users[0].ID)},
+		},
+		&ModelManyToMany{
+			Title: "TestPluckRows2",
+			User:  &User{ID: int(users[1].ID)},
+		},
+	)
+
+	var m2m_targets, m2m_target_delete = quest.CreateObjects[*ModelManyToMany_Target](t,
+		&ModelManyToMany_Target{
+			Name: "TestPluckRows_Target1",
+			Age:  25,
+		},
+		&ModelManyToMany_Target{
+			Name: "TestPluckRows_Target2",
+			Age:  30,
+		},
+	)
+
+	var _, m2m_through_delete = quest.CreateObjects[*ModelManyToMany_Through](t,
+		&ModelManyToMany_Through{
+			SourceModel: &ModelManyToMany{
+				ID: m2m_sources[0].ID,
+			},
+			TargetModel: &ModelManyToMany_Target{
+				ID: m2m_targets[0].ID,
+			},
+		},
+		&ModelManyToMany_Through{
+			SourceModel: &ModelManyToMany{
+				ID: m2m_sources[0].ID,
+			},
+			TargetModel: &ModelManyToMany_Target{
+				ID: m2m_targets[1].ID,
+			},
+		},
+		&ModelManyToMany_Through{
+			SourceModel: &ModelManyToMany{
+				ID: m2m_sources[1].ID,
+			},
+			TargetModel: &ModelManyToMany_Target{
+				ID: m2m_targets[0].ID,
+			},
+		},
+		&ModelManyToMany_Through{
+			SourceModel: &ModelManyToMany{
+				ID: m2m_sources[1].ID,
+			},
+			TargetModel: &ModelManyToMany_Target{
+				ID: m2m_targets[1].ID,
+			},
+		},
+	)
+
+	defer func() {
+		m2m_source_delete(0)  // model_manytomany
+		m2m_target_delete(0)  // model_manytomany_target
+		m2m_through_delete(0) // model_manytomany_through
+		users_delete(0)       // users
+		profiles_delete(0)    // profiles
+	}()
+
 	var rows, err = queries.GetQuerySet(&ModelManyToMany{}).
 		Select("*", "User.*", "User.Profile.*").
 		OrderBy("User.Profile.ID").
@@ -1651,6 +1755,91 @@ func TestPluckRows(t *testing.T) {
 }
 
 func TestPluckManyToManyRows(t *testing.T) {
+	var profiles, profiles_delete = quest.CreateObjects[*Profile](t,
+		&Profile{
+			Name: "TestPluckRowsProfile1",
+		},
+		&Profile{
+			Name: "TestPluckRowsProfile2",
+		},
+	)
+
+	var users, users_delete = quest.CreateObjects[*User](t,
+		&User{
+			Name:    "TestPluckRowsUser1",
+			Profile: &Profile{ID: int(profiles[0].ID)},
+		},
+		&User{
+			Name:    "TestPluckRowsUser2",
+			Profile: &Profile{ID: int(profiles[1].ID)},
+		},
+	)
+
+	var m2m_sources, m2m_source_delete = quest.CreateObjects[*ModelManyToMany](t,
+		&ModelManyToMany{
+			Title: "TestPluckRows1",
+			User:  &User{ID: int(users[0].ID)},
+		},
+		&ModelManyToMany{
+			Title: "TestPluckRows2",
+			User:  &User{ID: int(users[1].ID)},
+		},
+	)
+
+	var m2m_targets, m2m_target_delete = quest.CreateObjects[*ModelManyToMany_Target](t,
+		&ModelManyToMany_Target{
+			Name: "TestPluckRows_Target1",
+			Age:  25,
+		},
+		&ModelManyToMany_Target{
+			Name: "TestPluckRows_Target2",
+			Age:  30,
+		},
+	)
+
+	var _, m2m_through_delete = quest.CreateObjects[*ModelManyToMany_Through](t,
+		&ModelManyToMany_Through{
+			SourceModel: &ModelManyToMany{
+				ID: m2m_sources[0].ID,
+			},
+			TargetModel: &ModelManyToMany_Target{
+				ID: m2m_targets[0].ID,
+			},
+		},
+		&ModelManyToMany_Through{
+			SourceModel: &ModelManyToMany{
+				ID: m2m_sources[0].ID,
+			},
+			TargetModel: &ModelManyToMany_Target{
+				ID: m2m_targets[1].ID,
+			},
+		},
+		&ModelManyToMany_Through{
+			SourceModel: &ModelManyToMany{
+				ID: m2m_sources[1].ID,
+			},
+			TargetModel: &ModelManyToMany_Target{
+				ID: m2m_targets[0].ID,
+			},
+		},
+		&ModelManyToMany_Through{
+			SourceModel: &ModelManyToMany{
+				ID: m2m_sources[1].ID,
+			},
+			TargetModel: &ModelManyToMany_Target{
+				ID: m2m_targets[1].ID,
+			},
+		},
+	)
+
+	defer func() {
+		m2m_source_delete(0)  // model_manytomany
+		m2m_target_delete(0)  // model_manytomany_target
+		m2m_through_delete(0) // model_manytomany_through
+		users_delete(0)       // users
+		profiles_delete(0)    // profiles
+	}()
+
 	var rows, err = queries.GetQuerySet(&ModelManyToMany{}).
 		Select("*", "Target.*", "Target.TargetReverse.*").
 		OrderBy("ID", "Target.ID", "Target.TargetReverse.ID").

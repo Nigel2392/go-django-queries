@@ -11,6 +11,10 @@ import (
 	"reflect"
 )
 
+func init() {
+	sql.Register("mariadb", DriverMariaDB{})
+}
+
 /*
 Package drivers provides a shortcut to access the registered drivers
 and their capabilities. It allows you to check if a driver supports
@@ -31,7 +35,31 @@ type (
 	DriverPostgres = pg_stdlib.Driver
 	DriverMySQL    = mysql.MySQLDriver
 	DriverSQLite   = sqlite3.SQLiteDriver
+	DriverMariaDB  struct {
+		mysql.MySQLDriver
+	}
+	connectorMariaDB struct {
+		driver.Connector
+	}
 )
+
+func (d DriverMariaDB) Open(dsn string) (driver.Conn, error) {
+	return d.MySQLDriver.Open(dsn)
+}
+
+func (d DriverMariaDB) OpenConnector(dsn string) (driver.Connector, error) {
+	connector, err := d.MySQLDriver.OpenConnector(dsn)
+	if err != nil {
+		return nil, err
+	}
+	return &connectorMariaDB{
+		Connector: connector,
+	}, nil
+}
+
+func (c *connectorMariaDB) Driver() driver.Driver {
+	return &DriverMariaDB{}
+}
 
 type driverData struct {
 	Name              string

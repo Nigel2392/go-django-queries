@@ -1078,7 +1078,7 @@ func TestQuerySetSelectExpressions(t *testing.T) {
 	}
 
 	var qs = queries.GetQuerySet[attrs.Definer](&Todo{}).
-		Select("ID", expr.F(expr.FuncUpper("Title")), "Description", "Done").
+		Select("ID", expr.F(expr.UPPER("Title")), "Description", "Done").
 		Filter("Title", "TestQuerySet_Select_Expressions").
 		OrderBy("-ID")
 
@@ -1669,7 +1669,7 @@ func TestUpdateWithExpressions(t *testing.T) {
 		ExplicitSave().
 		Update(
 			&Todo{},
-			expr.As("Title", expr.FuncUpper("Title")),
+			expr.As("Title", expr.UPPER("Title")),
 			expr.As("Done", expr.F("![ID] % ?[1] == ?[2] OR ![ID] % ?[1] == ?[3] OR ?[4]", 2, 0, 1, true)),
 			// expr.F("![Title] = UPPER(![Title])"),
 			// expr.F("![Done] = (![ID] % ?[1] == ?[2] OR ![ID] % ?[1] == ?[3] OR ?[4])", 2, 0, 1, true),
@@ -2281,7 +2281,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 			Filter("Title__icontains", "test").
 			Filter("Done", false)
 
-		query.Update(&Todo{}, expr.As("Title", expr.FuncUpper("Title")))
+		query.Update(&Todo{}, expr.As("Title", expr.UPPER("Title")))
 
 		var latest = query.LatestQuery()
 		if latest == nil {
@@ -2560,7 +2560,7 @@ func TestQueryGroupBy(t *testing.T) {
 		allTodosTitleMap[short] = struct{}{}
 	}
 
-	var expression = expr.FuncSubstr(expr.FuncLower("Title"), 1, 2)
+	var expression = expr.SUBSTR(expr.LOWER("Title"), 1, 2)
 	var qs = queries.GetQuerySet(&Todo{}).
 		Select("Title", "Done").
 		Annotate("shortTitle", expression).
@@ -2604,7 +2604,7 @@ func TestQueryGroupBy(t *testing.T) {
 func TestAggregateCount(t *testing.T) {
 	var agg, err = queries.GetQuerySet[*Todo](&Todo{}).
 		Aggregate(map[string]expr.Expression{
-			"Count": expr.FuncCount("ID"),
+			"Count": expr.COUNT("ID"),
 		})
 
 	if err != nil {
@@ -2753,7 +2753,7 @@ func TestBulkUpdate(t *testing.T) {
 
 	_, err = queries.GetQuerySet(&Todo{}).BulkUpdate(
 		toUpdate,
-		expr.As("Description", expr.FuncUpper("Description")),
+		expr.As("Description", expr.UPPER("Description")),
 	)
 
 	if err != nil {

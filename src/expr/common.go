@@ -180,13 +180,13 @@ func (n *namedExpression) Resolve(inf *ExpressionInfo) Expression {
 
 	var nE = n.Clone().(*namedExpression)
 	nE.used = true
+	nE.forUpdate = inf.ForUpdate
 
 	if nE.fieldName != "" && nE.forUpdate {
 		nE.field = inf.ResolveExpressionField(nE.fieldName)
 	}
 
 	nE.Expression = nE.Expression.Resolve(inf)
-	nE.forUpdate = inf.ForUpdate
 	return nE
 }
 

@@ -100,7 +100,9 @@ func init() {
 			args = append(args, v.SQL(&startBuilder)...)
 			startParam = startBuilder.String()
 		default:
-			startParam = fmt.Sprintf("%v", v) // assume it's a constant value
+			if v != nil {
+				startParam = fmt.Sprintf("%v", v) // assume it's a constant value
+			}
 		}
 
 		switch v := funcParams[1].(type) {
@@ -109,7 +111,25 @@ func init() {
 			args = append(args, v.SQL(&endBuilder)...)
 			endParam = endBuilder.String()
 		default:
-			endParam = fmt.Sprintf("%v", v) // assume it's a constant value
+			if v != nil {
+				endParam = fmt.Sprintf("%v", v) // assume it's a constant value
+			}
+		}
+
+		if startParam == "" {
+			return "", nil, fmt.Errorf("SUBSTR lookup requires a valid start parameter")
+		}
+
+		if endParam == "" {
+			switch d.(type) {
+			case *drivers.DriverMySQL:
+				return fmt.Sprintf("SUBSTRING(%s, %s)", sb.String(), startParam), args, nil
+			case *drivers.DriverPostgres:
+				return fmt.Sprintf("SUBSTRING(%s FROM %s)", sb.String(), startParam), args, nil
+			case *drivers.DriverSQLite:
+				return fmt.Sprintf("SUBSTR(%s, %s)", sb.String(), startParam), args, nil
+			}
+			return "", nil, fmt.Errorf("unsupported driver for SUBSTR: %T", d)
 		}
 
 		switch d.(type) {

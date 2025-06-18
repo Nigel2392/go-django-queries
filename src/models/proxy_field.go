@@ -45,6 +45,7 @@ func newProxyField(model *Model, definer attrs.Definer, niceName string, interna
 			niceName,
 			&attrs.FieldConfig{
 				// AutoInit:     true,
+				ReadOnly:     true,
 				NameOverride: internalName,
 				RelOneToOne: attrs.Relate(
 					cnf.Proxy,

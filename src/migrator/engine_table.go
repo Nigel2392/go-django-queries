@@ -34,18 +34,23 @@ func changed[T any](old, new T) *Changed[T] {
 	}
 }
 
+type IndexDefiner interface {
+	DatabaseIndexes() []Index
+}
+
 type Index struct {
-	Name    string   `json:"name"`
-	Type    string   `json:"type"`
-	Columns []string `json:"columns"`
-	Unique  bool     `json:"unique,omitempty"`
-	Comment string   `json:"comment,omitempty"`
+	table   *ModelTable `json:"-"`
+	Name    string      `json:"name"`
+	Type    string      `json:"type"`
+	Fields  []string    `json:"columns"`
+	Unique  bool        `json:"unique,omitempty"`
+	Comment string      `json:"comment,omitempty"`
 }
 
 func (i Index) String() string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Index{Name: %s, Type: %s, Unique: %t, Columns: [", i.Name, i.Type, i.Unique))
-	for _, col := range i.Columns {
+	for _, col := range i.Fields {
 		sb.WriteString(fmt.Sprintf("%s, ", col))
 	}
 	sb.WriteString("], Comment: ")
@@ -56,6 +61,20 @@ func (i Index) String() string {
 	}
 	sb.WriteString("}")
 	return sb.String()
+}
+
+func (i Index) Columns() []string {
+	var cols = make([]string, 0, len(i.Fields))
+	for _, col := range i.Fields {
+		var tableCol, ok = i.table.Fields.Get(col)
+		if !ok {
+			panic(fmt.Sprintf("column %s not found in table %s", col, i.table.TableName()))
+		}
+
+		cols = append(cols, tableCol.Column)
+	}
+
+	return cols
 }
 
 type ModelTable struct {
@@ -95,7 +114,7 @@ func NewModelTable(obj attrs.Definer) *ModelTable {
 		fields  = defs.Fields()
 	)
 
-	var t = ModelTable{
+	var t = &ModelTable{
 		Table:  defs.TableName(),
 		Object: object,
 		Fields: orderedmap.NewOrderedMap[string, Column](),
@@ -113,11 +132,26 @@ func NewModelTable(obj attrs.Definer) *ModelTable {
 	})
 
 	for _, field := range fields {
-		var col = NewTableColumn(&t, field)
+		var col = NewTableColumn(t, field)
 		t.Fields.Set(field.Name(), col)
 	}
 
-	return &t
+	if idxDef, ok := obj.(IndexDefiner); ok {
+		indexes := idxDef.DatabaseIndexes()
+		t.Index = make([]Index, 0, len(indexes))
+		for _, idx := range indexes {
+			t.Index = append(t.Index, Index{
+				table:   t,
+				Name:    idx.Name,
+				Type:    idx.Type,
+				Fields:  idx.Fields,
+				Unique:  idx.Unique,
+				Comment: idx.Comment,
+			})
+		}
+	}
+
+	return t
 }
 
 type serializableModelTable struct {
@@ -154,7 +188,11 @@ func (t *ModelTable) UnmarshalJSON(data []byte) error {
 	t.Desc = s.Comment
 	t.Object = s.Model.New()
 	t.Fields = orderedmap.NewOrderedMap[string, Column]()
-	t.Index = s.Indexes
+	t.Index = make([]Index, 0, len(s.Indexes))
+	for _, idx := range s.Indexes {
+		idx.table = t
+		t.Index = append(t.Index, idx)
+	}
 
 	var defs = t.Object.FieldDefs()
 	for _, col := range s.Fields {

@@ -814,12 +814,12 @@ func indexesEqual(a, b Index) bool {
 		return false
 	}
 
-	if len(a.Columns) != len(b.Columns) {
+	if len(a.Fields) != len(b.Fields) {
 		return false
 	}
 
-	for i := range a.Columns {
-		if a.Columns[i] != b.Columns[i] {
+	for i := range a.Fields {
+		if a.Fields[i] != b.Fields[i] {
 			return false
 		}
 	}

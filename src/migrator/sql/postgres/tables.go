@@ -139,7 +139,7 @@ func (m *PostgresSchemaEditor) AddIndex(table migrator.Table, index migrator.Ind
 	w.WriteString(`" ON "`)
 	w.WriteString(table.TableName())
 	w.WriteString(`" (`)
-	for i, col := range index.Columns {
+	for i, col := range index.Columns() {
 		if i > 0 {
 			w.WriteString(", ")
 		}

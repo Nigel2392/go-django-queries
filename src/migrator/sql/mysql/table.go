@@ -143,7 +143,7 @@ func (m *MySQLSchemaEditor) AddIndex(table migrator.Table, index migrator.Index)
 	w.WriteString("` ON `")
 	w.WriteString(table.TableName())
 	w.WriteString("` (")
-	for i, col := range index.Columns {
+	for i, col := range index.Columns() {
 		if i > 0 {
 			w.WriteString(", ")
 		}

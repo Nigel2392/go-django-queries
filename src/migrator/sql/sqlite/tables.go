@@ -97,7 +97,7 @@ func (m *SQLiteSchemaEditor) StoreMigration(appName string, modelName string, mi
 
 func (m *SQLiteSchemaEditor) HasMigration(appName string, modelName string, migrationName string) (bool, error) {
 	var count int
-	err := m.queryRow(context.Background(), selectTableMigrations, appName, modelName, migrationName).Scan(&count)
+	var err = m.queryRow(context.Background(), selectTableMigrations, appName, modelName, migrationName).Scan(&count)
 	if err != nil {
 		return false, err
 	}
@@ -190,7 +190,7 @@ func (m *SQLiteSchemaEditor) AddIndex(table migrator.Table, index migrator.Index
 	w.WriteString("` ON `")
 	w.WriteString(table.TableName())
 	w.WriteString("` (")
-	for i, col := range index.Columns {
+	for i, col := range index.Columns() {
 		if i > 0 {
 			w.WriteString(", ")
 		}

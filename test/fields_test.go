@@ -87,11 +87,11 @@ func (t *TestStruct) FieldDefs() attrs.Definitions {
 		attrs.NewField(t, "Text", &attrs.FieldConfig{
 			Column: "text",
 		}),
-		fields.NewVirtualField[string](t, t, "TestNameText", expr.FuncConcat(
+		fields.NewVirtualField[string](t, t, "TestNameText", expr.CONCAT(
 			"Name", expr.Value(" ", true), "Text", expr.Value(" ", true), expr.Value("test"),
 		)),
-		fields.NewVirtualField[string](t, t, "TestNameLower", expr.FuncLower("Name")),
-		fields.NewVirtualField[string](t, t, "TestNameUpper", expr.FuncUpper("Name")),
+		fields.NewVirtualField[string](t, t, "TestNameLower", expr.LOWER("Name")),
+		fields.NewVirtualField[string](t, t, "TestNameUpper", expr.UPPER("Name")),
 	).WithTableName("test_struct")
 }
 
@@ -423,7 +423,7 @@ func Test_Annotated_Filter(t *testing.T) {
 		Select("*").
 		Filter("Name", "TEST1").
 		Filter("LowerName", "test1").
-		Annotate("LowerName", expr.FuncLower("Name"))
+		Annotate("LowerName", expr.LOWER("Name"))
 	rows, err := qs.All()
 	if err != nil {
 		t.Fatal(err)
@@ -554,7 +554,7 @@ func Test_Annotated_Values(t *testing.T) {
 	}(t)
 
 	values, err := queries.Objects[attrs.Definer](&TestStruct{}).
-		Annotate("UpperName", expr.FuncUpper("Name")).
+		Annotate("UpperName", expr.UPPER("Name")).
 		Filter("Text", "Test_Annotated_Values").
 		OrderBy("ID").
 		Values("*")
@@ -615,7 +615,7 @@ func Test_Annotated_OrderBy(t *testing.T) {
 	qs := queries.Objects[attrs.Definer](&TestStruct{}).
 		Select("*").
 		Filter("Text", "Test_Annotated_OrderBy").
-		Annotate("UpperName", expr.FuncUpper("Name")).
+		Annotate("UpperName", expr.UPPER("Name")).
 		OrderBy("-UpperName")
 
 	rows, err := qs.All()
@@ -990,7 +990,7 @@ func TestSubquery(t *testing.T) {
 
 	var qs = queries.
 		Objects[attrs.Definer](test).
-		Select(expr.FuncLower("Name")).
+		Select(expr.LOWER("Name")).
 		Filter("ID", test.ID)
 
 	var rows, err = queries.Objects[attrs.Definer](&TestStruct{}).

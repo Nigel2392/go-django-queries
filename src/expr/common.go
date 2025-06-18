@@ -57,14 +57,8 @@ func (e *field) Resolve(inf *ExpressionInfo) Expression {
 	return nE
 }
 
-// Value is a type that implements the Expression interface.
-// It is used to represent a value in SQL queries, allowing for both safe and unsafe usage.
-// It can be used like so:
-//
-//	Value("some value") // safe usage
-//	Value("some value", true) // unsafe usage, will not use placeholders
-//
-// The unsafe usage allows for direct insertion of values into the SQL query, which can be dangerous if not used carefully.
+// value is a type that implements the Expression interface.
+// See [Value] for more information.
 type value struct {
 	v           any
 	used        bool
@@ -72,6 +66,14 @@ type value struct {
 	placeholder string // Placeholder for the value, if needed
 }
 
+// Value is a function that creates a value expression.
+// It is used to represent a value in SQL queries, allowing for both safe and unsafe usage.
+// It can be used like so:
+//
+//	Value("some value") // safe usage
+//	Value("some value", true) // unsafe usage, will not use placeholders
+//
+// The unsafe usage allows for direct insertion of values into the SQL query, which can be dangerous if not used carefully.
 func Value(v any, unsafe ...bool) Expression {
 	if expr, ok := v.(Expression); ok {
 		return expr
@@ -82,6 +84,12 @@ func Value(v any, unsafe ...bool) Expression {
 		s = true
 	}
 	return &value{v: normalizeDefinerArg(v), unsafe: s}
+}
+
+// V is a shorthand for Value, allowing for a more concise syntax.
+// See [Value] for more information.
+func V(v any, unsafe ...bool) Expression {
+	return Value(v, unsafe...)
 }
 
 func (e *value) SQL(sb *strings.Builder) []any {
@@ -186,7 +194,12 @@ func (n *namedExpression) Resolve(inf *ExpressionInfo) Expression {
 		nE.field = inf.ResolveExpressionField(nE.fieldName)
 	}
 
-	nE.Expression = nE.Expression.Resolve(inf)
+	// Dereference the info to copy it,
+	// subexpressions should not handle the ForUpdate flag anymore,
+	// as it is already handled by the namedExpression itself.
+	var cpy = *inf
+	cpy.ForUpdate = false
+	nE.Expression = nE.Expression.Resolve(&cpy)
 	return nE
 }
 

@@ -51,49 +51,49 @@ func init() {
 	RegisterTransforms(&BaseTransform{
 		Identifier: "lower",
 		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
-			return FuncLower(lhsResolved).Resolve(inf), nil
+			return LOWER(lhsResolved).Resolve(inf), nil
 		},
 	})
 	RegisterTransforms(&BaseTransform{
 		Identifier: "upper",
 		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
-			return FuncUpper(lhsResolved).Resolve(inf), nil
+			return UPPER(lhsResolved).Resolve(inf), nil
 		},
 	})
 	RegisterTransforms(&BaseTransform{
 		Identifier: "length",
 		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
-			return FuncLength(lhsResolved).Resolve(inf), nil
+			return LENGTH(lhsResolved).Resolve(inf), nil
 		},
 	})
 	RegisterTransforms(&BaseTransform{
 		Identifier: "count",
 		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
-			return FuncCount(lhsResolved).Resolve(inf), nil
+			return COUNT(lhsResolved).Resolve(inf), nil
 		},
 	})
 	RegisterTransforms(&BaseTransform{
 		Identifier: "avg",
 		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
-			return FuncAvg(lhsResolved).Resolve(inf), nil
+			return AVG(lhsResolved).Resolve(inf), nil
 		},
 	})
 	RegisterTransforms(&BaseTransform{
 		Identifier: "sum",
 		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
-			return FuncSum(lhsResolved).Resolve(inf), nil
+			return SUM(lhsResolved).Resolve(inf), nil
 		},
 	})
 	RegisterTransforms(&BaseTransform{
 		Identifier: "min",
 		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
-			return FuncMin(lhsResolved).Resolve(inf), nil
+			return MIN(lhsResolved).Resolve(inf), nil
 		},
 	})
 	RegisterTransforms(&BaseTransform{
 		Identifier: "max",
 		Transform: func(inf *ExpressionInfo, lhsResolved ResolvedExpression) (ResolvedExpression, error) {
-			return FuncMax(lhsResolved).Resolve(inf), nil
+			return MAX(lhsResolved).Resolve(inf), nil
 		},
 	})
 }

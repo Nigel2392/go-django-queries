@@ -125,50 +125,50 @@ func newFunc(funcLookup string, value []any, expr ...any) *Function {
 	}
 }
 
-func FuncSum(expr ...any) *Function {
+func SUM(expr ...any) *Function {
 	return newFunc("SUM", []any{}, expr...)
 }
 
-func FuncCount(expr ...any) *Function {
+func COUNT(expr ...any) *Function {
 	return newFunc("COUNT", []any{}, expr...)
 }
 
-func FuncAvg(expr ...any) *Function {
+func AVG(expr ...any) *Function {
 	return newFunc("AVG", []any{}, expr...)
 }
 
-func FuncMax(expr ...any) *Function {
+func MAX(expr ...any) *Function {
 	return newFunc("MAX", []any{}, expr...)
 }
 
-func FuncMin(expr ...any) *Function {
+func MIN(expr ...any) *Function {
 	return newFunc("MIN", []any{}, expr...)
 }
 
-func FuncCoalesce(expr ...any) *Function {
+func COALESCE(expr ...any) *Function {
 	return newFunc("COALESCE", []any{}, expr...)
 }
 
-func FuncConcat(expr ...any) *Function {
+func CONCAT(expr ...any) *Function {
 	return newFunc("CONCAT", []any{}, expr...)
 }
 
-func FuncSubstr(expr any, start, length any) *Function {
+func SUBSTR(expr any, start, length any) *Function {
 	return newFunc("SUBSTR", []any{start, length}, expr)
 }
 
-func FuncUpper(expr any) *Function {
+func UPPER(expr any) *Function {
 	return newFunc("UPPER", []any{}, expr)
 }
 
-func FuncLower(expr any) *Function {
+func LOWER(expr any) *Function {
 	return newFunc("LOWER", []any{}, expr)
 }
 
-func FuncLength(expr any) *Function {
+func LENGTH(expr any) *Function {
 	return newFunc("LENGTH", []any{}, expr)
 }
 
-func FuncNow() *Function {
+func NOW() *Function {
 	return newFunc("NOW", []any{}, nil)
 }

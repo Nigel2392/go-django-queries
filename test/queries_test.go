@@ -1669,8 +1669,10 @@ func TestUpdateWithExpressions(t *testing.T) {
 		ExplicitSave().
 		Update(
 			&Todo{},
-			expr.F("![Title] = UPPER(![Title])"),
-			expr.F("![Done] = (![ID] % ?[1] == ?[2] OR ![ID] % ?[1] == ?[3] OR ?[4])", 2, 0, 1, true),
+			expr.As("Title", expr.FuncUpper("Title")),
+			expr.As("Done", expr.F("![ID] % ?[1] == ?[2] OR ![ID] % ?[1] == ?[3] OR ?[4]", 2, 0, 1, true)),
+			// expr.F("![Title] = UPPER(![Title])"),
+			// expr.F("![Done] = (![ID] % ?[1] == ?[2] OR ![ID] % ?[1] == ?[3] OR ?[4])", 2, 0, 1, true),
 		)
 	if err != nil {
 		t.Fatalf("Failed to update todo: %v", err)
@@ -2279,7 +2281,7 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 			Filter("Title__icontains", "test").
 			Filter("Done", false)
 
-		query.Update(&Todo{}, expr.F("![Title] = UPPER(![Title])"))
+		query.Update(&Todo{}, expr.As("Title", expr.FuncUpper("Title")))
 
 		var latest = query.LatestQuery()
 		if latest == nil {
@@ -2751,7 +2753,7 @@ func TestBulkUpdate(t *testing.T) {
 
 	_, err = queries.GetQuerySet(&Todo{}).BulkUpdate(
 		toUpdate,
-		expr.F("![Description] = UPPER(![Description])"),
+		expr.As("Description", expr.FuncUpper("Description")),
 	)
 
 	if err != nil {

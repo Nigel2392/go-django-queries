@@ -21,7 +21,7 @@ func TestSelectFuncExpr(t *testing.T) {
 
 	t.Run("SelectNameSubString", func(t *testing.T) {
 		var rows, err = queries.Objects[attrs.Definer](test).
-			Select("ID", expr.FuncSubstr(expr.FuncUpper("Name"), 0, 9), "Text").
+			Select("ID", expr.FuncSubstr(expr.FuncUpper("Name"), expr.Value(0), expr.Value(9)), "Text").
 			Filter("ID", test.ID).
 			All()
 

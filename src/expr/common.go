@@ -13,23 +13,10 @@ import (
 //	StringExpr("a = b")
 type String string
 
-func (e String) String() string {
-	return string(e)
-}
-
-func (e String) SQL(sb *strings.Builder) []any {
-	sb.WriteString(string(e))
-	return []any{}
-}
-
-func (e String) Clone() Expression {
-	return String([]byte(e))
-}
-
-// Resolve resolves the expression by returning itself - this is a no-op for StringExpr.
-func (e String) Resolve(inf *ExpressionInfo) Expression {
-	return e
-}
+func (e String) String() string                         { return string(e) }
+func (e String) SQL(sb *strings.Builder) []any          { sb.WriteString(string(e)); return []any{} }
+func (e String) Clone() Expression                      { return String([]byte(e)) }
+func (e String) Resolve(inf *ExpressionInfo) Expression { return e }
 
 // field is a string type which implements the Expression interface.
 // It is used to represent a field in SQL queries.
@@ -145,4 +132,70 @@ func (e *value) Resolve(inf *ExpressionInfo) Expression {
 	}
 
 	return nE
+}
+
+type namedExpression struct {
+	field     *ResolvedField
+	fieldName string
+	forUpdate bool
+	used      bool
+	Expression
+}
+
+// As creates a NamedExpression with a specified field name and an expression.
+//
+// It is used to give a name to an expression, which can be useful for annotations,
+// or for updating fields in a model using [Expression]s.
+func As(name string, expr Expression) NamedExpression {
+	if name == "" {
+		panic("field name cannot be empty")
+	}
+	if expr == nil {
+		panic("expression cannot be nil")
+	}
+	return &namedExpression{
+		fieldName:  name,
+		Expression: expr,
+	}
+}
+
+func (n *namedExpression) FieldName() string {
+	return n.fieldName
+}
+
+func (n *namedExpression) Clone() Expression {
+	return &namedExpression{
+		used:       n.used,
+		field:      n.field,
+		fieldName:  n.fieldName,
+		forUpdate:  n.forUpdate,
+		Expression: n.Expression.Clone(),
+	}
+}
+
+func (n *namedExpression) Resolve(inf *ExpressionInfo) Expression {
+	if inf.Model == nil || n.used {
+		return n
+	}
+
+	var nE = n.Clone().(*namedExpression)
+	nE.used = true
+
+	if nE.fieldName != "" && nE.forUpdate {
+		nE.field = inf.ResolveExpressionField(nE.fieldName)
+	}
+
+	nE.Expression = nE.Expression.Resolve(inf)
+	nE.forUpdate = inf.ForUpdate
+	return nE
+}
+
+func (n *namedExpression) SQL(sb *strings.Builder) []any {
+	if !n.forUpdate {
+		return n.Expression.SQL(sb)
+	}
+
+	sb.WriteString(n.field.SQLText)
+	sb.WriteString(" = ")
+	return n.Expression.SQL(sb)
 }

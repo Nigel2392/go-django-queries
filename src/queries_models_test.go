@@ -40,7 +40,7 @@ func TestUniqueModel(t *testing.T) {
 	}
 
 	var err error
-	objects, err = queries.GetQuerySet(&UniqueModel{}).BulkCreate(objects)
+	_, err = queries.GetQuerySet(&UniqueModel{}).BulkCreate(objects)
 	if err != nil {
 		t.Fatalf("Failed to create objects: %v", err)
 	}

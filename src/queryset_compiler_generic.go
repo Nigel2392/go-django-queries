@@ -103,10 +103,21 @@ func (g *genericQueryBuilder) Placeholder() string {
 
 func (g *genericQueryBuilder) QuoteString(s string) string {
 	var sb strings.Builder
-	sb.Grow(len(s) + len(g.quote)*2)
-	sb.WriteString(g.quote)
-	sb.WriteString(s)
-	sb.WriteString(g.quote)
+	sb.Grow(len(s) + 2)
+	switch internal.SqlxDriverName(g.queryInfo.DB) {
+	case "mysql":
+		sb.WriteString("`")
+		sb.WriteString(s)
+		sb.WriteString("`")
+	case "sqlite3":
+		sb.WriteString("'")
+		sb.WriteString(s)
+		sb.WriteString("'")
+	case "postgres", "pgx":
+		sb.WriteString("\"")
+		sb.WriteString(s)
+		sb.WriteString("\"")
+	}
 	return sb.String()
 }
 

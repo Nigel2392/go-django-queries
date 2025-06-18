@@ -6,10 +6,9 @@ import (
 	"strings"
 )
 
-type function[LookupType comparable] struct {
-	reg        *_lookups[any, LookupType]
-	sql        func(col any, value []any) (sql string, args []any, err error)
-	funcLookup LookupType
+type Function struct {
+	sql        func(col []Expression, funcParams []any) (sql string, args []any, err error)
+	funcLookup string
 	fieldName  string
 	field      *ResolvedField
 	args       []any
@@ -17,9 +16,7 @@ type function[LookupType comparable] struct {
 	inner      []Expression
 }
 
-type Function = function[string]
-
-func (e *function[T]) FieldName() string {
+func (e *Function) FieldName() string {
 	if e.fieldName != "" {
 		return e.fieldName
 	}
@@ -40,22 +37,13 @@ func (e *function[T]) FieldName() string {
 	return ""
 }
 
-func (e *function[T]) SQL(sb *strings.Builder) []any {
+func (e *Function) SQL(sb *strings.Builder) []any {
 	if e.sql == nil {
 		panic(fmt.Errorf("SQL function %v not provided", e.funcLookup))
 	}
 
-	var innerBuf strings.Builder
-	var args = make([]any, 0)
-	for i, inner := range e.inner {
-		if i > 0 {
-			innerBuf.WriteString(", ")
-		}
-		args = append(args, inner.SQL(&innerBuf)...)
-	}
-
 	sql, params, err := e.sql(
-		innerBuf.String(),
+		slices.Clone(e.inner),
 		slices.Clone(e.args),
 	)
 
@@ -65,17 +53,16 @@ func (e *function[T]) SQL(sb *strings.Builder) []any {
 
 	sb.WriteString(sql)
 
-	return append(args, params...)
+	return params
 }
 
-func (e *function[T]) Clone() Expression {
+func (e *Function) Clone() Expression {
 	var inner = slices.Clone(e.inner)
 	for i := range inner {
 		inner[i] = inner[i].Clone()
 	}
 
-	return &function[T]{
-		reg:        e.reg,
+	return &Function{
 		sql:        e.sql,
 		funcLookup: e.funcLookup,
 		fieldName:  e.fieldName,
@@ -86,12 +73,12 @@ func (e *function[T]) Clone() Expression {
 	}
 }
 
-func (e *function[T]) Resolve(inf *ExpressionInfo) Expression {
+func (e *Function) Resolve(inf *ExpressionInfo) Expression {
 	if inf.Model == nil || e.used {
 		return e
 	}
 
-	var nE = e.Clone().(*function[T])
+	var nE = e.Clone().(*Function)
 	nE.used = true
 
 	if len(nE.inner) > 0 {
@@ -100,15 +87,15 @@ func (e *function[T]) Resolve(inf *ExpressionInfo) Expression {
 		}
 	}
 
-	var sql, ok = e.reg.lookupFunc(
+	var sql, ok = funcLookups.lookupFunc(
 		inf.Driver, nE.funcLookup,
 	)
 	if !ok {
-		panic(fmt.Errorf("could not resolve SQL function %v", nE.funcLookup))
+		panic(fmt.Errorf("could not resolve SQL function %q", nE.funcLookup))
 	}
 
-	nE.sql = func(col any, value []any) (string, []any, error) {
-		return sql(inf.Driver, col, value)
+	nE.sql = func(col []Expression, funcParams []any) (string, []any, error) {
+		return sql(inf, col, funcParams)
 	}
 
 	if nE.fieldName != "" {
@@ -118,7 +105,7 @@ func (e *function[T]) Resolve(inf *ExpressionInfo) Expression {
 	return nE
 }
 
-func newFunc[T comparable](registry *_lookups[any, T], funcLookup T, value []any, expr ...any) *function[T] {
+func newFunc(funcLookup string, value []any, expr ...any) *Function {
 	var inner = make([]Expression, 0, len(expr))
 	for _, e := range expr {
 		switch v := e.(type) {
@@ -131,8 +118,7 @@ func newFunc[T comparable](registry *_lookups[any, T], funcLookup T, value []any
 		}
 	}
 
-	return &function[T]{
-		reg:        registry,
+	return &Function{
 		funcLookup: funcLookup,
 		args:       value,
 		inner:      inner,
@@ -140,49 +126,49 @@ func newFunc[T comparable](registry *_lookups[any, T], funcLookup T, value []any
 }
 
 func FuncSum(expr ...any) *Function {
-	return newFunc(funcLookups, "SUM", []any{}, expr...)
+	return newFunc("SUM", []any{}, expr...)
 }
 
 func FuncCount(expr ...any) *Function {
-	return newFunc(funcLookups, "COUNT", []any{}, expr...)
+	return newFunc("COUNT", []any{}, expr...)
 }
 
 func FuncAvg(expr ...any) *Function {
-	return newFunc(funcLookups, "AVG", []any{}, expr...)
+	return newFunc("AVG", []any{}, expr...)
 }
 
 func FuncMax(expr ...any) *Function {
-	return newFunc(funcLookups, "MAX", []any{}, expr...)
+	return newFunc("MAX", []any{}, expr...)
 }
 
 func FuncMin(expr ...any) *Function {
-	return newFunc(funcLookups, "MIN", []any{}, expr...)
+	return newFunc("MIN", []any{}, expr...)
 }
 
 func FuncCoalesce(expr ...any) *Function {
-	return newFunc(funcLookups, "COALESCE", []any{}, expr...)
+	return newFunc("COALESCE", []any{}, expr...)
 }
 
 func FuncConcat(expr ...any) *Function {
-	return newFunc(funcLookups, "CONCAT", []any{}, expr...)
+	return newFunc("CONCAT", []any{}, expr...)
 }
 
 func FuncSubstr(expr any, start, length any) *Function {
-	return newFunc(funcLookups, "SUBSTR", []any{start, length}, expr)
+	return newFunc("SUBSTR", []any{start, length}, expr)
 }
 
 func FuncUpper(expr any) *Function {
-	return newFunc(funcLookups, "UPPER", []any{}, expr)
+	return newFunc("UPPER", []any{}, expr)
 }
 
 func FuncLower(expr any) *Function {
-	return newFunc(funcLookups, "LOWER", []any{}, expr)
+	return newFunc("LOWER", []any{}, expr)
 }
 
 func FuncLength(expr any) *Function {
-	return newFunc(funcLookups, "LENGTH", []any{}, expr)
+	return newFunc("LENGTH", []any{}, expr)
 }
 
 func FuncNow() *Function {
-	return newFunc(funcLookups, "NOW", []any{}, nil)
+	return newFunc("NOW", []any{}, nil)
 }

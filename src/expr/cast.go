@@ -4,16 +4,18 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 
 	"github.com/Nigel2392/go-django-queries/src/drivers"
-	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/errs"
 )
 
 type CastType uint
 
 const (
-	ErrCastTypeNotImplemented errs.Error = "cast type is not implemented"
+	ErrCastTypeNotImplemented   errs.Error = "cast type is not implemented"
+	ErrCastTypeNoColumnProvided errs.Error = "cast type requires a column to be provided"
 
 	CastTypeUnknown CastType = iota
 	CastTypeString
@@ -75,37 +77,6 @@ func init() {
 	registerCastTypeFunc(&drivers.DriverPostgres{}, 0, CastTypeArray, "CAST(%s AS JSONB)")
 }
 
-func castTypeFunc(sqlText string, arity int) func(d driver.Driver, col any, value []any) (sql string, args []any, err error) {
-	return func(d driver.Driver, col any, value []any) (sql string, args []any, err error) {
-		if len(value) != arity {
-			return "", nil, query_errors.ErrFieldNotFound
-		}
-
-		var sprintParams = make([]any, 0, arity+1)
-		sprintParams = append(sprintParams, col)
-		sprintParams = append(sprintParams, value...)
-		return fmt.Sprintf(sqlText, sprintParams...), []any{}, nil
-	}
-}
-
-func registerCastTypeFunc(d driver.Driver, arity int, castType CastType, sqlText string) {
-	if d == nil {
-		RegisterCastType(castType, castTypeFunc(sqlText, arity))
-		return
-	}
-	RegisterCastType(castType, castTypeFunc(sqlText, arity), d)
-}
-
-func Cast(typ CastType, col any, value ...any) NamedExpression {
-	return newFunc(castLookups, typ, value, col)
-}
-
-func newCastFunc(typ CastType) func(col any, value ...any) NamedExpression {
-	return func(col any, value ...any) NamedExpression {
-		return Cast(typ, col, value...)
-	}
-}
-
 var (
 	CastString  = newCastFunc(CastTypeString)
 	CastText    = newCastFunc(CastTypeText)
@@ -122,12 +93,115 @@ var (
 	CastArray   = newCastFunc(CastTypeArray)
 )
 
-var castLookups = &_lookups[any, CastType]{
-	m:              make(map[CastType]func(d driver.Driver, col any, value []any) (sql string, args []any, err error)),
-	d_m:            make(map[reflect.Type]map[CastType]func(d driver.Driver, col any, value []any) (sql string, args []any, err error)),
-	onBeforeLookup: handleExprLookups[CastType],
+type castExpr struct {
+	funcEntry *CastFuncEntry
+	typ       CastType
+	col       NamedExpression
+	args      []any
+	used      bool
 }
 
-func RegisterCastType(castType CastType, fn func(d driver.Driver, col any, value []any) (sql string, args []any, err error), drivers ...driver.Driver) {
-	castLookups.register(castType, fn, drivers...)
+func (c *castExpr) FieldName() string {
+	return c.col.FieldName()
+}
+
+func (c *castExpr) Clone() Expression {
+	return &castExpr{
+		typ:       c.typ,
+		funcEntry: c.funcEntry,
+		col:       c.col.Clone().(NamedExpression),
+		args:      slices.Clone(c.args),
+		used:      c.used,
+	}
+}
+
+func (c *castExpr) Resolve(inf *ExpressionInfo) Expression {
+	if inf.Model == nil || c.used {
+		return c
+	}
+	var nE = c.Clone().(*castExpr)
+	nE.used = true
+	nE.col = nE.col.Resolve(inf).(NamedExpression)
+
+	var funcEntry, ok = casts.global[c.typ]
+	if !ok {
+		var byType, ok = casts.byType[reflect.TypeOf(inf.Driver)]
+		if !ok {
+			panic(fmt.Errorf("%w: %d", ErrCastTypeNotImplemented, c.typ))
+		}
+		funcEntry, ok = byType[c.typ]
+		if !ok {
+			panic(fmt.Errorf("%w: %d", ErrCastTypeNotImplemented, c.typ))
+		}
+	}
+	nE.funcEntry = &funcEntry
+
+	return nE
+}
+
+func (c *castExpr) SQL(sb *strings.Builder) []any {
+	var sprintParams = make([]any, 0, c.funcEntry.Arity+1)
+	var colBuilder strings.Builder
+	var args = c.col.SQL(&colBuilder)
+	sprintParams = append(sprintParams, colBuilder.String())
+	sprintParams = append(sprintParams, c.args...)
+	sb.WriteString(fmt.Sprintf(c.funcEntry.SQL, sprintParams...))
+	return args
+}
+
+func Cast(typ CastType, col any, value ...any) NamedExpression {
+	var exprs = expressionFromInterface[NamedExpression](col, false)
+	if len(exprs) == 0 {
+		panic(ErrCastTypeNoColumnProvided)
+	}
+
+	return &castExpr{
+		typ:  typ,
+		col:  exprs[0],
+		args: value,
+	}
+}
+
+func registerCastTypeFunc(d driver.Driver, arity int, castType CastType, sqlText string) {
+	if d == nil {
+		RegisterCastType(castType, CastFuncEntry{Arity: arity, SQL: sqlText})
+		return
+	}
+	RegisterCastType(castType, CastFuncEntry{Arity: arity, SQL: sqlText}, d)
+}
+
+func newCastFunc(typ CastType) func(col any, value ...any) NamedExpression {
+	return func(col any, value ...any) NamedExpression {
+		return Cast(typ, col, value...)
+	}
+}
+
+type castRegistry struct {
+	global map[CastType]CastFuncEntry
+	byType map[reflect.Type]map[CastType]CastFuncEntry
+}
+
+type CastFuncEntry struct {
+	Arity int
+	SQL   string
+}
+
+var casts = &castRegistry{
+	global: make(map[CastType]CastFuncEntry),
+	byType: make(map[reflect.Type]map[CastType]CastFuncEntry),
+}
+
+func RegisterCastType(castType CastType, entry CastFuncEntry, drivers ...driver.Driver) {
+	if len(drivers) == 0 {
+		casts.global[castType] = entry
+		return
+	}
+
+	for _, drv := range drivers {
+		var t = reflect.TypeOf(drv)
+		if _, ok := casts.byType[t]; !ok {
+			casts.byType[t] = make(map[CastType]CastFuncEntry)
+		}
+		casts.byType[t][castType] = entry
+	}
 }

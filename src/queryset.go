@@ -2165,7 +2165,7 @@ func (qs *QuerySet[T]) Create(value T) (T, error) {
 //
 // If the model adheres to django's `models.Saver` interface, no where clause is provided
 // and ExplicitSave() was not called, the `Save()` method will be called on the model
-func (qs *QuerySet[T]) Update(value T, expressions ...expr.NamedExpression) (int64, error) {
+func (qs *QuerySet[T]) Update(value T, expressions ...any) (int64, error) {
 	var tx, err = qs.GetOrCreateTransaction()
 	if err != nil {
 		return 0, errors.Wrapf(
@@ -2452,7 +2452,7 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 //
 // It takes a list of definer objects as arguments and any possible NamedExpressions.
 // It does not try to call any save methods on the objects.
-func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpression) (int64, error) {
+func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...any) (int64, error) {
 
 	var tx, err = qs.GetOrCreateTransaction()
 	if err != nil {
@@ -2462,18 +2462,30 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...expr.NamedExpressi
 	}
 	defer tx.Rollback()
 
-	var exprMap = make(map[string]expr.NamedExpression, len(expressions))
-	for _, expr := range expressions {
-		var fieldName = expr.FieldName()
-		if fieldName == "" {
-			panic(fmt.Errorf("expression %q has no field name", expr))
-		}
+	var exprMap = make(map[string]expr.Expression, len(expressions))
+	for _, expression := range expressions {
+		switch e := expression.(type) {
+		case expr.NamedExpression:
+			var fieldName = e.FieldName()
+			if fieldName == "" {
+				panic(fmt.Errorf("expression %q has no field name", e))
+			}
 
-		if _, ok := exprMap[fieldName]; ok {
-			panic(fmt.Errorf("duplicate field %q in update expression", fieldName))
-		}
+			if _, ok := exprMap[fieldName]; ok {
+				panic(fmt.Errorf("duplicate field %q in update expression", fieldName))
+			}
 
-		exprMap[fieldName] = expr
+			exprMap[fieldName] = e
+
+		case map[string]expr.Expression:
+			for fieldName, e := range e {
+				if _, ok := exprMap[fieldName]; ok {
+					panic(fmt.Errorf("duplicate field %q in update expression", fieldName))
+				}
+
+				exprMap[fieldName] = e
+			}
+		}
 	}
 
 	var (
@@ -2678,7 +2690,7 @@ func (qs *QuerySet[T]) BatchCreate(objects []T) ([]T, error) {
 // You can specify the batch size to limit the number of objects updated in a single query.
 //
 // The batch size is based on the [Limit] method of the queryset, which defaults to 1000.
-func (qs *QuerySet[T]) BatchUpdate(objects []T, exprs ...expr.NamedExpression) (int64, error) {
+func (qs *QuerySet[T]) BatchUpdate(objects []T, exprs ...any) (int64, error) {
 	if len(objects) == 0 {
 		return 0, nil // No objects to update
 	}

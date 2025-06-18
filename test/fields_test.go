@@ -87,9 +87,8 @@ func (t *TestStruct) FieldDefs() attrs.Definitions {
 		attrs.NewField(t, "Text", &attrs.FieldConfig{
 			Column: "text",
 		}),
-		fields.NewVirtualField[string](t, t, "TestNameText", expr.Raw(
-			"![Name] || ' ' || ![Text] || ' ' || ?",
-			"test",
+		fields.NewVirtualField[string](t, t, "TestNameText", expr.FuncConcat(
+			"Name", expr.Value(" ", true), "Text", expr.Value(" ", true), expr.Value("test"),
 		)),
 		fields.NewVirtualField[string](t, t, "TestNameLower", expr.FuncLower("Name")),
 		fields.NewVirtualField[string](t, t, "TestNameUpper", expr.FuncUpper("Name")),

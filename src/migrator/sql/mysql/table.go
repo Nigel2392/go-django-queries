@@ -132,13 +132,17 @@ func (m *MySQLSchemaEditor) RenameTable(table migrator.Table, newName string) er
 	return err
 }
 
-func (m *MySQLSchemaEditor) AddIndex(table migrator.Table, index migrator.Index) error {
+func (m *MySQLSchemaEditor) AddIndex(table migrator.Table, index migrator.Index, ifNotExists bool) error {
 	var w strings.Builder
 	if index.Unique {
-		w.WriteString("CREATE UNIQUE INDEX `")
+		w.WriteString("CREATE UNIQUE INDEX")
 	} else {
-		w.WriteString("CREATE INDEX `")
+		w.WriteString("CREATE INDEX")
 	}
+	if ifNotExists {
+		w.WriteString(" IF NOT EXISTS")
+	}
+	w.WriteString(" `")
 	w.WriteString(index.Name)
 	w.WriteString("` ON `")
 	w.WriteString(table.TableName())
@@ -156,7 +160,11 @@ func (m *MySQLSchemaEditor) AddIndex(table migrator.Table, index migrator.Index)
 	return err
 }
 
-func (m *MySQLSchemaEditor) DropIndex(table migrator.Table, index migrator.Index) error {
+func (m *MySQLSchemaEditor) DropIndex(table migrator.Table, index migrator.Index, ifExists bool) error {
+	// MySQL does not support IF EXISTS for DROP INDEX, so we just drop it
+	// without checking if it exists.
+	// If you want to check before dropping, you would need to query the information_schema.
+	// This is a workaround, as MySQL does not support IF EXISTS for DROP INDEX.
 	query := fmt.Sprintf("DROP INDEX `%s` ON `%s`;", index.Name, table.TableName())
 	_, err := m.db.Exec(query)
 	return err

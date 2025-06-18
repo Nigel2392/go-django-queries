@@ -118,12 +118,12 @@ func (t *TestMigrationEngine) RenameTable(table migrator.Table, newName string) 
 	t.Actions = append(t.Actions, Action{Type: migrator.ActionRenameTable, Table: table})
 	return nil
 }
-func (t *TestMigrationEngine) AddIndex(table migrator.Table, index migrator.Index) error {
+func (t *TestMigrationEngine) AddIndex(table migrator.Table, index migrator.Index, _ bool) error {
 	t.t.Logf("Adding index: %s for object %T", table.TableName(), table.Model())
 	t.Actions = append(t.Actions, Action{Type: migrator.ActionAddIndex, Table: table, Index: index})
 	return nil
 }
-func (t *TestMigrationEngine) DropIndex(table migrator.Table, index migrator.Index) error {
+func (t *TestMigrationEngine) DropIndex(table migrator.Table, index migrator.Index, _ bool) error {
 	t.t.Logf("Dropping index: %s for object %T", table.TableName(), table.Model())
 	t.Actions = append(t.Actions, Action{Type: migrator.ActionDropIndex, Table: table, Index: index})
 	return nil

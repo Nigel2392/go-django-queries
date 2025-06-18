@@ -128,13 +128,17 @@ func (m *PostgresSchemaEditor) RenameTable(table migrator.Table, newName string)
 	return err
 }
 
-func (m *PostgresSchemaEditor) AddIndex(table migrator.Table, index migrator.Index) error {
+func (m *PostgresSchemaEditor) AddIndex(table migrator.Table, index migrator.Index, ifNotExists bool) error {
 	var w strings.Builder
 	if index.Unique {
-		w.WriteString(`CREATE UNIQUE INDEX "`)
+		w.WriteString(`CREATE UNIQUE INDEX `)
 	} else {
-		w.WriteString(`CREATE INDEX "`)
+		w.WriteString(`CREATE INDEX `)
 	}
+	if ifNotExists {
+		w.WriteString(`IF NOT EXISTS `)
+	}
+	w.WriteString(`"`)
 	w.WriteString(index.Name)
 	w.WriteString(`" ON "`)
 	w.WriteString(table.TableName())
@@ -153,9 +157,13 @@ func (m *PostgresSchemaEditor) AddIndex(table migrator.Table, index migrator.Ind
 	return err
 }
 
-func (m *PostgresSchemaEditor) DropIndex(table migrator.Table, index migrator.Index) error {
+func (m *PostgresSchemaEditor) DropIndex(table migrator.Table, index migrator.Index, ifExists bool) error {
 	var w strings.Builder
-	w.WriteString(`DROP INDEX IF EXISTS "`)
+	w.WriteString(`DROP INDEX `)
+	if ifExists {
+		w.WriteString(`IF EXISTS `)
+	}
+	w.WriteString(`"`)
 	w.WriteString(index.Name)
 	w.WriteString(`";`)
 	_, err := m.db.Exec(w.String())

@@ -179,13 +179,17 @@ func (m *SQLiteSchemaEditor) RenameTable(table migrator.Table, newName string) e
 	return err
 }
 
-func (m *SQLiteSchemaEditor) AddIndex(table migrator.Table, index migrator.Index) error {
+func (m *SQLiteSchemaEditor) AddIndex(table migrator.Table, index migrator.Index, ifNotExists bool) error {
 	var w strings.Builder
 	if index.Unique {
-		w.WriteString("CREATE UNIQUE INDEX `")
+		w.WriteString("CREATE UNIQUE INDEX ")
 	} else {
-		w.WriteString("CREATE INDEX `")
+		w.WriteString("CREATE INDEX ")
 	}
+	if ifNotExists {
+		w.WriteString("IF NOT EXISTS ")
+	}
+	w.WriteString("`")
 	w.WriteString(index.Name)
 	w.WriteString("` ON `")
 	w.WriteString(table.TableName())
@@ -213,9 +217,13 @@ func (m *SQLiteSchemaEditor) AddIndex(table migrator.Table, index migrator.Index
 	return err
 }
 
-func (m *SQLiteSchemaEditor) DropIndex(table migrator.Table, index migrator.Index) error {
+func (m *SQLiteSchemaEditor) DropIndex(table migrator.Table, index migrator.Index, ifExists bool) error {
 	var w strings.Builder
-	w.WriteString("DROP INDEX `")
+	w.WriteString("DROP INDEX ")
+	if ifExists {
+		w.WriteString("IF EXISTS ")
+	}
+	w.WriteString("`")
 	w.WriteString(index.Name)
 	w.WriteString("`;")
 	w.WriteString("\n")

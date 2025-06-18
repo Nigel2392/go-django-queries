@@ -41,8 +41,8 @@ type SchemaEditor interface {
 	DropTable(table Table, ifExists bool) error
 	RenameTable(table Table, newName string) error
 
-	AddIndex(table Table, index Index) error
-	DropIndex(table Table, index Index) error
+	AddIndex(table Table, index Index, ifNotExists bool) error
+	DropIndex(table Table, index Index, ifExists bool) error
 	RenameIndex(table Table, oldName string, newName string) error
 
 	//	AlterUniqueTogether(table Table, unique bool) error

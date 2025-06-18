@@ -299,9 +299,9 @@ func (m *MigrationEngine) Migrate() error {
 				action.Field.Old.Field, _ = defs.Field(action.Field.Old.Name)
 				err = m.SchemaEditor.RemoveField(n.mig.Table, *action.Field.Old)
 			case ActionAddIndex:
-				err = m.SchemaEditor.AddIndex(n.mig.Table, *action.Index.New)
+				err = m.SchemaEditor.AddIndex(n.mig.Table, *action.Index.New, false)
 			case ActionDropIndex:
-				err = m.SchemaEditor.DropIndex(n.mig.Table, *action.Index.Old)
+				err = m.SchemaEditor.DropIndex(n.mig.Table, *action.Index.Old, false)
 			case ActionRenameIndex:
 				err = m.SchemaEditor.RenameIndex(n.mig.Table, action.Index.Old.Name, action.Index.New.Name)
 			// case ActionAlterUniqueTogether:

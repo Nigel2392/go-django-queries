@@ -309,12 +309,23 @@ func (m *PostgresSchemaEditor) WriteColumn(w *strings.Builder, col migrator.Colu
 	w.WriteString(col.Field.ColumnName())
 	w.WriteString(`" `)
 	w.WriteString(migrator.GetFieldType(&drivers.DriverPostgres{}, &col))
+
+	if col.Primary {
+		w.WriteString(" PRIMARY KEY")
+	}
+
+	if col.Auto {
+		w.WriteString(" BIGSERIAL")
+	}
+
 	if !col.Nullable {
 		w.WriteString(" NOT NULL")
 	}
+
 	if col.Unique {
 		w.WriteString(" UNIQUE")
 	}
+
 	if col.HasDefault() {
 		w.WriteString(" DEFAULT ")
 		switch v := col.Default.(type) {

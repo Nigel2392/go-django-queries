@@ -212,6 +212,9 @@ func WriteColumn(w *strings.Builder, col migrator.Column) {
 	} else {
 		w.WriteString(" NOT NULL")
 	}
+	if col.Primary {
+		w.WriteString(" PRIMARY KEY")
+	}
 	if col.Auto {
 		w.WriteString(" AUTO_INCREMENT")
 	}

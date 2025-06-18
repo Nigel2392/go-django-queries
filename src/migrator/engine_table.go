@@ -39,17 +39,34 @@ type IndexDefiner interface {
 }
 
 type Index struct {
-	table   *ModelTable `json:"-"`
-	Name    string      `json:"name"`
-	Type    string      `json:"type"`
-	Fields  []string    `json:"columns"`
-	Unique  bool        `json:"unique,omitempty"`
-	Comment string      `json:"comment,omitempty"`
+	table      *ModelTable `json:"-"`
+	Identifier string      `json:"name"`
+	Type       string      `json:"type"`
+	Fields     []string    `json:"columns"`
+	Unique     bool        `json:"unique,omitempty"`
+	Comment    string      `json:"comment,omitempty"`
+}
+
+func (i *Index) Name() string {
+	if i.Identifier != "" {
+		return i.Identifier
+	}
+	var sb strings.Builder
+	sb.WriteString(i.table.TableName())
+	sb.WriteString("_idx_")
+	for i, col := range i.Fields {
+		if i > 0 {
+			sb.WriteString("_")
+		}
+		sb.WriteString(col)
+	}
+	i.Identifier = sb.String()
+	return i.Identifier
 }
 
 func (i Index) String() string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Index{Name: %s, Type: %s, Unique: %t, Columns: [", i.Name, i.Type, i.Unique))
+	sb.WriteString(fmt.Sprintf("Index{Name: %s, Type: %s, Unique: %t, Columns: [", i.Name(), i.Type, i.Unique))
 	for _, col := range i.Fields {
 		sb.WriteString(fmt.Sprintf("%s, ", col))
 	}
@@ -141,12 +158,12 @@ func NewModelTable(obj attrs.Definer) *ModelTable {
 		t.Index = make([]Index, 0, len(indexes))
 		for _, idx := range indexes {
 			t.Index = append(t.Index, Index{
-				table:   t,
-				Name:    idx.Name,
-				Type:    idx.Type,
-				Fields:  idx.Fields,
-				Unique:  idx.Unique,
-				Comment: idx.Comment,
+				table:      t,
+				Identifier: idx.Identifier,
+				Type:       idx.Type,
+				Fields:     idx.Fields,
+				Unique:     idx.Unique,
+				Comment:    idx.Comment,
 			})
 		}
 	}

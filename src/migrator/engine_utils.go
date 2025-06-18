@@ -72,17 +72,17 @@ func generateMigrationFileName(mig *MigrationFile) string {
 		sb.WriteString(action.Table.New.Table)
 	case ActionAddIndex:
 		sb.WriteString("add_idx_")
-		sb.WriteString(action.Index.New.Name)
+		sb.WriteString(action.Index.New.Name())
 	case ActionDropIndex:
 		sb.WriteString("drop_idx_")
 		sb.WriteString(action.Table.New.Table)
 		sb.WriteString("_on_")
-		sb.WriteString(action.Index.Old.Name)
+		sb.WriteString(action.Index.Old.Name())
 	case ActionRenameIndex:
 		sb.WriteString("rename_idx_")
-		sb.WriteString(action.Index.Old.Name)
+		sb.WriteString(action.Index.Old.Name())
 		sb.WriteString("_to_")
-		sb.WriteString(action.Index.New.Name)
+		sb.WriteString(action.Index.New.Name())
 	// case ActionAlterUniqueTogether:
 
 	// case ActionAlterIndexTogether:

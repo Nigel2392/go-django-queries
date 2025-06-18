@@ -143,7 +143,7 @@ func (m *MySQLSchemaEditor) AddIndex(table migrator.Table, index migrator.Index,
 		w.WriteString(" IF NOT EXISTS")
 	}
 	w.WriteString(" `")
-	w.WriteString(index.Name)
+	w.WriteString(index.Name())
 	w.WriteString("` ON `")
 	w.WriteString(table.TableName())
 	w.WriteString("` (")
@@ -165,7 +165,7 @@ func (m *MySQLSchemaEditor) DropIndex(table migrator.Table, index migrator.Index
 	// without checking if it exists.
 	// If you want to check before dropping, you would need to query the information_schema.
 	// This is a workaround, as MySQL does not support IF EXISTS for DROP INDEX.
-	query := fmt.Sprintf("DROP INDEX `%s` ON `%s`;", index.Name, table.TableName())
+	query := fmt.Sprintf("DROP INDEX `%s` ON `%s`;", index.Name(), table.TableName())
 	_, err := m.db.Exec(query)
 	return err
 }

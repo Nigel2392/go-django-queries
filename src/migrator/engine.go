@@ -303,7 +303,7 @@ func (m *MigrationEngine) Migrate() error {
 			case ActionDropIndex:
 				err = m.SchemaEditor.DropIndex(n.mig.Table, *action.Index.Old, false)
 			case ActionRenameIndex:
-				err = m.SchemaEditor.RenameIndex(n.mig.Table, action.Index.Old.Name, action.Index.New.Name)
+				err = m.SchemaEditor.RenameIndex(n.mig.Table, action.Index.Old.Name(), action.Index.New.Name())
 			// case ActionAlterUniqueTogether:
 			// 	err = m.SchemaEditor.AlterUniqueTogether(action.Table.New, action.Field.New.Unique)
 			// case ActionAlterIndexTogether:
@@ -682,10 +682,10 @@ func (m *MigrationEngine) makeMigrationDiff(migration *MigrationFile, last *Migr
 	)
 
 	for _, idx := range oldIndexes {
-		oldMap[idx.Name] = idx
+		oldMap[idx.Name()] = idx
 	}
 	for _, idx := range newIndexes {
-		newMap[idx.Name] = idx
+		newMap[idx.Name()] = idx
 	}
 
 	// Drop removed or changed indexes
@@ -810,7 +810,7 @@ func storeInMap(m map[string]map[string][]*MigrationFile, mig *MigrationFile) {
 }
 
 func indexesEqual(a, b Index) bool {
-	if a.Name != b.Name || a.Unique != b.Unique || a.Type != b.Type {
+	if a.Name() != b.Name() || a.Unique != b.Unique || a.Type != b.Type {
 		return false
 	}
 

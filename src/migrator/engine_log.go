@@ -29,11 +29,11 @@ func (e *MigrationEngineConsoleLog) Log(action ActionType, file *MigrationFile, 
 	case ActionRenameTable:
 		fmt.Fprintf(&msg, "Rename table for model %s: %s → %s", model, table.Old.TableName(), tableName)
 	case ActionAddIndex:
-		fmt.Fprintf(&msg, "Add index %s on %s for model %s", index.New.Name, tableName, model)
+		fmt.Fprintf(&msg, "Add index %s on %s for model %s", index.New.Name(), tableName, model)
 	case ActionDropIndex:
-		fmt.Fprintf(&msg, "Drop index %s on %s for model %s", index.New.Name, tableName, model)
+		fmt.Fprintf(&msg, "Drop index %s on %s for model %s", index.New.Name(), tableName, model)
 	case ActionRenameIndex:
-		fmt.Fprintf(&msg, "Rename index on %s for model %s: %s → %s", tableName, model, index.Old.Name, index.New.Name)
+		fmt.Fprintf(&msg, "Rename index on %s for model %s: %s → %s", tableName, model, index.Old.Name(), index.New.Name())
 	case ActionAddField:
 		fmt.Fprintf(&msg, "Add field %s.%s on table %s", model, column.New.Name, tableName)
 	case ActionAlterField:

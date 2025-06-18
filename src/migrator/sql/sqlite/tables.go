@@ -190,7 +190,7 @@ func (m *SQLiteSchemaEditor) AddIndex(table migrator.Table, index migrator.Index
 		w.WriteString("IF NOT EXISTS ")
 	}
 	w.WriteString("`")
-	w.WriteString(index.Name)
+	w.WriteString(index.Name())
 	w.WriteString("` ON `")
 	w.WriteString(table.TableName())
 	w.WriteString("` (")
@@ -224,7 +224,7 @@ func (m *SQLiteSchemaEditor) DropIndex(table migrator.Table, index migrator.Inde
 		w.WriteString("IF EXISTS ")
 	}
 	w.WriteString("`")
-	w.WriteString(index.Name)
+	w.WriteString(index.Name())
 	w.WriteString("`;")
 	w.WriteString("\n")
 

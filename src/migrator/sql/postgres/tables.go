@@ -139,7 +139,7 @@ func (m *PostgresSchemaEditor) AddIndex(table migrator.Table, index migrator.Ind
 		w.WriteString(`IF NOT EXISTS `)
 	}
 	w.WriteString(`"`)
-	w.WriteString(index.Name)
+	w.WriteString(index.Name())
 	w.WriteString(`" ON "`)
 	w.WriteString(table.TableName())
 	w.WriteString(`" (`)
@@ -164,7 +164,7 @@ func (m *PostgresSchemaEditor) DropIndex(table migrator.Table, index migrator.In
 		w.WriteString(`IF EXISTS `)
 	}
 	w.WriteString(`"`)
-	w.WriteString(index.Name)
+	w.WriteString(index.Name())
 	w.WriteString(`";`)
 	_, err := m.db.Exec(w.String())
 	return err

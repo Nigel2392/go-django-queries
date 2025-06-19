@@ -508,18 +508,7 @@ func (qs *QuerySet[T]) GoString() string {
 			var cond = join.JoinDefCondition
 			for cond != nil {
 
-				var colA, _ = qs.compiler.FormatColumn(
-					&cond.ConditionA,
-				)
-				var colB, _ = qs.compiler.FormatColumn(
-					&cond.ConditionB,
-				)
-
-				sb.WriteString(colA)
-				sb.WriteString(" ")
-				sb.WriteString(string(cond.Operator))
-				sb.WriteString(" ")
-				sb.WriteString(colB)
+				sb.WriteString(cond.String())
 
 				cond = cond.Next
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Nigel2392/go-django-queries/internal"
 	queries "github.com/Nigel2392/go-django-queries/src"
 	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/expr"
@@ -20,6 +21,7 @@ import (
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/Nigel2392/go-django/src/forms/widgets"
+	"github.com/jmoiron/sqlx"
 )
 
 const (
@@ -485,7 +487,8 @@ func TestTodoInsert(t *testing.T) {
 			t.Fatalf("Expected ID to be set after insert, got 0")
 		}
 
-		var row = db.QueryRow(selectTodo, todo.ID)
+		var selectStmt = sqlx.Rebind(sqlx.BindType(internal.SqlxDriverName(db)), selectTodo)
+		var row = db.QueryRow(selectStmt, todo.ID)
 		var test = &Todo{User: &User{}}
 		if err := row.Scan(&test.ID, &test.Title, &test.Description, &test.Done, &sql.NullInt64{}); err != nil {
 			t.Fatalf("Failed to query todo: %v", err)
@@ -518,7 +521,8 @@ func TestTodoUpdate(t *testing.T) {
 		t.Fatalf("Expected 1 todo to be updated, got %d", updated)
 	}
 
-	var row = db.QueryRow(selectTodo, todo.ID)
+	var selectStmt = sqlx.Rebind(sqlx.BindType(internal.SqlxDriverName(db)), selectTodo)
+	var row = db.QueryRow(selectStmt, todo.ID)
 	var test Todo = Todo{User: &User{}}
 	if err := row.Scan(&test.ID, &test.Title, &test.Description, &test.Done, &sql.NullInt64{}); err != nil {
 		t.Fatalf("Failed to query todo: %v", err)
@@ -542,7 +546,8 @@ func TestTodoGet(t *testing.T) {
 		t.Fatalf("Failed to get todo: %v", err)
 	}
 
-	var row = db.QueryRow(selectTodo, todo.ID)
+	var selectStmt = sqlx.Rebind(sqlx.BindType(internal.SqlxDriverName(db)), selectTodo)
+	var row = db.QueryRow(selectStmt, todo.ID)
 	var test Todo = Todo{User: &User{}}
 	if err := row.Scan(&test.ID, &test.Title, &test.Description, &test.Done, &sql.NullInt64{}); err != nil {
 		t.Fatalf("Failed to query todo: %v", err)
@@ -572,7 +577,8 @@ func TestTodoList(t *testing.T) {
 	}
 
 	for _, todo := range todos {
-		var row = db.QueryRow(selectTodo, todo.ID)
+		var selectStmt = sqlx.Rebind(sqlx.BindType(internal.SqlxDriverName(db)), selectTodo)
+		var row = db.QueryRow(selectStmt, todo.ID)
 		var test Todo = Todo{User: &User{}}
 		if err := row.Scan(&test.ID, &test.Title, &test.Description, &test.Done, &sql.NullInt64{}); err != nil {
 			t.Fatalf("Failed to query todo: %v", err)
@@ -604,7 +610,8 @@ func TestListTodoByIDs(t *testing.T) {
 	}
 
 	for _, todo := range todos {
-		var row = db.QueryRow(selectTodo, todo.ID)
+		var selectStmt = sqlx.Rebind(sqlx.BindType(internal.SqlxDriverName(db)), selectTodo)
+		var row = db.QueryRow(selectStmt, todo.ID)
 		var test Todo = Todo{User: &User{}}
 		if err := row.Scan(&test.ID, &test.Title, &test.Description, &test.Done, &sql.NullInt64{}); err != nil {
 			t.Fatalf("Failed to query todo: %v", err)
@@ -631,7 +638,8 @@ func TestTodoDelete(t *testing.T) {
 		t.Fatalf("Expected 1 todo to be deleted, got %d", deleted)
 	}
 
-	var row = db.QueryRow(selectTodo, todo.ID)
+	var selectStmt = sqlx.Rebind(sqlx.BindType(internal.SqlxDriverName(db)), selectTodo)
+	var row = db.QueryRow(selectStmt, todo.ID)
 	var test Todo = Todo{User: &User{}}
 	if err = row.Scan(&test.ID, &test.Title, &test.Description, &test.Done, &sql.NullInt64{}); err == nil {
 		t.Fatalf("Expected error when querying deleted todo, got: %v", test)
@@ -2446,7 +2454,6 @@ func TestQueryGroupBy(t *testing.T) {
 
 	var expression = expr.SUBSTR(expr.LOWER("Title"), 1, 2)
 	var qs = queries.GetQuerySet(&Todo{}).
-		Select("Title", "Done").
 		Annotate("shortTitle", expression).
 		GroupBy(expression)
 	// GroupBy(expr.FuncSubstr("![Title]", 1, 2))

@@ -11,6 +11,7 @@ import (
 	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	django "github.com/Nigel2392/go-django/src"
+	"github.com/Nigel2392/go-django/src/core/logger"
 )
 
 var _ migrator.SchemaEditor = &PostgresSchemaEditor{}
@@ -51,27 +52,32 @@ func NewPostgresSchemaEditor(db *sql.DB) *PostgresSchemaEditor {
 }
 
 func (m *PostgresSchemaEditor) Setup() error {
-	_, err := m.db.Exec(createTableMigrations)
+	_, err := m.Execute(context.Background(), createTableMigrations)
 	return err
 }
 
 func (m *PostgresSchemaEditor) StoreMigration(appName string, modelName string, migrationName string) error {
-	_, err := m.db.Exec(insertTableMigrations, appName, modelName, migrationName)
+	_, err := m.Execute(context.Background(), insertTableMigrations, appName, modelName, migrationName)
 	return err
 }
 
 func (m *PostgresSchemaEditor) HasMigration(appName string, modelName string, migrationName string) (bool, error) {
 	var count int
-	err := m.db.QueryRow(selectTableMigrations, appName, modelName, migrationName).Scan(&count)
+	err := m.QueryRow(context.Background(), selectTableMigrations, appName, modelName, migrationName).Scan(&count)
 	return count > 0, err
 }
 
 func (m *PostgresSchemaEditor) RemoveMigration(appName string, modelName string, migrationName string) error {
-	_, err := m.db.Exec(deleteTableMigrations, appName, modelName, migrationName)
+	_, err := m.Execute(context.Background(), deleteTableMigrations, appName, modelName, migrationName)
 	return err
 }
 
+func (m *PostgresSchemaEditor) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
+	return m.db.QueryRowContext(ctx, query, args...)
+}
+
 func (m *PostgresSchemaEditor) Execute(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	logger.Debugf("PostgresSchemaEditor.ExecContext:\n%s", query)
 	return m.db.ExecContext(ctx, query, args...)
 }
 
@@ -100,7 +106,7 @@ func (m *PostgresSchemaEditor) CreateTable(table migrator.Table, ifNotExists boo
 
 	w.WriteString(");")
 
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -113,7 +119,7 @@ func (m *PostgresSchemaEditor) DropTable(table migrator.Table, ifExists bool) er
 	w.WriteString(`"`)
 	w.WriteString(table.TableName())
 	w.WriteString(`" CASCADE;`)
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -124,7 +130,7 @@ func (m *PostgresSchemaEditor) RenameTable(table migrator.Table, newName string)
 	w.WriteString(`" RENAME TO "`)
 	w.WriteString(newName)
 	w.WriteString(`";`)
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -153,7 +159,7 @@ func (m *PostgresSchemaEditor) AddIndex(table migrator.Table, index migrator.Ind
 	}
 	w.WriteString(");")
 
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -166,7 +172,7 @@ func (m *PostgresSchemaEditor) DropIndex(table migrator.Table, index migrator.In
 	w.WriteString(`"`)
 	w.WriteString(index.Name())
 	w.WriteString(`";`)
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -177,7 +183,7 @@ func (m *PostgresSchemaEditor) RenameIndex(table migrator.Table, oldName string,
 	w.WriteString(`" RENAME TO "`)
 	w.WriteString(newName)
 	w.WriteString(`";`)
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -188,7 +194,7 @@ func (m *PostgresSchemaEditor) AddField(table migrator.Table, col migrator.Colum
 	w.WriteString(`" ADD COLUMN `)
 	m.WriteColumn(&w, col)
 	w.WriteString(";")
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -199,7 +205,7 @@ func (m *PostgresSchemaEditor) RemoveField(table migrator.Table, col migrator.Co
 	w.WriteString(`" DROP COLUMN IF EXISTS "`)
 	w.WriteString(col.Field.ColumnName())
 	w.WriteString(`" CASCADE;`)
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 
@@ -297,7 +303,7 @@ func (m *PostgresSchemaEditor) AlterField(table migrator.Table, oldCol migrator.
 	sql := strings.TrimSuffix(w.String(), ",")
 
 	// Execute ALTER TABLE ... for collected changes
-	if _, err := m.db.Exec(sql); err != nil {
+	if _, err := m.Execute(context.Background(), sql); err != nil {
 		return fmt.Errorf("alter field failed: %w\nquery: %s", err, sql)
 	}
 
@@ -312,10 +318,6 @@ func (m *PostgresSchemaEditor) WriteColumn(w *strings.Builder, col migrator.Colu
 
 	if col.Primary {
 		w.WriteString(" PRIMARY KEY")
-	}
-
-	if col.Auto {
-		w.WriteString(" BIGSERIAL")
 	}
 
 	if !col.Nullable {

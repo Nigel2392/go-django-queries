@@ -88,6 +88,10 @@ func (s *subqueryExpr) Resolve(inf *expr.ExpressionInfo) expr.Expression {
 }
 
 func Subquery(qs *GenericQuerySet) expr.Expression {
+	if qs.internals.Limit == MAX_DEFAULT_RESULTS {
+		qs.internals.Limit = 0
+	}
+
 	q := qs.queryAll()
 	return &subqueryExpr{
 		q: q,

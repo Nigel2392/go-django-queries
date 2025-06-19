@@ -13,9 +13,17 @@ $Databases = @(
     "sqlite",
     "mysql_local",
     "mysql",
-    "mariadb"#,
-    # "postgres"
+    "mariadb",
+    "postgres"
 )
+
+# If arguments are provided, use them as database types
+if ($args.count -gt 0) {
+    $Databases = @()
+    foreach ($arg in $args) {
+        $Databases += $arg
+    }
+}
 
 # Run tests for each database type
 foreach ($Database in $Databases) {

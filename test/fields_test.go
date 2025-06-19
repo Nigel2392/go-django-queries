@@ -2,6 +2,7 @@ package queries_test
 
 import (
 	"database/sql"
+	"slices"
 	"strings"
 	"testing"
 
@@ -785,9 +786,24 @@ func Test_Annotate_Relation(t *testing.T) {
 		}
 	}
 
+	var author2 = &Author{Name: "Rowling"}
+	if err := queries.CreateObject(author2); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 9; i++ {
+		book := &Book{
+			Title:  "Book " + string(rune('A'+(i%3))),
+			Author: author2,
+		}
+		if err := queries.CreateObject(book); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	qs := queries.Objects[attrs.Definer](&Book{}).
 		Select("Title", "Author.*").
-		GroupBy("Title").
+		GroupBy("Title", "Author.ID").
 		Annotate("AuthorCount", &expr.RawExpr{
 			Statement: "COUNT(%s)",
 			Fields:    []string{"Author.Name"},
@@ -798,8 +814,8 @@ func Test_Annotate_Relation(t *testing.T) {
 		t.Fatalf("failed to execute query: %v (%s)", err, qs.LatestQuery().SQL())
 	}
 
-	if len(rows) != 3 {
-		t.Fatalf("expected 3 grouped rows, got %d", len(rows))
+	if len(rows) != 6 {
+		t.Fatalf("expected 6 grouped rows, got %d: %+v", len(rows), slices.Collect(rows.Objects()))
 	}
 
 	for _, row := range rows {
@@ -814,6 +830,10 @@ func Test_Annotate_Relation(t *testing.T) {
 
 	if _, err := queries.DeleteObject(author); err != nil {
 		t.Fatalf("failed to delete author: %v", err)
+	}
+
+	if _, err := queries.DeleteObject(author2); err != nil {
+		t.Fatalf("failed to delete author2: %v", err)
 	}
 }
 
@@ -835,7 +855,8 @@ func Test_Aggregate_With_Join(t *testing.T) {
 
 	var qs = queries.Objects[attrs.Definer](&Book{}).
 		Select("*", "Author.*").
-		Filter("Author.Name", "Rowling")
+		Filter("Author.Name", "Rowling").
+		GroupBy("Author.Name")
 
 	var res, err = qs.Aggregate(map[string]expr.Expression{
 		"Author": &expr.RawExpr{
@@ -968,6 +989,11 @@ func TestSubquery(t *testing.T) {
 
 	if _, ok := db.Driver().(*drivers.DriverMariaDB); ok {
 		t.Skip("MySQL does not support subqueries in this context")
+		return
+	}
+
+	if _, ok := db.Driver().(*drivers.DriverPostgres); ok {
+		t.Skip("The Postgres compiler does not currently support subqueries")
 		return
 	}
 

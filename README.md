@@ -67,9 +67,10 @@ But more tests / databases will be added over time.
   the driver cannot [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql) otherwise return multiple result id's in a single query.
   **Without this it is impossible to bulk update or bulk insert.**
 
-* The `mariadb` driver is a custom driver that supports returning the last inserted id, which is required for bulk inserts.
+* The `mariadb` driver is a custom driver that supports returning all columns upon creation of an object.
+  It is a wrapper around the [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql) driver.
   It can be used by passing `mariadb` as the driver name to `sql.Open(...)`, example:
-  
+
   ```go
   db, err := sql.Open("mariadb", "user:password@tcp(localhost:3306)/dbname?multiStatements=true&interpolateParams=true")
   if err != nil {

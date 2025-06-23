@@ -2,9 +2,11 @@ package internal
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/Nigel2392/go-django-queries/src/alias"
 	"github.com/Nigel2392/go-django-queries/src/drivers"
@@ -194,6 +196,64 @@ func SqlxDriverName(db *sql.DB) string {
 		return data.Name
 	}
 	return ""
+}
+
+// driverValue prepares the value for the driver to be used in a query.
+// it makes sure that the value adheres to the [driver.Value] interface.
+func DriverValue(arg any) (driver.Value, error) {
+	switch v := arg.(type) {
+	case driver.Valuer:
+		var err error
+		arg, err = v.Value()
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to get value from driver.Valuer: %w", err,
+			)
+		}
+	case attrs.Definer:
+		var defs = v.FieldDefs()
+		var prim = defs.Primary()
+		return DriverValue(prim.GetValue())
+
+	case nil, time.Time, string, []byte, int64, uint64, float64, bool:
+		// these types are already compatible with driver.Value
+		return v, nil
+	}
+
+	var rVal = reflect.ValueOf(arg)
+	if !rVal.IsValid() || rVal.Kind() == reflect.Ptr && rVal.IsNil() {
+		return nil, nil
+	}
+
+	switch rVal.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		arg = rVal.Int()
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		arg = rVal.Uint()
+	case reflect.Float32, reflect.Float64:
+		arg = rVal.Float()
+	case reflect.String:
+		arg = rVal.String()
+	case reflect.Bool:
+		arg = rVal.Bool()
+	case reflect.Slice, reflect.Array:
+		if rVal.Type().Elem().Kind() == reflect.Uint8 {
+			//  byte slice, e.g. for binary data
+			arg = rVal.Bytes()
+		} else {
+			return nil, fmt.Errorf(
+				"unsupported slice type for driver.Value: %s (%T): %w",
+				rVal.Type().Elem().Kind(), arg, query_errors.ErrTypeMismatch,
+			)
+		}
+	default:
+		return nil, fmt.Errorf(
+			"unsupported type for driver.Value: %s (%T): %w",
+			rVal.Kind(), arg, query_errors.ErrTypeMismatch,
+		)
+	}
+
+	return arg, nil
 }
 
 func GetQueryInfo(dbKey string) (*QueryInfo, error) {

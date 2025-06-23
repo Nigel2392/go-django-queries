@@ -56,18 +56,26 @@ We try to support as many features as possible, but some stuff is either not sup
 
 But more tests / databases will be added over time.
 
-* SQLite
-* MySQL
-* MariaDB (with returning support, custom driver - use "mariadb" in sql.Open(...))
-* [dolthub/go-mysql-server](https://github.com/dolthub/go-mysql-server)
+* SQLite through [mattn/go-sqlite3](https://github.com/mattn/go-sqlite3)
+* MySQL through [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql)
+* MariaDB through [a custom driver](https://github.com/Nigel2392/go-django-queries/blob/main/src/drivers/drivers.go#L38) (with returning support, custom driver - use "mariadb" in sql.Open(...))
+* [dolthub/go-mysql-server](https://github.com/dolthub/go-mysql-server) through [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql)
 
 #### Caveats
 
-* MySQL requuires both `multiStatements` and `interpolateParams` to be `true`. This is because
+* MySQL and MariaDB requires both `multiStatements` and `interpolateParams` to be `true`. This is because
   the driver cannot [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql) otherwise return multiple result id's in a single query.
+  **Without this it is impossible to bulk update or bulk insert.**
 
-* MySQL and MariaDB do not support preparing multiple statements in a single query, we have to prepare each statement separately
-  this results in BulkUpdate not being properly supported, each update will be executed separately (in a transaction if one was not present).
+* The `mariadb` driver is a custom driver that supports returning the last inserted id, which is required for bulk inserts.
+  It can be used by passing `mariadb` as the driver name to `sql.Open(...)`, example:
+  
+  ```go
+  db, err := sql.Open("mariadb", "user:password@tcp(localhost:3306)/dbname?multiStatements=true&interpolateParams=true")
+  if err != nil {
+      log.Fatal(err)
+  }
+  ```
 
 ### The following features are currently supported
 

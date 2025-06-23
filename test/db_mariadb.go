@@ -14,7 +14,7 @@ var db_tag = "mariadb"
 
 func init() {
 	// make db globally available
-	var db, err = sql.Open("mariadb", "root:my-secret-pw@tcp(127.0.0.1:3307)/queries_test?parseTime=true&multiStatements=true")
+	var db, err = sql.Open("mariadb", "root:my-secret-pw@tcp(127.0.0.1:3307)/queries_test?parseTime=true&multiStatements=true&interpolateParams=true")
 	if err != nil {
 		panic(err)
 	}

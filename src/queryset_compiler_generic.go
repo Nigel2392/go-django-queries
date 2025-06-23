@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"time"
 	"unsafe"
 
 	"github.com/Nigel2392/go-django-queries/internal"
@@ -1219,9 +1218,8 @@ func (g *mariaDBQueryBuilder) BuildUpdateQuery(
 	}
 
 	var (
-		queries       = make([]sqlQuery, 0, len(objects))
-		allValues     = make([]any, 0)
-		fullStatement = make([]string, 0, len(objects))
+		vals = make([]any, 0)
+		stmt = make([]string, 0, len(objects))
 	)
 
 	for _, info := range objects {
@@ -1262,54 +1260,36 @@ func (g *mariaDBQueryBuilder) BuildUpdateQuery(
 		args = append(args, g.writeJoins(query, inf, info.Joins)...)
 		args = append(args, g.writeWhereClause(query, inf, info.Where)...)
 
-		sql := g.queryInfo.DBX.Rebind(query.String())
-
-		queries = append(queries, sqlQuery{sql: sql, args: args})
-		fullStatement = append(fullStatement, sql)
-		allValues = append(allValues, args...)
+		stmt = append(stmt, query.String())
+		vals = append(vals, args...)
 	}
 
 	return &QueryObject[int64]{
-		Stmt:   strings.Join(fullStatement, "; "),
+		Stmt:   g.queryInfo.DBX.Rebind(strings.Join(stmt, "; ")),
 		Object: attrs.NewObject[attrs.Definer](qs.Model()),
-		Params: allValues,
+		Params: vals,
 		Execute: func(query string, args ...any) (int64, error) {
-			var (
-				totalAffected int64
-				transaction   Transaction
-				err           error
-			)
-
-			if g.InTransaction() {
-				transaction = &nullTransaction{g.transaction}
-			} else {
-				transaction, err = g.StartTransaction(ctx)
-				if err != nil {
-					return 0, errors.Wrap(err, "failed to start transaction")
-				}
-			}
-			defer transaction.Rollback()
-
-			for _, q := range queries {
-				res, err := g.DB().ExecContext(ctx, q.sql, q.args...)
-				if err != nil {
-					return 0, errors.Wrap(err, "failed to execute update")
-				}
-				rows, err := res.RowsAffected()
-				if err != nil {
-					return 0, errors.Wrap(err, "failed to get rows affected")
-				}
-				totalAffected += rows
+			var res, err = getDriverResult(g.DB().ExecContext(ctx, query, args...))
+			if err != nil {
+				return 0, fmt.Errorf(
+					"failed to execute query {argLen: %d}: %w",
+					len(args), err,
+				)
 			}
 
-			return totalAffected, transaction.Commit()
+			var mysqlResult, ok = res.(mysql.Result)
+			if !ok {
+				return res.RowsAffected()
+			}
+
+			var affectedRows int64 = 0
+			for _, cnt := range mysqlResult.AllRowsAffected() {
+				affectedRows += cnt
+			}
+
+			return affectedRows, nil
 		},
 	}
-}
-
-type sqlQuery struct {
-	sql  string
-	args []any
 }
 
 var availableForLastInsertId = map[reflect.Kind]struct{}{
@@ -1503,60 +1483,6 @@ func getDriverResult(res driver.Result, err error) (driver.Result, error) {
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
-
-// driverValue prepares the value for the driver to be used in a query.
-// it makes sure that the value adheres to the [driver.Value] interface.
-func driverValue(arg any) (driver.Value, error) {
-	var v, ok = arg.(driver.Valuer)
-	if ok {
-		var err error
-		arg, err = v.Value()
-		if err != nil {
-			return nil, fmt.Errorf(
-				"failed to get value from driver.Valuer: %w", err,
-			)
-		}
-	}
-
-	var rVal = reflect.ValueOf(arg)
-	if !rVal.IsValid() || rVal.Kind() == reflect.Ptr && rVal.IsNil() {
-		return nil, nil
-	}
-
-	if _, ok := arg.(time.Time); ok {
-		return arg, nil
-	}
-
-	switch rVal.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		arg = rVal.Int()
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		arg = rVal.Uint()
-	case reflect.Float32, reflect.Float64:
-		arg = rVal.Float()
-	case reflect.String:
-		arg = rVal.String()
-	case reflect.Bool:
-		arg = rVal.Bool()
-	case reflect.Slice, reflect.Array:
-		if rVal.Type().Elem().Kind() == reflect.Uint8 {
-			//  byte slice, e.g. for binary data
-			arg = rVal.Bytes()
-		} else {
-			return nil, fmt.Errorf(
-				"unsupported slice type for driver.Value: %s (%T): %w",
-				rVal.Type().Elem().Kind(), arg, query_errors.ErrTypeMismatch,
-			)
-		}
-	default:
-		return nil, fmt.Errorf(
-			"unsupported type for driver.Value: %s (%T): %w",
-			rVal.Kind(), arg, query_errors.ErrTypeMismatch,
-		)
-	}
-
-	return arg, nil
-}
 
 func buildWhereClause(b *strings.Builder, inf *expr.ExpressionInfo, exprs []expr.ClauseExpression) []any {
 	var args = make([]any, 0)

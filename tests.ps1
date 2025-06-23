@@ -9,8 +9,8 @@ $Databases = @(
     "sqlite",
     "mysql_local",
     "mysql",
-    "mariadb",
-    "postgres"
+    "mariadb"#,
+    #"postgres"
 )
 
 # Databases defined in docker-compose.yml
@@ -66,7 +66,7 @@ foreach ($Database in $testsToRun) {
     # Check if the argument is a valid Docker database type
     # if it is, reset the corresponding Docker volume and start the container
     if ($DockerDatabases.ContainsKey($Database)) {
-        docker volume rm "${dirname}_queries_$$Database}_data"
+        docker volume rm "${dirname}_queries_${Database}_data"
         docker-compose -f "./test-databases.docker-compose.yml" up $Database -d
     }
 

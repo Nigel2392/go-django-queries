@@ -9,24 +9,29 @@ import (
 )
 
 func CreateObjects[T attrs.Definer](t *testing.T, objects ...T) (created []T, delete func(alreadyDeleted int) error) {
-	//var err error
-	//created, err = queries.GetQuerySet[T](objects[0]).BulkCreate(objects)
-	//if err != nil {
-	//	t.Fatalf("Failed to create objects: %v", err)
-	//	return nil, nil
-	//}
-	for _, obj := range objects {
-		if err := queries.CreateObject(obj); err != nil {
-			t.Fatalf("Failed to create object: %v", err)
-			return nil, nil
-		}
-		created = append(created, obj)
+	var err error
+	if len(objects) == 0 {
+		t.Fatalf("No objects provided for creation")
+		return nil, nil
+	}
+
+	created, err = queries.GetQuerySet[T](objects[0]).BulkCreate(
+		objects,
+	)
+	if err != nil {
+		t.Fatalf("Failed to create objects: %v", err)
+		return nil, nil
+	}
+
+	if len(created) != len(objects) {
+		t.Fatalf("Expected %d objects to be created, got %d", len(objects), len(created))
+		return nil, nil
 	}
 
 	return created, func(alreadyDeleted int) error {
 		var newObj = internal.NewDefiner[T]()
-		var deleted, err = queries.GetQuerySet[attrs.Definer](newObj).Delete(
-			attrs.DefinerList(created)...,
+		var deleted, err = queries.GetQuerySet(newObj).Delete(
+			created...,
 		)
 
 		if err != nil {

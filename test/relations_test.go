@@ -795,7 +795,7 @@ var manyToManyTests = []ManyToManyTest{
 			var rows, err = queries.Objects[*User](&User{}).
 				Select("*", "ModelManyToManySet.*", "ModelManyToManySet.User.*", "ModelManyToManySet.User.Profile.*").
 				Filter("ID__in", users[0].ID, users[1].ID).
-				OrderBy("ID").
+				OrderBy("ID", "ModelManyToManySet.ID", "ModelManyToManySet.User.ID").
 				All()
 			if err != nil {
 				t.Fatalf("Failed to get objects: %v", err)
@@ -899,7 +899,7 @@ var manyToManyTests = []ManyToManyTest{
 			var rows, err = queries.Objects[*Profile](&Profile{}).
 				Select("*", "User.*", "User.ModelManyToManySet.*", "User.ModelManyToManySet.User.*").
 				Filter("ID__in", profiles[0].ID, profiles[1].ID).
-				OrderBy("ID").
+				OrderBy("ID", "User.ID", "User.ModelManyToManySet.ID", "User.ModelManyToManySet.User.ID").
 				All()
 			if err != nil {
 				t.Fatalf("Failed to get objects: %v", err)
@@ -1257,6 +1257,7 @@ var manyToManyTests = []ManyToManyTest{
 			var row, err = queries.GetQuerySet(&ModelManyToMany{}).
 				Select("*", "Target.Name", "Target.Age", "Target.TargetReverse.Title").
 				Filter("ID", m2m_sources[0].ID).
+				OrderBy("ID", "Target.ID", "Target.TargetReverse.ID").
 				First()
 			if err != nil {
 				t.Fatalf("Failed to get row: %v", err)
@@ -1402,7 +1403,7 @@ var manyToManyTests = []ManyToManyTest{
 			var row, err = queries.Objects(&User{}).
 				Select("ID", "Name", "ModelManyToManySet.Title").
 				Filter("ID__in", users[0].ID).
-				OrderBy("ID").
+				OrderBy("ID", "ModelManyToManySet.ID").
 				Get()
 			if err != nil {
 				t.Fatalf("Failed to get objects: %v", err)

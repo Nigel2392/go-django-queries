@@ -63,8 +63,8 @@ But more tests / databases will be added over time.
 
 #### Caveats
 
-* MySQL does not support the `RETURNING` clause - to get around this and still be able to retrieve the `LastInsertID`,
-  we have to do each INSERT in a separate query.
+* MySQL requuires both `multiStatements` and `interpolateParams` to be `true`. This is because
+  the driver cannot [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql) otherwise return multiple result id's in a single query.
 
 * MySQL and MariaDB do not support preparing multiple statements in a single query, we have to prepare each statement separately
   this results in BulkUpdate not being properly supported, each update will be executed separately (in a transaction if one was not present).

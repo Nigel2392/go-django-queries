@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/Nigel2392/go-django-queries/internal"
 	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/Nigel2392/go-django/src/core/logger"
+	"github.com/go-sql-driver/mysql"
 	"github.com/pkg/errors"
 )
 
@@ -26,7 +29,7 @@ func init() {
 	RegisterCompiler(&drivers.DriverMySQL{}, NewMySQLQueryBuilder)
 	RegisterCompiler(&drivers.DriverMariaDB{}, NewMariaDBQueryBuilder)
 	RegisterCompiler(&drivers.DriverSQLite{}, NewGenericQueryBuilder)
-	RegisterCompiler(&drivers.DriverPostgres{}, NewGenericQueryBuilder)
+	RegisterCompiler(&drivers.DriverPostgres{}, NewPostgresQueryBuilder)
 
 }
 
@@ -39,7 +42,7 @@ func newExpressionInfo(g *genericQueryBuilder, qs *QuerySet[attrs.Definer], i *Q
 	case "sqlite3":
 		supportsWhereAlias = true
 	case "postgres", "pgx":
-		supportsWhereAlias = true
+		supportsWhereAlias = false // Postgres does not support WHERE alias
 	default:
 		panic(fmt.Errorf("unknown database driver: %s", dbName))
 	}
@@ -49,10 +52,10 @@ func newExpressionInfo(g *genericQueryBuilder, qs *QuerySet[attrs.Definer], i *Q
 		Model: attrs.NewObject[attrs.Definer](
 			qs.Model(),
 		),
-		Quote:       g.QuoteString,
-		AliasGen:    qs.AliasGen,
-		FormatField: g.FormatColumn,
-		Placeholder: generic_PLACEHOLDER,
+		Quote:           g.QuoteString,
+		AliasGen:        qs.AliasGen,
+		FormatFieldFunc: g.FormatColumn,
+		Placeholder:     generic_PLACEHOLDER,
 		Lookups: expr.ExpressionLookupInfo{
 			PrepForLikeQuery: g.PrepForLikeQuery,
 			FormatLookupCol:  g.FormatLookupCol,
@@ -140,9 +143,9 @@ func (g *genericQueryBuilder) QuoteString(s string) string {
 		sb.WriteString(s)
 		sb.WriteString("'")
 	case "postgres", "pgx":
-		sb.WriteString("\"")
+		sb.WriteString("'")
 		sb.WriteString(s)
-		sb.WriteString("\"")
+		sb.WriteString("'")
 	}
 	return sb.String()
 }
@@ -303,7 +306,7 @@ func (g *genericQueryBuilder) LookupPatternOperatorsRHS() map[string]string {
 	panic(fmt.Errorf("unknown database driver: %s", internal.SqlxDriverName(g.queryInfo.DB)))
 }
 
-func (g *genericQueryBuilder) FormatColumn(col *expr.TableColumn) (string, []any) {
+func (g *genericQueryBuilder) FormatColumn(inf *expr.ExpressionInfo, col *expr.TableColumn) (string, []any) {
 	var (
 		sb   = new(strings.Builder)
 		args = make([]any, 0, 1)
@@ -362,7 +365,19 @@ func (g *genericQueryBuilder) FormatColumn(col *expr.TableColumn) (string, []any
 	// Values are not used in the column definition.
 	// We don't append them here.
 	if col.ForUpdate {
-		sb.WriteString(" = ?")
+		sb.WriteString(" = ")
+
+		if inf.UpdateAlias != "" && col.FieldColumn != nil {
+			sb.WriteString(g.quote)
+			sb.WriteString(inf.UpdateAlias)
+			sb.WriteString(g.quote)
+			sb.WriteString(".")
+			sb.WriteString(g.quote)
+			sb.WriteString(col.FieldColumn.ColumnName())
+			sb.WriteString(g.quote)
+		} else {
+			sb.WriteString(generic_PLACEHOLDER)
+		}
 	}
 
 	return sb.String(), args
@@ -454,11 +469,11 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 
 	query.WriteString(" FROM ")
 	g.writeTableName(query, internals)
-	args = append(args, g.writeJoins(query, internals.Joins)...)
+	args = append(args, g.writeJoins(query, inf, internals.Joins)...)
 	args = append(args, g.writeWhereClause(query, inf, internals.Where)...)
 	args = append(args, g.writeGroupBy(query, inf, internals.GroupBy)...)
 	args = append(args, g.writeHaving(query, inf, internals.Having)...)
-	g.writeOrderBy(query, internals.OrderBy)
+	g.writeOrderBy(query, inf, internals.OrderBy)
 	args = append(args, g.writeLimitOffset(query, internals.Limit, internals.Offset)...)
 
 	if internals.ForUpdate {
@@ -526,7 +541,7 @@ func (g *genericQueryBuilder) BuildCountQuery(
 	query.WriteString("SELECT COUNT(*) FROM ")
 	g.writeTableName(query, internals)
 
-	args = append(args, g.writeJoins(query, internals.Joins)...)
+	args = append(args, g.writeJoins(query, inf, internals.Joins)...)
 	args = append(args, g.writeWhereClause(query, inf, internals.Where)...)
 	args = append(args, g.writeGroupBy(query, inf, internals.GroupBy)...)
 	args = append(args, g.writeLimitOffset(query, internals.Limit, internals.Offset)...)
@@ -811,7 +826,7 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 
 		args = append(
 			args,
-			g.writeJoins(query, info.Joins)...,
+			g.writeJoins(query, inf, info.Joins)...,
 		)
 
 		args = append(
@@ -849,7 +864,7 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 
 	args = append(
 		args,
-		g.writeJoins(query, internals.Joins)...,
+		g.writeJoins(query, inf, internals.Joins)...,
 	)
 
 	args = append(
@@ -882,7 +897,7 @@ func (g *genericQueryBuilder) writeTableName(sb *strings.Builder, internals *Que
 	sb.WriteString(g.quote)
 }
 
-func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) []any {
+func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, inf *expr.ExpressionInfo, joins []JoinDef) []any {
 	var args = make([]any, 0)
 	for _, join := range joins {
 		sb.WriteString(" ")
@@ -903,7 +918,7 @@ func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) [
 		var condition = join.JoinDefCondition
 		for condition != nil {
 
-			var col, argsCol = g.FormatColumn(&condition.ConditionA)
+			var col, argsCol = g.FormatColumn(inf, &condition.ConditionA)
 			sb.WriteString(col)
 			args = append(args, argsCol...)
 
@@ -911,7 +926,7 @@ func (g *genericQueryBuilder) writeJoins(sb *strings.Builder, joins []JoinDef) [
 			sb.WriteString(string(condition.Operator))
 			sb.WriteString(" ")
 
-			col, argsCol = g.FormatColumn(&condition.ConditionB)
+			col, argsCol = g.FormatColumn(inf, &condition.ConditionB)
 			sb.WriteString(col)
 			args = append(args, argsCol...)
 
@@ -965,7 +980,7 @@ func (g *genericQueryBuilder) writeHaving(sb *strings.Builder, inf *expr.Express
 	return args
 }
 
-func (g *genericQueryBuilder) writeOrderBy(sb *strings.Builder, orderBy []OrderBy) {
+func (g *genericQueryBuilder) writeOrderBy(sb *strings.Builder, inf *expr.ExpressionInfo, orderBy []OrderBy) {
 	if len(orderBy) > 0 {
 		sb.WriteString(" ORDER BY ")
 
@@ -981,7 +996,7 @@ func (g *genericQueryBuilder) writeOrderBy(sb *strings.Builder, orderBy []OrderB
 				))
 			}
 
-			var sql, _ = g.FormatColumn(&field.Column)
+			var sql, _ = g.FormatColumn(inf, &field.Column)
 			sb.WriteString(sql)
 
 			if field.Desc {
@@ -1005,6 +1020,176 @@ func (g *genericQueryBuilder) writeLimitOffset(sb *strings.Builder, limit int, o
 		args = append(args, offset)
 	}
 	return args
+}
+
+type postgresQueryBuilder struct {
+	*genericQueryBuilder
+}
+
+func NewPostgresQueryBuilder(db string) QueryCompiler {
+	var inner = NewGenericQueryBuilder(db)
+	return &postgresQueryBuilder{
+		genericQueryBuilder: inner.(*genericQueryBuilder),
+	}
+}
+
+// getPostgresType returns the Postgres type for a given Go type and field.
+func getPostgresType(rTyp reflect.Type, field attrs.FieldDefinition) string {
+	switch rTyp.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return "BIGINT"
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "BIGINT"
+	case reflect.Float32, reflect.Float64:
+		return "DOUBLE PRECISION"
+	case reflect.String, reflect.Slice, reflect.Array:
+		return "TEXT"
+	case reflect.Bool:
+		return "BOOLEAN"
+	}
+
+	if rTyp.Implements(reflect.TypeOf((*attrs.Definer)(nil)).Elem()) {
+		var newObj = attrs.NewObject[attrs.Definer](rTyp)
+		var defs = newObj.FieldDefs()
+		var primary = defs.Primary()
+		if primary == nil {
+			panic(fmt.Errorf(
+				"cannot use object without primary key field in update: %T", newObj,
+			))
+		}
+		return getPostgresType(primary.Type(), primary)
+	}
+
+	if field == nil {
+		panic(fmt.Errorf(
+			"cannot determine Postgres type for field type: %s (%s)",
+			rTyp.Name(), rTyp.Kind(),
+		))
+	}
+
+	var fieldType = field.Type()
+	return getPostgresType(fieldType, nil)
+}
+
+// Postgres requires a special update statement
+// to handle the case where multiple rows are updated at once.
+func (g *postgresQueryBuilder) BuildUpdateQuery(
+	ctx context.Context,
+	qs *GenericQuerySet,
+	internals *QuerySetInternals,
+	objects []UpdateInfo,
+) CompiledQuery[int64] {
+	if len(objects) == 0 {
+		return &QueryObject[int64]{
+			Stmt:    "",
+			Object:  attrs.NewObject[attrs.Definer](qs.Model()),
+			Params:  nil,
+			Execute: func(query string, args ...any) (int64, error) { return 0, nil },
+		}
+	}
+
+	var (
+		inf = newExpressionInfo(
+			g.genericQueryBuilder,
+			qs,
+			internals,
+			true,
+		)
+		query = new(strings.Builder)
+		args  = make([]any, 0)
+	)
+
+	inf.UpdateAlias = "_update_data"
+
+	var object = objects[0]
+
+	query.WriteString("UPDATE ")
+	query.WriteString(g.quote)
+	query.WriteString(internals.Model.TableName)
+	query.WriteString(g.quote)
+	query.WriteString(" SET ")
+
+	var valuesIdx int
+	var fieldWritten bool
+	for _, f := range object.Fields {
+		if fieldWritten {
+			query.WriteString(", ")
+		}
+
+		var a, isSQL, ok = object.WriteField(
+			query, inf, f, true,
+		)
+
+		fieldWritten = ok || fieldWritten
+		if !ok {
+			continue
+		}
+
+		if isSQL {
+			args = append(args, a...)
+		}
+	}
+
+	query.WriteString(" FROM (VALUES ")
+	for i, obj := range objects {
+		if i > 0 {
+			query.WriteString(", ")
+		}
+		query.WriteString("(")
+		for j, field := range obj.Fields {
+			if j > 0 {
+				query.WriteString(", ")
+			}
+
+			var (
+				value = obj.Values[valuesIdx]
+				rVal  = reflect.ValueOf(value)
+			)
+			if value == nil || !rVal.IsValid() || (rVal.Kind() == reflect.Ptr && rVal.IsNil()) {
+				// If the value is nil, we write a raw NULL
+				// to avoid issues with type casting.
+				query.WriteString("NULL")
+			} else {
+				query.WriteString(generic_PLACEHOLDER)
+				args = append(args, value)
+			}
+
+			var pgTyp = getPostgresType(rVal.Type(), field)
+			query.WriteString("::")
+			query.WriteString(pgTyp)
+
+			valuesIdx++
+		}
+		query.WriteString(")")
+	}
+	query.WriteString(") AS ")
+	query.WriteString(inf.UpdateAlias)
+	query.WriteString("(")
+	for i, field := range object.Fields {
+		if i > 0 {
+			query.WriteString(", ")
+		}
+		query.WriteString(g.quote)
+		query.WriteString(field.ColumnName())
+		query.WriteString(g.quote)
+	}
+	query.WriteString(") ")
+
+	args = append(args, g.writeJoins(query, inf, qs.internals.Joins)...)
+	args = append(args, g.writeWhereClause(query, inf, qs.internals.Where)...)
+
+	return &QueryObject[int64]{
+		Stmt:   g.queryInfo.DBX.Rebind(query.String()),
+		Object: attrs.NewObject[attrs.Definer](qs.Model()),
+		Params: args,
+		Execute: func(query string, args ...any) (int64, error) {
+			result, err := g.DB().ExecContext(ctx, query, args...)
+			if err != nil {
+				return 0, errors.Wrap(err, "failed to execute update")
+			}
+			return result.RowsAffected()
+		},
+	}
 }
 
 type mariaDBQueryBuilder struct {
@@ -1074,7 +1259,7 @@ func (g *mariaDBQueryBuilder) BuildUpdateQuery(
 
 		inf.ForUpdate = false
 
-		args = append(args, g.writeJoins(query, info.Joins)...)
+		args = append(args, g.writeJoins(query, inf, info.Joins)...)
 		args = append(args, g.writeWhereClause(query, inf, info.Where)...)
 
 		sql := g.queryInfo.DBX.Rebind(query.String())
@@ -1174,13 +1359,27 @@ func (g *mysqlQueryBuilder) BuildCreateQuery(
 	}
 
 	var (
-		queries       = make([]sqlQuery, 0, len(objects))
-		allValues     = make([]any, 0, len(objects)*len(objects[0].Fields))
-		fullStatement = make([]string, 0, len(objects))
+		values = make([]any, 0, len(objects)*len(objects[0].Fields))
+		stmt   = make([]string, 0, len(objects))
 	)
 	for _, object := range objects {
+
+		if len(object.Fields) != len(object.Values) {
+			return &QueryObject[[][]interface{}]{
+				Stmt:   "",
+				Object: attrs.NewObject[attrs.Definer](qs.Model()),
+				Params: nil,
+				Execute: func(query string, args ...any) ([][]interface{}, error) {
+					return nil, fmt.Errorf(
+						"cannot build create query, number of fields (%d) does not match number of values (%d): %w",
+						len(object.Fields), len(object.Values),
+						query_errors.ErrTypeMismatch,
+					)
+				},
+			}
+		}
+
 		var query = new(strings.Builder)
-		var values = make([]any, 0, len(objects)*len(object.Fields))
 
 		query.WriteString("INSERT INTO ")
 		query.WriteString(g.quote)
@@ -1209,61 +1408,142 @@ func (g *mysqlQueryBuilder) BuildCreateQuery(
 		query.WriteString(")")
 		values = append(values, object.Values...)
 
-		var q = sqlQuery{
-			sql:  g.queryInfo.DBX.Rebind(query.String()),
-			args: values,
-		}
-
-		queries = append(queries, q)
-		fullStatement = append(fullStatement, q.sql)
-		allValues = append(allValues, q.args...)
+		stmt = append(stmt, query.String())
 	}
 
 	return &QueryObject[[][]interface{}]{
-		Stmt:   strings.Join(fullStatement, "; "),
-		Params: allValues,
+		Stmt:   g.queryInfo.DBX.Rebind(strings.Join(stmt, "; ")),
+		Params: values,
 		Object: attrs.NewObject[attrs.Definer](qs.Model()),
 		Execute: func(query string, args ...any) ([][]interface{}, error) {
-			var results = make([][]interface{}, 0, len(queries))
+			//var res, err = g.DB().ExecContext(ctx, query, args...)
+			//if err != nil {
+			//	return nil, errors.Wrap(err, "failed to execute query")
+			//}
 
-			var (
-				transaction Transaction
-				err         error
-			)
-
-			if g.InTransaction() {
-				transaction = &nullTransaction{g.transaction}
-			} else {
-				transaction, err = g.StartTransaction(ctx)
-				if err != nil {
-					return nil, errors.Wrap(err, "failed to start transaction")
-				}
-			}
-
-			defer transaction.Rollback()
-
-			for _, q := range queries {
-				var result = make([]interface{}, 0, len(objects[0].Fields))
-				var res, err = g.DB().ExecContext(ctx, q.sql, q.args...)
-				if err != nil {
-					return nil, errors.Wrap(err, "failed to execute query")
-				}
-
-				var lastInsertId int64
-				if internals.Model.Primary != nil {
-					if _, ok := availableForLastInsertId[internals.Model.Primary.Type().Kind()]; ok {
-						lastInsertId, err = res.LastInsertId()
-						if err != nil {
-							return nil, errors.Wrap(err, "failed to get last insert id")
-						}
-						result = append(result, lastInsertId)
+			var values = make([]driver.NamedValue, len(args))
+			for i, arg := range args {
+				var v, ok = arg.(driver.Valuer)
+				if ok {
+					var err error
+					arg, err = v.Value()
+					if err != nil {
+						return nil, fmt.Errorf(
+							"failed to get value from driver.Valuer: %w", err,
+						)
 					}
 				}
 
-				results = append(results, result)
+				// The raw conn does not use reflection, we need to
+				// prepare all values to be in coherence with [driver.Value].
+				// fun fact: if the interface is not nil, but the underlying value is nil -
+				// 		the driver will return [driver.ErrSkip].
+				// 		Let's hope this doesn't get changed anytime soon...
+				var rVal = reflect.ValueOf(arg)
+				if !rVal.IsValid() || rVal.Kind() == reflect.Ptr && rVal.IsNil() {
+					arg = nil
+					goto addValue
+				}
+
+				if _, ok := arg.(time.Time); ok {
+					goto addValue
+				}
+
+				switch rVal.Kind() {
+				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+					arg = rVal.Int()
+				case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+					arg = rVal.Uint()
+				case reflect.Float32, reflect.Float64:
+					arg = rVal.Float()
+				case reflect.String:
+					arg = rVal.String()
+				case reflect.Bool:
+					arg = rVal.Bool()
+				case reflect.Slice, reflect.Array:
+					if rVal.Type().Elem().Kind() == reflect.Uint8 {
+						//  byte slice, e.g. for binary data
+						arg = rVal.Bytes()
+					} else {
+						return nil, fmt.Errorf(
+							"unsupported slice type for driver.Value: %s (%T): %w",
+							rVal.Type().Elem().Kind(), arg, query_errors.ErrTypeMismatch,
+						)
+					}
+				default:
+					return nil, fmt.Errorf(
+						"unsupported type for driver.Value: %s (%T): %w",
+						rVal.Kind(), arg, query_errors.ErrTypeMismatch,
+					)
+				}
+
+			addValue:
+				values[i] = driver.NamedValue{
+					Ordinal: i + 1,
+					Value:   arg,
+				}
+
 			}
 
-			return results, transaction.Commit()
+			var allIds []int64
+			var conn, err = g.queryInfo.DB.Conn(ctx)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"failed to get connection: %w", err,
+				)
+			}
+			defer func() {
+				if err := conn.Close(); err != nil {
+					logger.Errorf("failed to close connection: %v", err)
+				}
+			}()
+
+			err = conn.Raw(func(driverConn any) error {
+				var db, ok = driverConn.(driver.ExecerContext)
+				if !ok {
+					return fmt.Errorf(
+						"failed to get driver.ExecerContext from driver connection: %T: %w",
+						driverConn, query_errors.ErrTypeMismatch,
+					)
+				}
+
+				var res, err = db.ExecContext(ctx, query, values)
+				if err != nil {
+					return err
+				}
+
+				allIds = res.(mysql.Result).AllLastInsertIds()
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf(
+					"failed to execute query {argLen: %d}: %w",
+					len(values), err,
+				)
+			}
+
+			var result = make([][]interface{}, len(allIds))
+			if internals.Model.Primary != nil && len(allIds) > 0 {
+
+				if len(allIds) != len(objects) {
+					var idList string
+					if len(allIds) > 0 && len(allIds) < MAX_GET_RESULTS {
+						idList = fmt.Sprintf(" (%v)", allIds)
+					}
+
+					return nil, fmt.Errorf(
+						"expected %d last insert ids, got %d%s: %w",
+						len(objects), len(allIds), idList, query_errors.ErrLastInsertId)
+				}
+
+				if _, ok := availableForLastInsertId[internals.Model.Primary.Type().Kind()]; ok {
+					for i, id := range allIds {
+						result[i] = []interface{}{id}
+					}
+				}
+			}
+
+			return result, nil
 		},
 	}
 }

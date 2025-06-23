@@ -508,18 +508,7 @@ func (qs *QuerySet[T]) GoString() string {
 			var cond = join.JoinDefCondition
 			for cond != nil {
 
-				var colA, _ = qs.compiler.FormatColumn(
-					&cond.ConditionA,
-				)
-				var colB, _ = qs.compiler.FormatColumn(
-					&cond.ConditionB,
-				)
-
-				sb.WriteString(colA)
-				sb.WriteString(" ")
-				sb.WriteString(string(cond.Operator))
-				sb.WriteString(" ")
-				sb.WriteString(colB)
+				sb.WriteString(cond.String())
 
 				cond = cond.Next
 
@@ -2326,12 +2315,21 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 				panic(fmt.Errorf("failed to get value for field %q: %w", field.Name(), err))
 			}
 
-			if value == nil && !field.AllowNull() {
+			var rVal = reflect.ValueOf(value)
+			if value == nil && !field.AllowNull() ||
+				rVal.Kind() == reflect.Ptr && rVal.IsNil() && !field.AllowNull() {
 				panic(errors.Wrapf(
 					query_errors.ErrFieldNull,
 					"field %q cannot be null",
 					field.Name(),
 				))
+			}
+
+			if rVal.Kind() == reflect.Ptr && rVal.IsNil() {
+				// Make sure to set the value to an untyped nil
+				// the mysql compiler might otherwise throw a fit because
+				// it used the raw connection, which has some issues...
+				value = nil
 			}
 
 			info.Fields = append(info.Fields, field)
@@ -2639,7 +2637,7 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...any) (int64, error
 			info.Values = append(info.Values, value)
 		}
 
-		if len(qs.internals.Where) == 0 {
+		if len(where) == 0 {
 			var err error
 			info.Where, err = GenerateObjectsWhereClause(obj)
 			if err != nil {
@@ -2652,7 +2650,7 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...any) (int64, error
 			info.Where = where
 		}
 
-		if len(qs.internals.Joins) > 0 {
+		if len(joins) > 0 {
 			info.Joins = joins
 		}
 

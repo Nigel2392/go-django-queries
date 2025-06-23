@@ -1,8 +1,12 @@
 package expr
 
 import (
+	"database/sql/driver"
 	"fmt"
+	"reflect"
 	"strings"
+
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 )
 
 // StringExpr is a string type which implements the Expression interface.
@@ -63,6 +67,7 @@ type value struct {
 	v           any
 	used        bool
 	unsafe      bool
+	driver      driver.Driver
 	placeholder string // Placeholder for the value, if needed
 }
 
@@ -97,7 +102,35 @@ func (e *value) SQL(sb *strings.Builder) []any {
 		sb.WriteString(fmt.Sprintf("%v", e.v))
 		return []any{}
 	}
+
 	sb.WriteString(e.placeholder)
+
+	// Explicitly handle postgres type casting to ensure
+	// the value is correctly interpreted by the database.
+	// This is necessary because Postgres does not automatically cast
+	// values to the correct type in all cases.
+	if _, ok := e.driver.(*drivers.DriverPostgres); ok {
+		var rVal = reflect.ValueOf(e.v)
+		switch rVal.Kind() {
+		case reflect.String:
+			sb.WriteString("::TEXT")
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			sb.WriteString("::INT")
+		case reflect.Float32, reflect.Float64:
+			sb.WriteString("::FLOAT")
+		case reflect.Bool:
+			sb.WriteString("::BOOLEAN")
+		case reflect.Slice, reflect.Array:
+			if rVal.Type().Elem().Kind() == reflect.Uint8 {
+				sb.WriteString("::BYTEA")
+			} else {
+				sb.WriteString("::TEXT[]")
+			}
+		default:
+			panic(fmt.Errorf("unsupported value type %T in expression", e.v))
+		}
+	}
+
 	return []any{e.v}
 }
 
@@ -113,6 +146,7 @@ func (e *value) Resolve(inf *ExpressionInfo) Expression {
 	var nE = e.Clone().(*value)
 	nE.used = true
 	nE.placeholder = inf.Placeholder
+	nE.driver = inf.Driver
 
 	if !nE.unsafe {
 		return nE

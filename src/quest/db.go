@@ -30,7 +30,7 @@ type inMemoryDatabase struct {
 
 func (d *inMemoryDatabase) DB() (*sql.DB, error) {
 	var dsn = fmt.Sprintf(
-		"root@tcp(%s)/%s?parseTime=true&multiStatements=true",
+		"root@tcp(%s)/%s?parseTime=true&multiStatements=true&interpolateParams=true",
 		d.config.ServerConfig.Address, d.config.DBName,
 	)
 	var db, err = sql.Open("mysql", dsn)

@@ -68,6 +68,10 @@ func Type__float(c *migrator.Column) string {
 }
 
 func Type__int(c *migrator.Column) string {
+	if c.Primary && c.Auto {
+		// If the column is a primary key and auto-incrementing, use SERIAL
+		return "BIGSERIAL"
+	}
 	var max float64 = c.MaxValue
 	switch c.FieldType().Kind() {
 	case reflect.Int8:

@@ -2382,6 +2382,8 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 
 	case support == drivers.SupportsReturningLastInsertId:
 
+		// No results are returned, we cannot set the primary key
+		// so we can return and commit the transaction
 		if qs.internals.Model.Primary == nil {
 			return objects, tx.Commit()
 		}

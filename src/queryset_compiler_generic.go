@@ -1442,61 +1442,20 @@ func (g *mysqlQueryBuilder) querySupportsLastInsertId(
 ) ([][]interface{}, error) {
 	var values = make([]driver.NamedValue, len(args))
 	for i, arg := range args {
-		var v, ok = arg.(driver.Valuer)
-		if ok {
-			var err error
-			arg, err = v.Value()
-			if err != nil {
-				return nil, fmt.Errorf(
-					"failed to get value from driver.Valuer: %w", err,
-				)
-			}
-		}
 
-		// The raw conn does not use reflection, we need to
+		// The raw conn of mysql does not use reflection, we need to
 		// prepare all values to be in coherence with [driver.Value].
 		// fun fact: if the interface is not nil, but the underlying value is nil -
-		// 		the driver will return [driver.ErrSkip].
-		// 		Let's hope this doesn't get changed anytime soon...
-		var rVal = reflect.ValueOf(arg)
-		if !rVal.IsValid() || rVal.Kind() == reflect.Ptr && rVal.IsNil() {
-			arg = nil
-			goto addValue
-		}
-
-		if _, ok := arg.(time.Time); ok {
-			goto addValue
-		}
-
-		switch rVal.Kind() {
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			arg = rVal.Int()
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			arg = rVal.Uint()
-		case reflect.Float32, reflect.Float64:
-			arg = rVal.Float()
-		case reflect.String:
-			arg = rVal.String()
-		case reflect.Bool:
-			arg = rVal.Bool()
-		case reflect.Slice, reflect.Array:
-			if rVal.Type().Elem().Kind() == reflect.Uint8 {
-				//  byte slice, e.g. for binary data
-				arg = rVal.Bytes()
-			} else {
-				return nil, fmt.Errorf(
-					"unsupported slice type for driver.Value: %s (%T): %w",
-					rVal.Type().Elem().Kind(), arg, query_errors.ErrTypeMismatch,
-				)
-			}
-		default:
+		//		the driver will return [driver.ErrSkip].
+		//		Let's hope this doesn't get changed anytime soon...
+		var err error
+		arg, err = driverValue(arg)
+		if err != nil {
 			return nil, fmt.Errorf(
-				"unsupported type for driver.Value: %s (%T): %w",
-				rVal.Kind(), arg, query_errors.ErrTypeMismatch,
+				"failed to convert value %d to driver value: %w", i, err,
 			)
 		}
 
-	addValue:
 		values[i] = driver.NamedValue{
 			Ordinal: i + 1,
 			Value:   arg,
@@ -1567,6 +1526,60 @@ func (g *mysqlQueryBuilder) querySupportsLastInsertId(
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
+
+// driverValue prepares the value for the driver to be used in a query.
+// it makes sure that the value adheres to the [driver.Value] interface.
+func driverValue(arg any) (driver.Value, error) {
+	var v, ok = arg.(driver.Valuer)
+	if ok {
+		var err error
+		arg, err = v.Value()
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to get value from driver.Valuer: %w", err,
+			)
+		}
+	}
+
+	var rVal = reflect.ValueOf(arg)
+	if !rVal.IsValid() || rVal.Kind() == reflect.Ptr && rVal.IsNil() {
+		return nil, nil
+	}
+
+	if _, ok := arg.(time.Time); ok {
+		return arg, nil
+	}
+
+	switch rVal.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		arg = rVal.Int()
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		arg = rVal.Uint()
+	case reflect.Float32, reflect.Float64:
+		arg = rVal.Float()
+	case reflect.String:
+		arg = rVal.String()
+	case reflect.Bool:
+		arg = rVal.Bool()
+	case reflect.Slice, reflect.Array:
+		if rVal.Type().Elem().Kind() == reflect.Uint8 {
+			//  byte slice, e.g. for binary data
+			arg = rVal.Bytes()
+		} else {
+			return nil, fmt.Errorf(
+				"unsupported slice type for driver.Value: %s (%T): %w",
+				rVal.Type().Elem().Kind(), arg, query_errors.ErrTypeMismatch,
+			)
+		}
+	default:
+		return nil, fmt.Errorf(
+			"unsupported type for driver.Value: %s (%T): %w",
+			rVal.Kind(), arg, query_errors.ErrTypeMismatch,
+		)
+	}
+
+	return arg, nil
+}
 
 func buildWhereClause(b *strings.Builder, inf *expr.ExpressionInfo, exprs []expr.ClauseExpression) []any {
 	var args = make([]any, 0)

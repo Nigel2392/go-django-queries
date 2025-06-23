@@ -8,13 +8,13 @@ import (
 	"reflect"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/Nigel2392/go-django-queries/internal"
 	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/expr"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
-	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/go-sql-driver/mysql"
 	"github.com/pkg/errors"
 )
@@ -1440,69 +1440,15 @@ func (g *mysqlQueryBuilder) querySupportsLastInsertId(
 	query string,
 	args []any,
 ) ([][]interface{}, error) {
-	var values = make([]driver.NamedValue, len(args))
-	for i, arg := range args {
-
-		// The raw conn of mysql does not use reflection, we need to
-		// prepare all values to be in coherence with [driver.Value].
-		// fun fact: if the interface is not nil, but the underlying value is nil -
-		//		the driver will return [driver.ErrSkip].
-		//		Let's hope this doesn't get changed anytime soon...
-		var err error
-		arg, err = driverValue(arg)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"failed to convert value %d to driver value: %w", i, err,
-			)
-		}
-
-		values[i] = driver.NamedValue{
-			Ordinal: i + 1,
-			Value:   arg,
-		}
-
-	}
-
-	var allIds []int64
-	var conn, err = g.queryInfo.DB.Conn(ctx)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"failed to get connection: %w", err,
-		)
-	}
-	defer func() {
-		// if we don't close the connection we get issues
-		// with the connection pool - it might overflow
-		// and we get "connection refused" / "too many connections" errors.
-		if err := conn.Close(); err != nil {
-			logger.Errorf("failed to close connection: %v", err)
-		}
-	}()
-
-	err = conn.Raw(func(driverConn any) error {
-		var db, ok = driverConn.(driver.ExecerContext)
-		if !ok {
-			return fmt.Errorf(
-				"failed to get driver.ExecerContext from driver connection: %T: %w",
-				driverConn, query_errors.ErrTypeMismatch,
-			)
-		}
-
-		var res, err = db.ExecContext(ctx, query, values)
-		if err != nil {
-			return err
-		}
-
-		allIds = res.(mysql.Result).AllLastInsertIds()
-		return nil
-	})
+	res, err := getDriverResult(g.DB().ExecContext(ctx, query, args...))
 	if err != nil {
 		return nil, fmt.Errorf(
 			"failed to execute query {argLen: %d}: %w",
-			len(values), err,
+			len(args), err,
 		)
 	}
 
+	var allIds = res.(mysql.Result).AllLastInsertIds()
 	var result = make([][]interface{}, len(allIds))
 	if len(allIds) != len(objects) {
 		var idList string
@@ -1521,6 +1467,37 @@ func (g *mysqlQueryBuilder) querySupportsLastInsertId(
 		}
 	}
 	return result, nil
+}
+
+var (
+	_sqlDriverResultType = reflect.TypeOf((*driver.Result)(nil)).Elem()
+)
+
+func getDriverResult(res driver.Result, err error) (driver.Result, error) {
+	if err != nil {
+		return res, fmt.Errorf("failed to get driver result: %w", err)
+	}
+
+	var rVal = reflect.ValueOf(&res)
+	var rStruct = rVal.Elem().Elem() // ptr -> iface -> struct
+	if rStruct.Kind() != reflect.Ptr {
+		var rType = rStruct.Type()
+		var rNew = reflect.New(rType)
+		rNew.Elem().Set(rStruct)
+		rStruct = rNew.Elem()
+	}
+	for i := 0; i < rStruct.NumField(); i++ {
+		if rStruct.Type().Field(i).Type.Implements(_sqlDriverResultType) {
+			var field = rStruct.Field(i)
+			var val = reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().Interface()
+			return val.(driver.Result), nil
+		}
+	}
+
+	panic(fmt.Errorf(
+		"failed to find driver.Result field in driver.Result type: %s",
+		rStruct.Type().Name(),
+	))
 }
 
 // -----------------------------------------------------------------------------

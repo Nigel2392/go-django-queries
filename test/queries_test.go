@@ -2927,10 +2927,10 @@ func TestTransactionRollbackAfterInsert(t *testing.T) {
 		Name: "TestTransactionRollbackAfterInsert",
 	}
 
-	if db_tag == "mysql_local" || db_tag == "mysql" {
-		// currently these do not support transactions on create
-		t.Skip("local MySQL server does not support transactions")
-	}
+	//if db_tag == "mysql_local" || db_tag == "mysql" {
+	//	// currently these do not support transactions on create
+	//	t.Skip("local MySQL server does not support transactions")
+	//}
 
 	var ctx = context.Background()
 	var err = queries.RunInTransaction(ctx, func(ctx context.Context, NewQuerySet queries.ObjectsFunc[*TestTransaction]) (bool, error) {

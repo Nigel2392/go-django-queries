@@ -18,6 +18,7 @@ import (
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
+	"github.com/Nigel2392/go-django/src/core/logger"
 	"github.com/Nigel2392/go-django/src/models"
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/pkg/errors"
@@ -2385,6 +2386,17 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 		// No results are returned, we cannot set the primary key
 		// so we can return and commit the transaction
 		if qs.internals.Model.Primary == nil {
+			return objects, tx.Commit()
+		}
+
+		// If no results are returned, we cannot set the primary key
+		// warn about this, return the objects and commit the transaction
+		// this is in case the model's primary key is not an auto-incrementing field (uuid, etc.)
+		if len(results) == 0 {
+			logger.Warnf(
+				"no results returned after insert, cannot set primary key for %T",
+				qs.internals.Model.Object,
+			)
 			return objects, tx.Commit()
 		}
 

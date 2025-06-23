@@ -10,6 +10,8 @@ import (
 	"github.com/Nigel2392/go-django/src/core/logger"
 )
 
+var db_tag = "mysql_local"
+
 func init() {
 	// make db globally available
 	var questDb, err = quest.MySQLDatabase(quest.DatabaseConfig{

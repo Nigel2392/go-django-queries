@@ -432,6 +432,24 @@ func (t *ModelManyToMany_Target) FieldDefs() attrs.Definitions {
 	).WithTableName("model_manytomany_target")
 }
 
+type TestTransaction struct {
+	models.Model
+	ID   int64
+	Name string
+}
+
+func (t *TestTransaction) FieldDefs() attrs.Definitions {
+	return t.Model.Define(t,
+		attrs.NewField(t, "ID", &attrs.FieldConfig{
+			Column:  "id",
+			Primary: true,
+		}),
+		attrs.NewField(t, "Name", &attrs.FieldConfig{
+			Column: "name",
+		}),
+	).WithTableName("test_transaction")
+}
+
 func init() {
 
 	testing.Init()
@@ -461,6 +479,8 @@ func init() {
 		&TestStructNoObject{},
 		&Author{},
 		&Book{},
+
+		&TestTransaction{},
 	)
 
 	tables.Create()
@@ -2899,7 +2919,49 @@ func TestLogicalExpression(t *testing.T) {
 	}
 
 	t.Logf("Todos with logical expression: %d todos found", len(todos))
+}
 
+func TestTransactionRollbackAfterInsert(t *testing.T) {
+
+	var obj = &TestTransaction{
+		Name: "TestTransactionRollbackAfterInsert",
+	}
+
+	if db_tag == "mysql_local" || db_tag == "mysql" {
+		// currently these do not support transactions on create
+		t.Skip("local MySQL server does not support transactions")
+	}
+
+	var ctx = context.Background()
+	var err = queries.RunInTransaction(ctx, func(ctx context.Context, NewQuerySet queries.ObjectsFunc[*TestTransaction]) (bool, error) {
+		var qs = NewQuerySet(&TestTransaction{})
+
+		if !qs.Compiler().InTransaction() {
+			return false, fmt.Errorf("expected query set to be in transaction")
+		}
+
+		dbTodo, err := qs.Create(obj)
+		if err != nil {
+			return false, fmt.Errorf("failed to create todo: %w", err)
+		}
+		if dbTodo == nil {
+			return false, fmt.Errorf("expected a todo, got nil")
+		}
+
+		// Rollback the transaction
+		return false, nil
+	})
+	if err != nil {
+		t.Fatalf("Failed to run transaction: %v", err)
+	}
+
+	t.Logf("Transaction rolled back, no object should be created (local obj: %+v %T)", obj, obj)
+
+	dbObj, err := queries.GetQuerySet(&TestTransaction{}).WithContext(ctx).Get()
+	if err == nil || !errors.Is(err, query_errors.ErrNoRows) {
+		t.Fatalf("Expected error, got nil: %+v", dbObj.Object)
+		return
+	}
 }
 
 //

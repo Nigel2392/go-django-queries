@@ -10,6 +10,8 @@ import (
 	"github.com/Nigel2392/go-django/src/core/logger"
 )
 
+var db_tag = "postgres"
+
 func init() {
 	// make db globally available
 	var db, err = sql.Open("pgx", "postgres://root:my-secret-pw@localhost:5432/queries_test?sslmode=disable&TimeZone=UTC")

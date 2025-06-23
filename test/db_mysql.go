@@ -11,6 +11,8 @@ import (
 	"github.com/Nigel2392/go-django/src/core/logger"
 )
 
+var db_tag = "mysql"
+
 func init() {
 	// make db globally available
 	var db, err = sql.Open("mysql", "root:my-secret-pw@tcp(127.0.0.1:3306)/queries_test?parseTime=true&multiStatements=true&interpolateParams=true")

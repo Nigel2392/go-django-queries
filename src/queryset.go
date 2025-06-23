@@ -1950,10 +1950,6 @@ func (qs *QuerySet[T]) Aggregate(annotations map[string]expr.Expression) (map[st
 //
 // If multiple rows are found, it returns queries.query_errors.ErrMultipleRows.
 func (qs *QuerySet[T]) Get() (*Row[T], error) {
-	if len(qs.internals.Where) == 0 {
-		panic(query_errors.ErrNoWhereClause)
-	}
-
 	if qs.cached != nil && qs.useCache {
 		return qs.cached.(*Row[T]), nil
 	}

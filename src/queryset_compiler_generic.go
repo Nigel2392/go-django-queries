@@ -1203,6 +1203,12 @@ func NewMariaDBQueryBuilder(db string) QueryCompiler {
 	}
 }
 
+func (g *mariaDBQueryBuilder) SupportsReturning() drivers.SupportsReturningType {
+	// MariaDB supports returning columns, but not last insert ID.
+	// We return SupportsReturningColumns to indicate that we can return columns.
+	return drivers.SupportsReturningColumns
+}
+
 func (g *mariaDBQueryBuilder) BuildUpdateQuery(
 	ctx context.Context,
 	qs *GenericQuerySet,
@@ -1493,6 +1499,9 @@ func (g *mysqlQueryBuilder) BuildCreateQuery(
 				)
 			}
 			defer func() {
+				// if we don't close the connection we get issues
+				// with the connection pool - it might overflow
+				// and we get "connection refused" / "too many connections" errors.
 				if err := conn.Close(); err != nil {
 					logger.Errorf("failed to close connection: %v", err)
 				}

@@ -1,4 +1,4 @@
-//go:build !mysql && !mysql_local && !mariadb && !sqlite
+//go:build !mysql && !mysql_local && !mariadb && !sqlite && postgres
 
 package queries_test
 

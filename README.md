@@ -66,6 +66,8 @@ But more tests / databases will be added over time.
 * MySQL requuires both `multiStatements` and `interpolateParams` to be `true`. This is because
   the driver cannot [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql) otherwise return multiple result id's in a single query.
 
+* MySQL does not support transactions on `INSERT` - this will be fixed later.
+
 * MySQL and MariaDB do not support preparing multiple statements in a single query, we have to prepare each statement separately
   this results in BulkUpdate not being properly supported, each update will be executed separately (in a transaction if one was not present).
 

@@ -2382,6 +2382,10 @@ func (qs *QuerySet[T]) BulkCreate(objects []T) ([]T, error) {
 
 	case support == drivers.SupportsReturningLastInsertId:
 
+		if qs.internals.Model.Primary == nil {
+			return objects, tx.Commit()
+		}
+
 		if len(results) != len(objects) {
 			return nil, errors.Wrapf(
 				query_errors.ErrLastInsertId,

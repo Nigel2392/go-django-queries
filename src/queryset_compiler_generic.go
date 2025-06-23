@@ -1203,12 +1203,6 @@ func NewMariaDBQueryBuilder(db string) QueryCompiler {
 	}
 }
 
-func (g *mariaDBQueryBuilder) SupportsReturning() drivers.SupportsReturningType {
-	// MariaDB supports returning columns, but not last insert ID.
-	// We return SupportsReturningColumns to indicate that we can return columns.
-	return drivers.SupportsReturningColumns
-}
-
 func (g *mariaDBQueryBuilder) BuildUpdateQuery(
 	ctx context.Context,
 	qs *GenericQuerySet,
@@ -1422,139 +1416,152 @@ func (g *mysqlQueryBuilder) BuildCreateQuery(
 		Params: values,
 		Object: attrs.NewObject[attrs.Definer](qs.Model()),
 		Execute: func(query string, args ...any) ([][]interface{}, error) {
-			//var res, err = g.DB().ExecContext(ctx, query, args...)
-			//if err != nil {
-			//	return nil, errors.Wrap(err, "failed to execute query")
-			//}
-
-			var values = make([]driver.NamedValue, len(args))
-			for i, arg := range args {
-				var v, ok = arg.(driver.Valuer)
-				if ok {
-					var err error
-					arg, err = v.Value()
-					if err != nil {
-						return nil, fmt.Errorf(
-							"failed to get value from driver.Valuer: %w", err,
-						)
-					}
-				}
-
-				// The raw conn does not use reflection, we need to
-				// prepare all values to be in coherence with [driver.Value].
-				// fun fact: if the interface is not nil, but the underlying value is nil -
-				// 		the driver will return [driver.ErrSkip].
-				// 		Let's hope this doesn't get changed anytime soon...
-				var rVal = reflect.ValueOf(arg)
-				if !rVal.IsValid() || rVal.Kind() == reflect.Ptr && rVal.IsNil() {
-					arg = nil
-					goto addValue
-				}
-
-				if _, ok := arg.(time.Time); ok {
-					goto addValue
-				}
-
-				switch rVal.Kind() {
-				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-					arg = rVal.Int()
-				case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-					arg = rVal.Uint()
-				case reflect.Float32, reflect.Float64:
-					arg = rVal.Float()
-				case reflect.String:
-					arg = rVal.String()
-				case reflect.Bool:
-					arg = rVal.Bool()
-				case reflect.Slice, reflect.Array:
-					if rVal.Type().Elem().Kind() == reflect.Uint8 {
-						//  byte slice, e.g. for binary data
-						arg = rVal.Bytes()
-					} else {
-						return nil, fmt.Errorf(
-							"unsupported slice type for driver.Value: %s (%T): %w",
-							rVal.Type().Elem().Kind(), arg, query_errors.ErrTypeMismatch,
-						)
-					}
-				default:
-					return nil, fmt.Errorf(
-						"unsupported type for driver.Value: %s (%T): %w",
-						rVal.Kind(), arg, query_errors.ErrTypeMismatch,
-					)
-				}
-
-			addValue:
-				values[i] = driver.NamedValue{
-					Ordinal: i + 1,
-					Value:   arg,
-				}
-
+			if internals.Model.Primary != nil {
+				return g.querySupportsLastInsertId(ctx, internals, objects, query, args)
 			}
 
-			var allIds []int64
-			var conn, err = g.queryInfo.DB.Conn(ctx)
+			// No need to return last insert ID if there is no primary key.
+			var _, err = g.queryInfo.DB.ExecContext(ctx, query, args...)
 			if err != nil {
 				return nil, fmt.Errorf(
-					"failed to get connection: %w", err,
-				)
-			}
-			defer func() {
-				// if we don't close the connection we get issues
-				// with the connection pool - it might overflow
-				// and we get "connection refused" / "too many connections" errors.
-				if err := conn.Close(); err != nil {
-					logger.Errorf("failed to close connection: %v", err)
-				}
-			}()
-
-			err = conn.Raw(func(driverConn any) error {
-				var db, ok = driverConn.(driver.ExecerContext)
-				if !ok {
-					return fmt.Errorf(
-						"failed to get driver.ExecerContext from driver connection: %T: %w",
-						driverConn, query_errors.ErrTypeMismatch,
-					)
-				}
-
-				var res, err = db.ExecContext(ctx, query, values)
-				if err != nil {
-					return err
-				}
-
-				allIds = res.(mysql.Result).AllLastInsertIds()
-				return nil
-			})
-			if err != nil {
-				return nil, fmt.Errorf(
-					"failed to execute query {argLen: %d}: %w",
-					len(values), err,
+					"failed to execute query: %w", err,
 				)
 			}
 
-			var result = make([][]interface{}, len(allIds))
-			if internals.Model.Primary != nil && len(allIds) > 0 {
-
-				if len(allIds) != len(objects) {
-					var idList string
-					if len(allIds) > 0 && len(allIds) < MAX_GET_RESULTS {
-						idList = fmt.Sprintf(" (%v)", allIds)
-					}
-
-					return nil, fmt.Errorf(
-						"expected %d last insert ids, got %d%s: %w",
-						len(objects), len(allIds), idList, query_errors.ErrLastInsertId)
-				}
-
-				if _, ok := availableForLastInsertId[internals.Model.Primary.Type().Kind()]; ok {
-					for i, id := range allIds {
-						result[i] = []interface{}{id}
-					}
-				}
-			}
-
-			return result, nil
+			return [][]interface{}{}, nil
 		},
 	}
+}
+
+func (g *mysqlQueryBuilder) querySupportsLastInsertId(
+	ctx context.Context,
+	internals *QuerySetInternals,
+	objects []UpdateInfo,
+	query string,
+	args []any,
+) ([][]interface{}, error) {
+	var values = make([]driver.NamedValue, len(args))
+	for i, arg := range args {
+		var v, ok = arg.(driver.Valuer)
+		if ok {
+			var err error
+			arg, err = v.Value()
+			if err != nil {
+				return nil, fmt.Errorf(
+					"failed to get value from driver.Valuer: %w", err,
+				)
+			}
+		}
+
+		// The raw conn does not use reflection, we need to
+		// prepare all values to be in coherence with [driver.Value].
+		// fun fact: if the interface is not nil, but the underlying value is nil -
+		// 		the driver will return [driver.ErrSkip].
+		// 		Let's hope this doesn't get changed anytime soon...
+		var rVal = reflect.ValueOf(arg)
+		if !rVal.IsValid() || rVal.Kind() == reflect.Ptr && rVal.IsNil() {
+			arg = nil
+			goto addValue
+		}
+
+		if _, ok := arg.(time.Time); ok {
+			goto addValue
+		}
+
+		switch rVal.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			arg = rVal.Int()
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			arg = rVal.Uint()
+		case reflect.Float32, reflect.Float64:
+			arg = rVal.Float()
+		case reflect.String:
+			arg = rVal.String()
+		case reflect.Bool:
+			arg = rVal.Bool()
+		case reflect.Slice, reflect.Array:
+			if rVal.Type().Elem().Kind() == reflect.Uint8 {
+				//  byte slice, e.g. for binary data
+				arg = rVal.Bytes()
+			} else {
+				return nil, fmt.Errorf(
+					"unsupported slice type for driver.Value: %s (%T): %w",
+					rVal.Type().Elem().Kind(), arg, query_errors.ErrTypeMismatch,
+				)
+			}
+		default:
+			return nil, fmt.Errorf(
+				"unsupported type for driver.Value: %s (%T): %w",
+				rVal.Kind(), arg, query_errors.ErrTypeMismatch,
+			)
+		}
+
+	addValue:
+		values[i] = driver.NamedValue{
+			Ordinal: i + 1,
+			Value:   arg,
+		}
+
+	}
+
+	var allIds []int64
+	var conn, err = g.queryInfo.DB.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to get connection: %w", err,
+		)
+	}
+	defer func() {
+		// if we don't close the connection we get issues
+		// with the connection pool - it might overflow
+		// and we get "connection refused" / "too many connections" errors.
+		if err := conn.Close(); err != nil {
+			logger.Errorf("failed to close connection: %v", err)
+		}
+	}()
+
+	err = conn.Raw(func(driverConn any) error {
+		var db, ok = driverConn.(driver.ExecerContext)
+		if !ok {
+			return fmt.Errorf(
+				"failed to get driver.ExecerContext from driver connection: %T: %w",
+				driverConn, query_errors.ErrTypeMismatch,
+			)
+		}
+
+		var res, err = db.ExecContext(ctx, query, values)
+		if err != nil {
+			return err
+		}
+
+		allIds = res.(mysql.Result).AllLastInsertIds()
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to execute query {argLen: %d}: %w",
+			len(values), err,
+		)
+	}
+
+	var result = make([][]interface{}, len(allIds))
+	if len(allIds) != len(objects) {
+		var idList string
+		if len(allIds) > 0 && len(allIds) < MAX_GET_RESULTS {
+			idList = fmt.Sprintf(" (%v)", allIds)
+		}
+
+		return nil, fmt.Errorf(
+			"expected %d last insert ids, got %d%s: %w",
+			len(objects), len(allIds), idList, query_errors.ErrLastInsertId)
+	}
+
+	if _, ok := availableForLastInsertId[internals.Model.Primary.Type().Kind()]; ok {
+		for i, id := range allIds {
+			result[i] = []interface{}{id}
+		}
+	}
+	return result, nil
 }
 
 // -----------------------------------------------------------------------------

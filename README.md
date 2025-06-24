@@ -61,7 +61,7 @@ But more tests / databases will be added over time.
 
 * SQLite through [mattn/go-sqlite3](https://github.com/mattn/go-sqlite3)
 * MySQL through [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql)
-* MariaDB through [a custom driver](https://github.com/Nigel2392/go-django-queries/blob/main/src/drivers/drivers.go#L38) (with returning support, custom driver - use "mariadb" in sql.Open(...))
+* MariaDB through [a custom driver](https://github.com/Nigel2392/go-django-queries/blob/main/src/drivers/drivers.go#L38) (with returning support, custom driver - use "mariadb" in `drivers.Open(...)`)
 * [dolthub/go-mysql-server](https://github.com/dolthub/go-mysql-server) through [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql)
 
 #### Caveats
@@ -72,10 +72,10 @@ But more tests / databases will be added over time.
 
 * The `mariadb` driver is a custom driver that supports returning all columns upon creation of an object.
   It is a wrapper around the [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql) driver.
-  It can be used by passing `mariadb` as the driver name to `sql.Open(...)`, example:
+  It can be used by passing `mariadb` as the driver name to `drivers.Open(...)`, example:
 
   ```go
-  db, err := sql.Open("mariadb", "user:password@tcp(localhost:3306)/dbname?multiStatements=true&interpolateParams=true")
+  db, err := drivers.Open("mariadb", "user:password@tcp(localhost:3306)/dbname?multiStatements=true&interpolateParams=true")
   if err != nil {
       log.Fatal(err)
   }

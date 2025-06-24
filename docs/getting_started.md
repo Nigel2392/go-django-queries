@@ -48,7 +48,7 @@ To setup the database, we need to create a `sql.DB` object, and register it in G
 ```go
 
 func main() {
-    var db, err = sql.Open("sqlite3", "./db.sqlite3")
+    var db, err = drivers.Open("sqlite3", "./db.sqlite3")
     if err != nil {
         panic(err)
     }

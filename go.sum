@@ -6,6 +6,8 @@ github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03
 github.com/Knetic/govaluate v3.0.1-0.20171022003610-9aa49832a739+incompatible/go.mod h1:r7JcOSlj0wfOMncg0iLm8Leh48TZaKVeNIfJntJ2wa0=
 github.com/Nigel2392/go-django v1.7.1-0.20250618201429-d1f6cd39ea22 h1:8DQAGRWKJhenPONEyb0W3u1BTh9AS41bkAmSsENxM6E=
 github.com/Nigel2392/go-django v1.7.1-0.20250618201429-d1f6cd39ea22/go.mod h1:LgK2EaFLM7n7en/wvQFaT7VTFEEulepRO6sUTqmhubw=
+github.com/Nigel2392/go-django v1.7.1-0.20250624144616-774a08df868d h1:3iqsmu/euUsoC1erZ/yu/ZG/ZMw0hDPi3z7LJqoi8H4=
+github.com/Nigel2392/go-django v1.7.1-0.20250624144616-774a08df868d/go.mod h1:QsqKW+v9o58ypy17DDWePEvTH8XCchh/wxnOQ8YXnIE=
 github.com/Nigel2392/go-signals v1.0.8 h1:A7WchnawfSVk9FyMer5YtKUyDs5fIdKePnoumD56vgc=
 github.com/Nigel2392/go-signals v1.0.8/go.mod h1:Olk7MJlZ9gdGPN8bh+OZSe7iOsBixn7biVI7LqoWEIA=
 github.com/Nigel2392/goldcrest v1.0.4 h1:Xx+QLht6QjJ3Gg9uksgc6Ye1XjbtzQ1208ClZwoVWsg=

@@ -1,9 +1,9 @@
 package migrator
 
 import (
-	"database/sql"
 	"io/fs"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/apps"
 	"github.com/Nigel2392/go-django/src/core/command"
@@ -49,7 +49,7 @@ func NewAppConfig() *migratorAppConfig {
 		app.MigrationDir = DEFAULT_MIGRATION_DIR
 	}
 
-	app.Init = func(settings django.Settings, db *sql.DB) error {
+	app.Init = func(settings django.Settings, db drivers.Database) error {
 
 		var schemaEditor, err = GetSchemaEditor(db.Driver())
 		if err != nil {

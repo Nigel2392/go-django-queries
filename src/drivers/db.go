@@ -33,6 +33,7 @@ type DB interface {
 
 type Database interface {
 	DB
+	Close() error
 	Ping() error
 	Driver() driver.Driver
 	Begin(ctx context.Context) (Transaction, error)

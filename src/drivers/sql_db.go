@@ -103,6 +103,10 @@ func (c *connWrapper) Ping() error {
 	return nil
 }
 
+func (c *connWrapper) Close() error {
+	return c.conn.Close(context.Background())
+}
+
 func (c *connWrapper) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	result, err := c.conn.Exec(ctx, query, args...)
 	if err != nil {

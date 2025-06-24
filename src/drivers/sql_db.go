@@ -142,6 +142,15 @@ func (r *pgxRows) NextResultSet() bool {
 	return false
 }
 
+func (r *pgxRows) Columns() ([]string, error) {
+	columns := r.Rows.FieldDescriptions()
+	result := make([]string, len(columns))
+	for i, col := range columns {
+		result[i] = string(col.Name)
+	}
+	return result, nil
+}
+
 type pgxRow struct {
 	pgx.Row
 }

@@ -15,6 +15,7 @@ type SQLRows interface {
 	SQLRow
 	Close() error
 	Next() bool
+	Columns() ([]string, error)
 	NextResultSet() bool
 }
 

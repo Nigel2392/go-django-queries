@@ -18,7 +18,7 @@ var _ migrator.SchemaEditor = &PostgresSchemaEditor{}
 
 func init() {
 	migrator.RegisterSchemaEditor(&drivers.DriverPostgres{}, func() (migrator.SchemaEditor, error) {
-		var db, ok = django.ConfigGetOK[*sql.DB](
+		var db, ok = django.ConfigGetOK[drivers.Database](
 			django.Global.Settings,
 			django.APPVAR_DATABASE,
 		)
@@ -44,10 +44,10 @@ const (
 )
 
 type PostgresSchemaEditor struct {
-	db *sql.DB
+	db drivers.Database
 }
 
-func NewPostgresSchemaEditor(db *sql.DB) *PostgresSchemaEditor {
+func NewPostgresSchemaEditor(db drivers.Database) *PostgresSchemaEditor {
 	return &PostgresSchemaEditor{db: db}
 }
 
@@ -72,7 +72,7 @@ func (m *PostgresSchemaEditor) RemoveMigration(appName string, modelName string,
 	return err
 }
 
-func (m *PostgresSchemaEditor) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
+func (m *PostgresSchemaEditor) QueryRow(ctx context.Context, query string, args ...any) drivers.SQLRow {
 	return m.db.QueryRowContext(ctx, query, args...)
 }
 

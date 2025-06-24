@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/elliotchance/orderedmap/v2"
@@ -18,7 +19,7 @@ var _ migrator.SchemaEditor = &SQLiteSchemaEditor{}
 
 func init() {
 	migrator.RegisterSchemaEditor(&sqlite3.SQLiteDriver{}, func() (migrator.SchemaEditor, error) {
-		var db, ok = django.ConfigGetOK[*sql.DB](
+		var db, ok = django.ConfigGetOK[drivers.Database](
 			django.Global.Settings,
 			django.APPVAR_DATABASE,
 		)
@@ -44,21 +45,21 @@ const (
 )
 
 type SQLiteSchemaEditor struct {
-	db            *sql.DB
+	db            drivers.Database
 	tablesCreated bool
 }
 
-func NewSQLiteSchemaEditor(db *sql.DB) *SQLiteSchemaEditor {
+func NewSQLiteSchemaEditor(db drivers.Database) *SQLiteSchemaEditor {
 	return &SQLiteSchemaEditor{db: db}
 }
 
-func (m *SQLiteSchemaEditor) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+func (m *SQLiteSchemaEditor) query(ctx context.Context, query string, args ...any) (drivers.SQLRows, error) {
 	// logger.Debugf("SQLiteSchemaEditor.QueryContext:\n%s", query)
 	rows, err := m.db.QueryContext(ctx, query, args...)
 	return rows, err
 }
 
-func (m *SQLiteSchemaEditor) queryRow(ctx context.Context, query string, args ...any) *sql.Row {
+func (m *SQLiteSchemaEditor) queryRow(ctx context.Context, query string, args ...any) drivers.SQLRow {
 	// logger.Debugf("SQLiteSchemaEditor.QueryRowContext:\n%s", query)
 	return m.db.QueryRowContext(ctx, query, args...)
 }
@@ -213,7 +214,7 @@ func (m *SQLiteSchemaEditor) AddIndex(table migrator.Table, index migrator.Index
 	w.WriteString("\n")
 
 	// Execute the query
-	_, err := m.db.Exec(w.String())
+	_, err := m.Execute(context.Background(), w.String())
 	return err
 }
 

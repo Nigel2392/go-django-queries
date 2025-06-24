@@ -112,7 +112,7 @@ type ExpressionInfo struct {
 	//
 	// It takes a TableColumn and returns the formatted field as a string
 	// and a slice of possible args that can be used in the query.
-	FormatFieldFunc func(*ExpressionInfo, *TableColumn) (string, []any)
+	FormatField func(*TableColumn) (string, []any)
 
 	// Quote is a function that quotes the given string for use in a SQL query.
 	Quote func(string) string
@@ -127,21 +127,11 @@ type ExpressionInfo struct {
 	// This will automatically append "= ?" to the SQL TableColumn statement
 	ForUpdate bool
 
-	// UpdateAlias specifies the alias to use for the table of the field in an update statement.
-	UpdateAlias string
-
 	// SupportsWhereExpressionAlias indicates if the database supports WHERE expressions with aliases.
 	SupportsWhereAlias bool
 
 	// Annotations is a map of queryset annotations (fields).
 	Annotations *orderedmap.OrderedMap[string, attrs.Field]
-}
-
-func (inf *ExpressionInfo) FormatField(col *TableColumn) (string, []any) {
-	if inf.FormatFieldFunc == nil {
-		panic("ExpressionInfo.FormatFieldFunc is nil, cannot format field")
-	}
-	return inf.FormatFieldFunc(inf, col)
 }
 
 func (inf *ExpressionLookupInfo) FormatLogicalOpRHS(op LogicalOp, rhs string, values ...any) (string, []any) {

@@ -10,6 +10,9 @@ This library brings Django-style ORM queries to Go-Django, allowing you to:
 * Compose queries with filters, ordering, limits
 * Use select expressions and annotations
 
+Do note that the queries package is not compatible with the default `*sql.DB` struct, but rather implements it's own `Database` interface.
+Databases must always be opened using `drivers.Open(ctx, driverName, dsn)`.
+
 ---
 
 ## 📁 Documentation Structure

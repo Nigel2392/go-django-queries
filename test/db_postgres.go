@@ -3,9 +3,11 @@
 package queries_test
 
 import (
-	"database/sql"
+	"context"
+	"fmt"
 	"os"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/logger"
 )
@@ -14,9 +16,10 @@ var db_tag = "postgres"
 
 func init() {
 	// make db globally available
-	var db, err = sql.Open("pgx", "postgres://root:my-secret-pw@localhost:5432/queries_test?sslmode=disable&TimeZone=UTC")
+	var db, err = drivers.Open(context.Background(), "postgres", "postgres://root:my-secret-pw@localhost:5432/queries_test?sslmode=disable&TimeZone=UTC")
 	if err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
+		os.Exit(1)
 	}
 	var settings = map[string]interface{}{
 		django.APPVAR_DATABASE: db,

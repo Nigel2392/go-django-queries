@@ -9,8 +9,8 @@ $Databases = @(
     "sqlite",
     "mysql_local",
     "mysql",
-    "mariadb"#,
-    #"postgres"
+    "mariadb",
+    "postgres"
 )
 
 # Databases defined in docker-compose.yml
@@ -39,7 +39,7 @@ foreach ($arg in $args) {
             continue
         }
         "failslow" {
-            $flags.failslow = $true
+            $flags.failslow = $false
             continue
         }
         "down" {

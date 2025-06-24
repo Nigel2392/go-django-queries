@@ -1,11 +1,12 @@
 package models_test
 
 import (
-	"database/sql"
+	"context"
 	"os"
 	"testing"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/fields"
 	"github.com/Nigel2392/go-django-queries/src/models"
 	"github.com/Nigel2392/go-django-queries/src/quest"
@@ -27,7 +28,7 @@ func init() {
 	attrs.RegisterModel(&BlogPage{})
 	attrs.RegisterModel(&BlogPageCategory{})
 
-	var db, err = sql.Open("sqlite3", "file:queries_memory?mode=memory&cache=shared")
+	var db, err = drivers.Open(context.Background(), "sqlite3", "file:queries_memory?mode=memory&cache=shared")
 	if err != nil {
 		panic(err)
 	}

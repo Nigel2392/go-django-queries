@@ -2,7 +2,6 @@ package queries_test
 
 import (
 	"context"
-	"database/sql"
 	"os"
 	"testing"
 
@@ -14,11 +13,12 @@ import (
 	"github.com/pkg/errors"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 )
 
 func init() {
-	var db, err = sql.Open("sqlite3", "file:queries_model_hooks_test?mode=memory&cache=shared")
+	var db, err = drivers.Open(context.Background(), "sqlite3", "file:queries_model_hooks_test?mode=memory&cache=shared")
 	if err != nil {
 		panic(err)
 	}
@@ -26,7 +26,7 @@ func init() {
 		django.APPVAR_DATABASE: db,
 	}
 
-	_, err = db.Exec(createTableSQLite)
+	_, err = db.ExecContext(context.Background(), createTableSQLite)
 	if err != nil {
 		panic(err)
 	}
@@ -223,7 +223,7 @@ func TestContentTypesDefinitions(t *testing.T) {
 		}
 
 		if *(objectByID.(*User)) != *users[2] {
-			t.Fatalf("object by ID does not match")
+			t.Fatalf("object by ID does not match: expected %+v, got %+v", *users[2], *(objectByID.(*User)))
 		}
 	})
 

@@ -1,6 +1,7 @@
 package sqlite_test
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
@@ -9,17 +10,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	"github.com/Nigel2392/go-django-queries/src/migrator/sql/sqlite"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/mattn/go-sqlite3"
 )
 
-var db *sql.DB
+var db drivers.Database
 
 func init() {
 	var err error
-	db, err = sql.Open("sqlite3", "file:migrator_test?mode=memory&cache=shared")
+	db, err = drivers.Open(context.Background(), "sqlite3", "file:migrator_test?mode=memory&cache=shared")
 	if err != nil {
 		panic(fmt.Sprintf("failed to open db: %v", err))
 	}

@@ -1,7 +1,6 @@
 package internal
 
 import (
-	"database/sql"
 	"database/sql/driver"
 	"fmt"
 	"reflect"
@@ -182,17 +181,17 @@ func WalkFields(
 
 type QueryInfo struct {
 	DatabaseName string // The name of the database connection
-	DB           *sql.DB
-	DBX          interface{ Rebind(string) string }
+	DB           drivers.Database
+	DBX          func(string) string
 	SqlxDriver   string
 }
 
-func SqlxDriverName(db *sql.DB) string {
+func SqlxDriverName(db drivers.Database) string {
 	var driver = reflect.TypeOf(db.Driver())
 	if driver == nil {
 		return ""
 	}
-	if data, ok := drivers.Drivers[driver]; ok {
+	if data, ok := drivers.Retrieve(driver); ok {
 		return data.Name
 	}
 	return ""
@@ -257,11 +256,11 @@ func DriverValue(arg any) (driver.Value, error) {
 }
 
 func GetQueryInfo(dbKey string) (*QueryInfo, error) {
-	var db = django.ConfigGet[*sql.DB](
+	var db, ok = django.ConfigGetOK[drivers.Database](
 		django.Global.Settings,
 		dbKey,
 	)
-	if db == nil {
+	if !ok {
 		return nil, query_errors.ErrNoDatabase
 	}
 
@@ -270,12 +269,13 @@ func GetQueryInfo(dbKey string) (*QueryInfo, error) {
 		return nil, query_errors.ErrUnknownDriver
 	}
 
-	var dbx = sqlx.NewDb(db, sqlxDriver)
 	var queryInfo = &QueryInfo{
 		DatabaseName: dbKey,
 		DB:           db,
-		DBX:          dbx,
-		SqlxDriver:   sqlxDriver,
+		DBX: func(s string) string {
+			return sqlx.Rebind(sqlx.BindType(sqlxDriver), s)
+		},
+		SqlxDriver: sqlxDriver,
 	}
 
 	return queryInfo, nil

@@ -493,7 +493,7 @@ func TestTodoInsert(t *testing.T) {
 		{Title: "Test Todo 3", Description: "Description 3", Done: false},
 	}
 
-	var db = django.ConfigGet[*sql.DB](
+	var db = django.ConfigGet[drivers.Database](
 		django.Global.Settings,
 		django.APPVAR_DATABASE,
 	)
@@ -508,7 +508,7 @@ func TestTodoInsert(t *testing.T) {
 		}
 
 		var selectStmt = sqlx.Rebind(sqlx.BindType(internal.SqlxDriverName(db)), selectTodo)
-		var row = db.QueryRow(selectStmt, todo.ID)
+		var row = db.QueryRowContext(context.Background(), selectStmt, todo.ID)
 		var test = &Todo{User: &User{}}
 		if err := row.Scan(&test.ID, &test.Title, &test.Description, &test.Done, &sql.NullInt64{}); err != nil {
 			t.Fatalf("Failed to query todo: %v", err)
@@ -523,7 +523,7 @@ func TestTodoInsert(t *testing.T) {
 }
 
 func TestTodoUpdate(t *testing.T) {
-	var db = django.ConfigGet[*sql.DB](
+	var db = django.ConfigGet[drivers.Database](
 		django.Global.Settings,
 		django.APPVAR_DATABASE,
 	)
@@ -542,7 +542,7 @@ func TestTodoUpdate(t *testing.T) {
 	}
 
 	var selectStmt = sqlx.Rebind(sqlx.BindType(internal.SqlxDriverName(db)), selectTodo)
-	var row = db.QueryRow(selectStmt, todo.ID)
+	var row = db.QueryRowContext(context.Background(), selectStmt, todo.ID)
 	var test Todo = Todo{User: &User{}}
 	if err := row.Scan(&test.ID, &test.Title, &test.Description, &test.Done, &sql.NullInt64{}); err != nil {
 		t.Fatalf("Failed to query todo: %v", err)
@@ -556,7 +556,7 @@ func TestTodoUpdate(t *testing.T) {
 }
 
 func TestTodoGet(t *testing.T) {
-	var db = django.ConfigGet[*sql.DB](
+	var db = django.ConfigGet[drivers.Database](
 		django.Global.Settings,
 		django.APPVAR_DATABASE,
 	)
@@ -567,7 +567,7 @@ func TestTodoGet(t *testing.T) {
 	}
 
 	var selectStmt = sqlx.Rebind(sqlx.BindType(internal.SqlxDriverName(db)), selectTodo)
-	var row = db.QueryRow(selectStmt, todo.ID)
+	var row = db.QueryRowContext(context.Background(), selectStmt, todo.ID)
 	var test Todo = Todo{User: &User{}}
 	if err := row.Scan(&test.ID, &test.Title, &test.Description, &test.Done, &sql.NullInt64{}); err != nil {
 		t.Fatalf("Failed to query todo: %v", err)
@@ -581,7 +581,7 @@ func TestTodoGet(t *testing.T) {
 }
 
 func TestTodoList(t *testing.T) {
-	var db = django.ConfigGet[*sql.DB](
+	var db = django.ConfigGet[drivers.Database](
 		django.Global.Settings,
 		django.APPVAR_DATABASE,
 	)
@@ -598,7 +598,7 @@ func TestTodoList(t *testing.T) {
 
 	for _, todo := range todos {
 		var selectStmt = sqlx.Rebind(sqlx.BindType(internal.SqlxDriverName(db)), selectTodo)
-		var row = db.QueryRow(selectStmt, todo.ID)
+		var row = db.QueryRowContext(context.Background(), selectStmt, todo.ID)
 		var test Todo = Todo{User: &User{}}
 		if err := row.Scan(&test.ID, &test.Title, &test.Description, &test.Done, &sql.NullInt64{}); err != nil {
 			t.Fatalf("Failed to query todo: %v", err)
@@ -613,7 +613,7 @@ func TestTodoList(t *testing.T) {
 }
 
 func TestListTodoByIDs(t *testing.T) {
-	var db = django.ConfigGet[*sql.DB](
+	var db = django.ConfigGet[drivers.Database](
 		django.Global.Settings,
 		django.APPVAR_DATABASE,
 	)
@@ -631,7 +631,7 @@ func TestListTodoByIDs(t *testing.T) {
 
 	for _, todo := range todos {
 		var selectStmt = sqlx.Rebind(sqlx.BindType(internal.SqlxDriverName(db)), selectTodo)
-		var row = db.QueryRow(selectStmt, todo.ID)
+		var row = db.QueryRowContext(context.Background(), selectStmt, todo.ID)
 		var test Todo = Todo{User: &User{}}
 		if err := row.Scan(&test.ID, &test.Title, &test.Description, &test.Done, &sql.NullInt64{}); err != nil {
 			t.Fatalf("Failed to query todo: %v", err)
@@ -646,7 +646,7 @@ func TestListTodoByIDs(t *testing.T) {
 }
 
 func TestTodoDelete(t *testing.T) {
-	var db = django.ConfigGet[*sql.DB](
+	var db = django.ConfigGet[drivers.Database](
 		django.Global.Settings,
 		django.APPVAR_DATABASE,
 	)
@@ -659,7 +659,7 @@ func TestTodoDelete(t *testing.T) {
 	}
 
 	var selectStmt = sqlx.Rebind(sqlx.BindType(internal.SqlxDriverName(db)), selectTodo)
-	var row = db.QueryRow(selectStmt, todo.ID)
+	var row = db.QueryRowContext(context.Background(), selectStmt, todo.ID)
 	var test Todo = Todo{User: &User{}}
 	if err = row.Scan(&test.ID, &test.Title, &test.Description, &test.Done, &sql.NullInt64{}); err == nil {
 		t.Fatalf("Expected error when querying deleted todo, got: %v", test)
@@ -1690,7 +1690,7 @@ func TestQueryGetMultipleRows(t *testing.T) {
 
 func TestQueryCreate(t *testing.T) {
 
-	var db = django.ConfigGet[*sql.DB](
+	var db = django.ConfigGet[drivers.Database](
 		django.Global.Settings,
 		django.APPVAR_DATABASE,
 	)
@@ -1715,7 +1715,9 @@ func TestQueryCreate(t *testing.T) {
 	}
 
 	t.Run("CreateReturningLastInsertID", func(t *testing.T) {
-		drivers.RegisterDriver(&drivers.DriverSQLite{}, "sqlite3", drivers.SupportsReturningLastInsertId)
+		drivers.Change("sqlite3", func(driver *drivers.Driver) {
+			driver.SupportsReturning = drivers.SupportsReturningLastInsertId
+		})
 		todo.ID = 0 // Ensure ID is reset for creation
 
 		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).ExplicitSave().Create(todo)
@@ -1755,11 +1757,16 @@ func TestQueryCreate(t *testing.T) {
 
 		t.Logf("Created todo: %+v, %+v", tdo, tdo.User)
 
-		drivers.RegisterDriver(&drivers.DriverSQLite{}, "sqlite3", drivers.SupportsReturningColumns)
+		drivers.Change("sqlite3", func(driver *drivers.Driver) {
+			driver.SupportsReturning = drivers.SupportsReturningColumns
+		})
 	})
 
 	t.Run("CreateReturningColumns", func(t *testing.T) {
-		drivers.RegisterDriver(&drivers.DriverSQLite{}, "sqlite3", drivers.SupportsReturningColumns)
+		drivers.Change("sqlite3", func(driver *drivers.Driver) {
+			driver.SupportsReturning = drivers.SupportsReturningColumns
+		})
+
 		todo.ID = 0 // Ensure ID is reset for creation
 
 		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).ExplicitSave().Create(todo)
@@ -1801,7 +1808,10 @@ func TestQueryCreate(t *testing.T) {
 	})
 
 	t.Run("CreateReturningNone", func(t *testing.T) {
-		drivers.RegisterDriver(&drivers.DriverSQLite{}, "sqlite3", drivers.SupportsReturningNone)
+		drivers.Change("sqlite3", func(driver *drivers.Driver) {
+			driver.SupportsReturning = drivers.SupportsReturningNone
+		})
+
 		todo.ID = 0 // Ensure ID is reset for creation
 
 		var dbTodo, err = queries.GetQuerySet[attrs.Definer](&Todo{}).ExplicitSave().Create(todo)
@@ -1840,7 +1850,9 @@ func TestQueryCreate(t *testing.T) {
 
 		t.Logf("Created todo: %+v, %+v", tdo, tdo.User)
 
-		drivers.RegisterDriver(&drivers.DriverSQLite{}, "sqlite3", drivers.SupportsReturningColumns)
+		drivers.Change("sqlite3", func(driver *drivers.Driver) {
+			driver.SupportsReturning = drivers.SupportsReturningColumns
+		})
 	})
 }
 
@@ -2259,7 +2271,7 @@ type testQuerySet_Concurrency struct {
 
 func TestQuerySet_SharedInstance_Concurrency(t *testing.T) {
 
-	var db = django.ConfigGet[*sql.DB](
+	var db = django.ConfigGet[drivers.Database](
 		django.Global.Settings,
 		django.APPVAR_DATABASE,
 	)
@@ -2909,7 +2921,7 @@ func TestLogicalExpression(t *testing.T) {
 
 	var todos, err = queries.GetQuerySet(&Todo{}).
 		Select("ID", "Title", "Description", "Done", "User").
-		Filter(expr.Logical("Done", expr.EQ, expr.Value(1, true))).All()
+		Filter(expr.Logical("Done", expr.EQ, expr.Value(true))).All()
 	if err != nil {
 		t.Fatalf("Failed to get todos: %v", err)
 	}
@@ -2957,10 +2969,64 @@ func TestTransactionRollbackAfterInsert(t *testing.T) {
 
 	t.Logf("Transaction rolled back, no object should be created (local obj: %+v %T)", obj, obj)
 
-	dbObj, err := queries.GetQuerySet(&TestTransaction{}).WithContext(ctx).Get()
+	dbObj, err := queries.GetQuerySetWithContext(ctx, &TestTransaction{}).Get()
 	if err == nil || !errors.Is(err, query_errors.ErrNoRows) {
 		t.Fatalf("Expected error, got nil: %+v", dbObj.Object)
 		return
+	}
+}
+
+type TestRowsAffected struct {
+	ID   int64
+	Name string
+}
+
+func (t *TestRowsAffected) FieldDefs() attrs.Definitions {
+	return attrs.Define(t,
+		attrs.Unbound("ID", &attrs.FieldConfig{
+			Primary: true,
+		}),
+		attrs.Unbound("Name"),
+	)
+}
+
+func TestWorkingRowsAffected(t *testing.T) {
+	if !(db_tag == "mysql" || db_tag == "mysql_local" || db_tag == "mariadb") {
+		t.Skipf("Skipping test for %s database", db_tag)
+		return
+	}
+
+	var tables = quest.Table(t, &TestRowsAffected{})
+	tables.Create()
+	defer tables.Drop()
+
+	var objects = []*TestRowsAffected{
+		{Name: "Test1"},
+		{Name: "Test2"},
+		{Name: "Test3"},
+	}
+
+	var created, delete = quest.CreateObjects(t, objects...)
+	defer func() {
+		if err := delete(0); err != nil {
+			t.Fatalf("Failed to delete objects: %v", err)
+		}
+	}()
+
+	var rowsAffected, err = queries.GetQuerySet(&TestRowsAffected{}).
+		Select("Name").
+		Filter("Name__in", "Test1", "Test2", "Test3").
+		Update(&TestRowsAffected{}, expr.As("Name", expr.UPPER("Name")))
+	if err != nil {
+		t.Fatalf("Failed to update objects: %v", err)
+	}
+
+	if rowsAffected != int64(len(created)) || rowsAffected != 3 {
+		t.Fatalf("Expected %d rows affected, got %d", len(objects), rowsAffected)
+	}
+
+	for _, obj := range created {
+		t.Logf("Updated object: %+v", obj)
 	}
 }
 

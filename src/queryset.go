@@ -168,6 +168,17 @@ func GetQuerySet[T attrs.Definer](model T) *QuerySet[T] {
 	return Objects(model)
 }
 
+// GetQuerySetWithContext creates a new QuerySet for the given model
+// with the given context bound to it.
+//
+// For more information, see [GetQuerySet].
+func GetQuerySetWithContext[T attrs.Definer](ctx context.Context, model T) *QuerySet[T] {
+	if ctx == nil {
+		panic("GetQuerySetWithContext: context cannot be nil")
+	}
+	return GetQuerySet(model).WithContext(ctx)
+}
+
 // Objects creates a new QuerySet for the given model.
 //
 // This function should only be called in a model's GetQuerySet method.
@@ -277,7 +288,7 @@ func ChangeObjectsType[OldT, NewT attrs.Definer](qs *QuerySet[OldT]) *QuerySet[N
 }
 
 // Return the underlying database which the compiler is using.
-func (qs *QuerySet[T]) DB() DB {
+func (qs *QuerySet[T]) DB() drivers.DB {
 	return qs.compiler.DB()
 }
 
@@ -333,7 +344,7 @@ func (qs *QuerySet[T]) WithContext(ctx context.Context) *QuerySet[T] {
 // StartTransaction starts a transaction on the underlying database.
 //
 // It returns a transaction object which can be used to commit or rollback the transaction.
-func (qs *QuerySet[T]) StartTransaction(ctx context.Context) (Transaction, error) {
+func (qs *QuerySet[T]) StartTransaction(ctx context.Context) (drivers.Transaction, error) {
 	var tx, err = qs.compiler.StartTransaction(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "StartTransaction: failed to start transaction")
@@ -345,7 +356,7 @@ func (qs *QuerySet[T]) StartTransaction(ctx context.Context) (Transaction, error
 }
 
 // WithTransaction wraps the transaction and binds it to the QuerySet compiler.
-func (qs *QuerySet[T]) WithTransaction(tx Transaction) (Transaction, error) {
+func (qs *QuerySet[T]) WithTransaction(tx drivers.Transaction) (drivers.Transaction, error) {
 	var err error
 	tx, err = qs.compiler.WithTransaction(tx)
 	if err != nil {
@@ -359,7 +370,7 @@ func (qs *QuerySet[T]) WithTransaction(tx Transaction) (Transaction, error) {
 
 // GetOrCreateTransaction returns the current transaction if one exists,
 // or starts a new transaction if the QuerySet is not already in a transaction and QUERYSET_CREATE_IMPLICIT_TRANSACTION is true.
-func (qs *QuerySet[T]) GetOrCreateTransaction() (tx Transaction, err error) {
+func (qs *QuerySet[T]) GetOrCreateTransaction() (tx drivers.Transaction, err error) {
 	if !qs.compiler.InTransaction() && QUERYSET_CREATE_IMPLICIT_TRANSACTION {
 		return qs.StartTransaction(qs.context)
 	}
@@ -2525,7 +2536,7 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...any) (int64, error
 	}
 	defer tx.Rollback()
 
-	var exprMap = make(map[string]expr.Expression, len(expressions))
+	var exprMap = make(map[string]expr.NamedExpression, len(expressions))
 	for _, expression := range expressions {
 		switch e := expression.(type) {
 		case expr.NamedExpression:
@@ -2546,7 +2557,11 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...any) (int64, error
 					panic(fmt.Errorf("duplicate field %q in update expression", fieldName))
 				}
 
-				exprMap[fieldName] = e
+				if named, ok := e.(expr.NamedExpression); ok {
+					exprMap[fieldName] = named
+				} else {
+					exprMap[fieldName] = expr.As(fieldName, e)
+				}
 			}
 		}
 	}
@@ -2626,7 +2641,8 @@ func (qs *QuerySet[T]) BulkUpdate(objects []T, expressions ...any) (int64, error
 				continue
 			}
 
-			if expr, ok := exprMap[field.Name()]; ok {
+			var fieldName = field.Name()
+			if expr, ok := exprMap[fieldName]; ok {
 				info.FieldInfo.Fields = append(info.FieldInfo.Fields, &exprField{
 					Field: field,
 					expr:  expr,
@@ -2832,13 +2848,13 @@ func (qs *QuerySet[T]) Delete(objects ...T) (int64, error) {
 //
 // It returns a *sql.Rows object that can be used to iterate over the results.
 // The same transaction and context as the rest of the QuerySet will be used.
-func (qs *QuerySet[T]) Raw(sqlStr string, args ...interface{}) (*sql.Rows, error) {
+func (qs *QuerySet[T]) Raw(sqlStr string, args ...interface{}) (drivers.SQLRows, error) {
 	return qs.compiler.DB().QueryContext(qs.Context(), sqlStr, args...)
 }
 
 // Row is used to execute a raw SQL query on the compilers' current database
 // and returns a single row.
-func (qs *QuerySet[T]) Row(sqlStr string, args ...interface{}) *sql.Row {
+func (qs *QuerySet[T]) Row(sqlStr string, args ...interface{}) drivers.SQLRow {
 	return qs.compiler.DB().QueryRowContext(qs.Context(), sqlStr, args...)
 }
 

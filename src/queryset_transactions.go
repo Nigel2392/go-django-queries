@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	"github.com/Nigel2392/go-django/src/core/logger"
@@ -13,11 +14,11 @@ import (
 type transactionContextKey struct{}
 
 type transactionContextValue struct {
-	Transaction  Transaction
+	Transaction  drivers.Transaction
 	DatabaseName string
 }
 
-func transactionFromContext(ctx context.Context) (tx Transaction, databaseName string, ok bool) {
+func transactionFromContext(ctx context.Context) (tx drivers.Transaction, databaseName string, ok bool) {
 	t, ok := ctx.Value(transactionContextKey{}).(*transactionContextValue)
 	if !ok {
 		return nil, "", false
@@ -25,7 +26,7 @@ func transactionFromContext(ctx context.Context) (tx Transaction, databaseName s
 	return t.Transaction, t.DatabaseName, t.Transaction != nil
 }
 
-func transactionToContext(ctx context.Context, tx Transaction, dbName string) context.Context {
+func transactionToContext(ctx context.Context, tx drivers.Transaction, dbName string) context.Context {
 	if tx == nil {
 		panic("transactionToContext: transaction is nil")
 	}

@@ -1,9 +1,10 @@
 package quest
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	sqle "github.com/dolthub/go-mysql-server"
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/server"
@@ -11,7 +12,7 @@ import (
 )
 
 type QuestDatabase interface {
-	DB() (*sql.DB, error)
+	DB() (drivers.Database, error)
 	Start() error
 	Stop() error
 }
@@ -28,12 +29,12 @@ type inMemoryDatabase struct {
 	config *DatabaseConfig
 }
 
-func (d *inMemoryDatabase) DB() (*sql.DB, error) {
+func (d *inMemoryDatabase) DB() (drivers.Database, error) {
 	var dsn = fmt.Sprintf(
 		"root@tcp(%s)/%s?parseTime=true&multiStatements=true&interpolateParams=true",
 		d.config.ServerConfig.Address, d.config.DBName,
 	)
-	var db, err = sql.Open("mysql", dsn)
+	var db, err = drivers.Open(context.Background(), "mysql", dsn)
 	if err != nil {
 		return nil, err
 	}

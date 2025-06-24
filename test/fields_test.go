@@ -1,7 +1,6 @@
 package queries_test
 
 import (
-	"database/sql"
 	"slices"
 	"strings"
 	"testing"
@@ -977,7 +976,7 @@ func TestWhereFilterVirtualFieldAliassed(t *testing.T) {
 
 func TestSubquery(t *testing.T) {
 
-	var db = django.ConfigGet[*sql.DB](
+	var db = django.ConfigGet[drivers.Database](
 		django.Global.Settings,
 		django.APPVAR_DATABASE,
 	)

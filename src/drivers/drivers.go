@@ -1,9 +1,11 @@
 package drivers
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 
+	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/go-sql-driver/mysql"
 	pg_stdlib "github.com/jackc/pgx/v5/stdlib"
 	"github.com/mattn/go-sqlite3"
@@ -11,8 +13,54 @@ import (
 	"reflect"
 )
 
+type Driver struct {
+	Name              string
+	SupportsReturning SupportsReturningType
+	Driver            driver.Driver
+	Open              func(ctx context.Context, dsn string) (Database, error)
+}
+
+type driverRegistry struct {
+	byName map[string]*Driver
+	byType map[reflect.Type]*Driver
+}
+
+var drivers = &driverRegistry{
+	byName: make(map[string]*Driver),
+	byType: make(map[reflect.Type]*Driver),
+}
+
 func init() {
 	sql.Register("mariadb", DriverMariaDB{})
+
+	Register("sqlite3", Driver{
+		SupportsReturning: SupportsReturningColumns,
+		Driver:            &DriverSQLite{},
+		Open: func(ctx context.Context, dsn string) (Database, error) {
+			return OpenSQL("sqlite3", dsn)
+		},
+	})
+	Register("mysql", Driver{
+		SupportsReturning: SupportsReturningLastInsertId,
+		Driver:            &DriverMySQL{},
+		Open: func(ctx context.Context, dsn string) (Database, error) {
+			return OpenSQL("mysql", dsn)
+		},
+	})
+	Register("mariadb", Driver{
+		SupportsReturning: SupportsReturningColumns,
+		Driver:            &DriverMariaDB{},
+		Open: func(ctx context.Context, dsn string) (Database, error) {
+			return OpenSQL("mariadb", dsn)
+		},
+	})
+	Register("postgres", Driver{
+		SupportsReturning: SupportsReturningColumns,
+		Driver:            &DriverPostgres{},
+		Open: func(ctx context.Context, dsn string) (Database, error) {
+			return OpenPGX(ctx, dsn)
+		},
+	})
 }
 
 /*
@@ -28,8 +76,6 @@ const (
 	SupportsReturningLastInsertId SupportsReturningType = "last_insert_id"
 	SupportsReturningColumns      SupportsReturningType = "columns"
 )
-
-var Drivers = make(map[reflect.Type]driverData)
 
 type (
 	DriverPostgres = pg_stdlib.Driver
@@ -61,45 +107,87 @@ func (c *connectorMariaDB) Driver() driver.Driver {
 	return &DriverMariaDB{}
 }
 
-type driverData struct {
-	Name              string
-	SupportsReturning SupportsReturningType
-}
-
-// RegisterDriver registers a driver with the given database name.
-//
-// This is used to determine the database type when using sqlx.
-//
-// If your driver is not one of:
-// - github.com/go-sql-driver/mysql.MySQLDriver
-// - github.com/mattn/go-sqlite3.SQLiteDriver
-// - github.com/jackc/pgx/v5/stdlib.Driver
-//
-// Then it explicitly needs to be registered here.
-func RegisterDriver(driver driver.Driver, database string, supportsReturning ...SupportsReturningType) {
-	var s SupportsReturningType
-	if len(supportsReturning) > 0 {
-		s = supportsReturning[0]
-	}
-	Drivers[reflect.TypeOf(driver)] = driverData{
-		Name:              database,
-		SupportsReturning: s,
-	}
-}
-
 // SupportsReturning returns the type of returning supported by the database.
 // It can be one of the following:
 //
 // - SupportsReturningNone: no returning supported
 // - SupportsReturningLastInsertId: last insert id supported
 // - SupportsReturningColumns: returning columns supported
-func SupportsReturning(db *sql.DB) SupportsReturningType {
-	var driver = reflect.TypeOf(db.Driver())
-	if driver == nil {
+func SupportsReturning(db interface{ Driver() driver.Driver }) SupportsReturningType {
+	var d, ok = Retrieve(db.Driver())
+	if !ok {
 		return SupportsReturningNone
 	}
-	if data, ok := Drivers[driver]; ok {
-		return data.SupportsReturning
+	return d.SupportsReturning
+}
+
+// Change allows you to change a driver's properties within a function.
+func Change(name string, fn func(driver *Driver)) {
+	if driver, exists := drivers.byName[name]; exists {
+		fn(driver)
+	} else {
+		panic("driver not found: " + name)
 	}
-	return SupportsReturningNone
+}
+
+// Register registers a driver with the given database name.
+//
+// This is used to:
+// - determine the proper returning support for the driver
+// - open a database connection using the registered opener
+//
+// If your driver is not one of:
+// - github.com/go-django-queries/src/drivers.DriverMariaDB
+// - github.com/go-sql-driver/mysql.MySQLDriver
+// - github.com/mattn/go-sqlite3.SQLiteDriver
+// - github.com/jackc/pgx/v5/stdlib.Driver
+//
+// Then it explicitly needs to be registered here.
+func Register(name string, driver Driver) {
+	switch {
+	case (name == "" && driver.Name == ""):
+		panic("name or driver cannot be empty")
+	case name != "" && driver.Name != "" && name != driver.Name:
+		panic("name and driver.Name must match")
+	case driver.Driver == nil:
+		panic("driver.Driver cannot be nil")
+	case driver.Open == nil:
+		panic("driver.Open cannot be nil")
+	case name != "" || driver.Name != "":
+		if name == "" {
+			name = driver.Name
+		}
+		driver.Name = name
+	}
+
+	drivers.byName[name] = &driver
+	drivers.byType[reflect.TypeOf(driver.Driver)] = &driver
+}
+
+// Retrieve retrieves the driver by name or type.
+func Retrieve(nameOrType any) (*Driver, bool) {
+	switch v := nameOrType.(type) {
+	case string:
+		driver, exists := drivers.byName[v]
+		return driver, exists
+	case reflect.Type:
+		driver, exists := drivers.byType[v]
+		return driver, exists
+	case driver.Driver:
+		return Retrieve(reflect.TypeOf(v))
+	case interface{ Driver() driver.Driver }:
+		return Retrieve(reflect.TypeOf(v.Driver()))
+	}
+	panic("nameOrType must be a string, reflect.Type, or driver.Driver")
+}
+
+// Open opens a database connection using the registered opener for the given driver name.
+//
+// This should always be used instead of directly using sql.Open or pgx.Connect.
+func Open(ctx context.Context, driverName, dsn string) (Database, error) {
+	opener, exists := drivers.byName[driverName]
+	if !exists {
+		return nil, query_errors.ErrUnknownDriver
+	}
+	return opener.Open(ctx, dsn)
 }

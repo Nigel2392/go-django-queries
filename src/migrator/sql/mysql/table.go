@@ -19,7 +19,7 @@ var _ migrator.SchemaEditor = &MySQLSchemaEditor{}
 
 func init() {
 	migrator.RegisterSchemaEditor(&drivers.DriverMySQL{}, func() (migrator.SchemaEditor, error) {
-		var db, ok = django.ConfigGetOK[*sql.DB](
+		var db, ok = django.ConfigGetOK[drivers.Database](
 			django.Global.Settings,
 			django.APPVAR_DATABASE,
 		)
@@ -30,7 +30,7 @@ func init() {
 	})
 
 	migrator.RegisterSchemaEditor(&drivers.DriverMariaDB{}, func() (migrator.SchemaEditor, error) {
-		var db, ok = django.ConfigGetOK[*sql.DB](
+		var db, ok = django.ConfigGetOK[drivers.Database](
 			django.Global.Settings,
 			django.APPVAR_DATABASE,
 		)
@@ -56,11 +56,11 @@ const (
 )
 
 type MySQLSchemaEditor struct {
-	db            *sql.DB
+	db            drivers.Database
 	tablesCreated bool
 }
 
-func NewMySQLSchemaEditor(db *sql.DB) *MySQLSchemaEditor {
+func NewMySQLSchemaEditor(db drivers.Database) *MySQLSchemaEditor {
 	return &MySQLSchemaEditor{db: db}
 }
 
@@ -68,7 +68,7 @@ func (m *MySQLSchemaEditor) Setup() error {
 	if m.tablesCreated {
 		return nil
 	}
-	_, err := m.db.Exec(createTableMigrations)
+	_, err := m.db.ExecContext(context.Background(), createTableMigrations)
 	if err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func (m *MySQLSchemaEditor) RemoveMigration(appName, modelName, migrationName st
 	return err
 }
 
-func (m *MySQLSchemaEditor) queryRow(ctx context.Context, query string, args ...any) *sql.Row {
+func (m *MySQLSchemaEditor) queryRow(ctx context.Context, query string, args ...any) drivers.SQLRow {
 	// logger.Debugf("MySQLSchemaEditor.QueryRowContext:\n%s", query)
 	return m.db.QueryRowContext(ctx, query, args...)
 }

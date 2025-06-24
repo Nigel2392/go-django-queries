@@ -3,10 +3,11 @@
 package queries_test
 
 import (
-	"database/sql"
+	"context"
 	"os"
 	"time"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/logger"
 )
@@ -15,7 +16,7 @@ var db_tag = "mysql"
 
 func init() {
 	// make db globally available
-	var db, err = sql.Open("mysql", "root:my-secret-pw@tcp(127.0.0.1:3306)/queries_test?parseTime=true&multiStatements=true&interpolateParams=true")
+	var db, err = drivers.Open(context.Background(), "mysql", "root:my-secret-pw@tcp(127.0.0.1:3306)/queries_test?parseTime=true&multiStatements=true&interpolateParams=true")
 	if err != nil {
 		panic(err)
 	}
@@ -45,5 +46,5 @@ func init() {
 		time.Sleep(5 * time.Second)
 	}
 
-	db.Exec("SET SESSION sql_mode = REPLACE(@@sql_mode, 'ONLY_FULL_GROUP_BY', '')")
+	db.ExecContext(context.Background(), "SET SESSION sql_mode = REPLACE(@@sql_mode, 'ONLY_FULL_GROUP_BY', '')")
 }

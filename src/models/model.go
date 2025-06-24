@@ -8,6 +8,7 @@ import (
 	"reflect"
 
 	queries "github.com/Nigel2392/go-django-queries/src"
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/fields"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/assert"
@@ -870,7 +871,7 @@ func (m *Model) SaveObject(ctx context.Context, cnf SaveConfig) (err error) {
 	}
 
 	// Start transaction, if one was already started this is a no-op.
-	var transaction queries.Transaction
+	var transaction drivers.Transaction
 	if queries.QUERYSET_CREATE_IMPLICIT_TRANSACTION {
 		ctx, transaction, err = queries.StartTransaction(ctx)
 		if err != nil {

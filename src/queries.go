@@ -2,7 +2,6 @@ package queries
 
 import (
 	"context"
-	"database/sql"
 	"database/sql/driver"
 	"fmt"
 	"reflect"
@@ -402,29 +401,9 @@ type QuerySetDatabaseDefiner interface {
 	QuerySetDatabase() string
 }
 
-// This interface is compatible with `*sql.DB` and `*sql.Tx`.
-//
-// It is used for simple transaction management in the queryset.
-//
-// If a transaction was started, the queryset will return the transaction instead of the database connection.
-type DB interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
-// This interface is compatible with `*sql.Tx`.
-//
-// It is used for simple transaction management in the queryset.
-type Transaction interface {
-	DB
-	Commit() error
-	Rollback() error
-}
-
 // DatabaseSpecificTransaction is an interface for transactions that are specific to a database.
 type DatabaseSpecificTransaction interface {
-	Transaction
+	drivers.Transaction
 	DatabaseName() string
 }
 
@@ -479,7 +458,7 @@ type QueryCompiler interface {
 	// DB returns the database connection used by the query compiler.
 	//
 	// If a transaction was started, it will return the transaction instead of the database connection.
-	DB() DB
+	DB() drivers.DB
 
 	// Quote returns the quotes used by the database.
 	//
@@ -495,7 +474,7 @@ type QueryCompiler interface {
 	// FormatColumn formats the given field column to be used in a query.
 	// It should return the column name with the quotes applied.
 	// Expressions should use this method to format the column name.
-	FormatColumn(info *expr.ExpressionInfo, tableColumn *expr.TableColumn) (string, []any)
+	FormatColumn(tableColumn *expr.TableColumn) (string, []any)
 
 	// SupportsReturning returns the type of returning supported by the database.
 	// It can be one of the following:
@@ -506,13 +485,13 @@ type QueryCompiler interface {
 	SupportsReturning() drivers.SupportsReturningType
 
 	// StartTransaction starts a new transaction.
-	StartTransaction(ctx context.Context) (Transaction, error)
+	StartTransaction(ctx context.Context) (drivers.Transaction, error)
 
 	// WithTransaction wraps the transaction and binds it to the compiler.
-	WithTransaction(tx Transaction) (Transaction, error)
+	WithTransaction(tx drivers.Transaction) (drivers.Transaction, error)
 
 	// Transaction returns the current transaction if one is active.
-	Transaction() Transaction
+	Transaction() drivers.Transaction
 
 	// InTransaction returns true if the current query compiler is in a transaction.
 	InTransaction() bool

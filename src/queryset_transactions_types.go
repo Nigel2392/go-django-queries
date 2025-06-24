@@ -5,15 +5,16 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/query_errors"
 	"github.com/Nigel2392/go-django/src/core/logger"
 )
 
 type nullTransaction struct {
-	DB
+	drivers.DB
 }
 
-func NullTransction() Transaction {
+func NullTransction() drivers.Transaction {
 	return &nullTransaction{DB: nil}
 }
 
@@ -26,7 +27,7 @@ func (n *nullTransaction) Commit() error {
 }
 
 type dbSpecificTransaction struct {
-	Transaction
+	drivers.Transaction
 	dbName string
 }
 
@@ -35,7 +36,7 @@ func (c *dbSpecificTransaction) DatabaseName() string {
 }
 
 type wrappedTransaction struct {
-	Transaction
+	drivers.Transaction
 	compiler *genericQueryBuilder
 }
 

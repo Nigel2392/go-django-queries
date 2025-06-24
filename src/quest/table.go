@@ -1,11 +1,13 @@
 package quest
 
 import (
-	"database/sql"
+	"context"
+	"database/sql/driver"
 	"fmt"
 	"reflect"
 	"testing"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/core/attrs"
@@ -23,17 +25,17 @@ func Table[T testing.TB](t T, model ...attrs.Definer) *DBTables[T] {
 	}
 
 	var (
-		db    *sql.DB
+		db    interface{ Driver() driver.Driver }
 		err   error
 		table = &DBTables[T]{}
 	)
 	if django.Global != nil && django.Global.Settings != nil {
-		db = django.ConfigGet[*sql.DB](
+		db = django.ConfigGet[interface{ Driver() driver.Driver }](
 			django.Global.Settings,
 			django.APPVAR_DATABASE,
 		)
 	} else {
-		db, err = sql.Open("sqlite3", "file:quest_memory?mode=memory")
+		db, err = drivers.Open(context.Background(), "sqlite3", "file:quest_memory?mode=memory")
 		if err != nil {
 			table.fatalf("Failed to open database: %v", err)
 			return nil
@@ -60,6 +62,7 @@ func (t *DBTables[T]) fatal(args ...interface{}) {
 	if reflect.ValueOf(t.t).IsNil() {
 		panic(fmt.Sprint(args...))
 	}
+	t.t.Helper()
 	t.t.Fatal(args...)
 }
 
@@ -67,6 +70,7 @@ func (t *DBTables[T]) fatalf(format string, args ...interface{}) {
 	if reflect.ValueOf(t.t).IsNil() {
 		panic(fmt.Sprintf(format, args...))
 	}
+	t.t.Helper()
 	t.t.Fatalf(format, args...)
 }
 

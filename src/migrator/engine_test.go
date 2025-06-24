@@ -33,7 +33,7 @@ func TestMigrator(t *testing.T) {
 				django.FlagSkipCmds,
 			),
 		).Initialize()
-		// db, _ = sql.Open("sqlite3", "file:./migrator_test.db")
+		// db, _ = drivers.Open(context.Background(),"sqlite3", "file:./migrator_test.db")
 		// tmpDir = t.TempDir()
 		tmpDir = "./migrations"
 		editor = testsql.NewTestMigrationEngine(t)

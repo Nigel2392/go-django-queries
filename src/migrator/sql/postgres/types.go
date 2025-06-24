@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"database/sql"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -29,6 +30,14 @@ func init() {
 	migrator.RegisterColumnKind(&drivers.DriverPostgres{}, []reflect.Kind{reflect.Array, reflect.Slice, reflect.Map}, Type__string)
 
 	// register types
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, drivers.Text(""), Type__string)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, drivers.String(""), Type__string)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, drivers.Int(0), Type__int)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, drivers.Bytes(nil), Type__blob)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, drivers.Bool(false), Type__bool)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, drivers.Float(0.0), Type__float)
+	migrator.RegisterColumnType(&drivers.DriverPostgres{}, drivers.Time{}, Type__datetime)
+
 	migrator.RegisterColumnType(&drivers.DriverPostgres{}, (*contenttypes.ContentType)(nil), Type__string)
 	migrator.RegisterColumnType(&drivers.DriverPostgres{}, contenttypes.BaseContentType[attrs.Definer]{}, Type__string)
 	migrator.RegisterColumnType(&drivers.DriverPostgres{}, sql.NullString{}, Type__string)
@@ -46,6 +55,18 @@ func init() {
 func Type__string(c *migrator.Column) string {
 	var max int64 = c.MaxLength
 
+	if c.FieldType() == reflect.TypeOf(drivers.Text("")) {
+		// If the field is of type drivers.Text, we use TEXT type
+		return "TEXT"
+	}
+
+	if c.FieldType() == reflect.TypeOf(drivers.String("")) && (max == 0 || max <= 255) {
+		if max > 0 && max <= 255 {
+			return fmt.Sprintf("VARCHAR(%d)", max)
+		}
+		return "VARCHAR(255)"
+	}
+
 	if max == 0 {
 		return "TEXT"
 	}
@@ -55,6 +76,15 @@ func Type__string(c *migrator.Column) string {
 	sb.WriteString(strconv.FormatInt(max, 10))
 	sb.WriteString(")")
 	return sb.String()
+}
+
+func Type__blob(c *migrator.Column) string {
+	if c.FieldType() == reflect.TypeOf(drivers.Bytes(nil)) || c.FieldType() == reflect.TypeOf([]byte{}) {
+		return "BYTEA"
+	}
+
+	// For other types, we can use TEXT as a fallback
+	return "TEXT"
 }
 
 func Type__float(c *migrator.Column) string {

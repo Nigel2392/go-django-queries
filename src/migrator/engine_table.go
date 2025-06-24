@@ -80,15 +80,15 @@ func (i Index) String() string {
 	return sb.String()
 }
 
-func (i Index) Columns() []string {
-	var cols = make([]string, 0, len(i.Fields))
+func (i Index) Columns() []Column {
+	var cols = make([]Column, 0, len(i.Fields))
 	for _, col := range i.Fields {
 		var tableCol, ok = i.table.Fields.Get(col)
 		if !ok {
 			panic(fmt.Sprintf("column %s not found in table %s", col, i.table.TableName()))
 		}
 
-		cols = append(cols, tableCol.Column)
+		cols = append(cols, tableCol)
 	}
 
 	return cols

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Nigel2392/go-django-queries/src/drivers"
 	"github.com/Nigel2392/go-django-queries/src/migrator"
 	"github.com/Nigel2392/go-django/src/core/attrs"
 	pg_stdlib "github.com/jackc/pgx/v5/stdlib"
@@ -79,6 +80,12 @@ var postgresTests = []test{
 			MinLength: 0,
 		},
 		Expect: "VARCHAR(5)",
+	},
+	&tableTypeTest[drivers.Text]{
+		Expect: "TEXT",
+	},
+	&tableTypeTest[drivers.String]{
+		Expect: "VARCHAR(255)",
 	},
 	&tableTypeTest[bool]{
 		Expect: "BOOLEAN",

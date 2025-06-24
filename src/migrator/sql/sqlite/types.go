@@ -28,6 +28,14 @@ func init() {
 	migrator.RegisterColumnKind(&drivers.DriverSQLite{}, []reflect.Kind{reflect.Array, reflect.Slice, reflect.Map}, Type__string) // SQLite does not have a native array type, so we use string for JSON
 
 	// register types
+	migrator.RegisterColumnType(&drivers.DriverSQLite{}, drivers.Text(""), Type__string)
+	migrator.RegisterColumnType(&drivers.DriverSQLite{}, drivers.String(""), Type__string)
+	migrator.RegisterColumnType(&drivers.DriverSQLite{}, drivers.Int(0), Type__int)
+	migrator.RegisterColumnType(&drivers.DriverSQLite{}, drivers.Bytes(nil), Type__blob)
+	migrator.RegisterColumnType(&drivers.DriverSQLite{}, drivers.Bool(false), Type__bool)
+	migrator.RegisterColumnType(&drivers.DriverSQLite{}, drivers.Float(0.0), Type__float)
+	migrator.RegisterColumnType(&drivers.DriverSQLite{}, drivers.Time{}, Type__datetime)
+
 	migrator.RegisterColumnType(&drivers.DriverSQLite{}, (*contenttypes.ContentType)(nil), Type__string)
 	migrator.RegisterColumnType(&drivers.DriverSQLite{}, contenttypes.BaseContentType[attrs.Definer]{}, Type__string)
 	migrator.RegisterColumnType(&drivers.DriverSQLite{}, sql.NullString{}, Type__string)

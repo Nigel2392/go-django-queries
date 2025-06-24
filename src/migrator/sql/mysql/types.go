@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"database/sql"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -29,6 +30,14 @@ func init() {
 	migrator.RegisterColumnKind(&drivers.DriverMySQL{}, []reflect.Kind{reflect.Array, reflect.Slice, reflect.Map}, Type__string) // MySQL does not have a native array type, so we use string for JSON
 
 	// register types
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, drivers.Text(""), Type__string)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, drivers.String(""), Type__string)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, drivers.Int(0), Type__int)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, drivers.Bytes(nil), Type__blob)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, drivers.Bool(false), Type__bool)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, drivers.Float(0.0), Type__float)
+	migrator.RegisterColumnType(&drivers.DriverMySQL{}, drivers.Time{}, Type__datetime)
+
 	migrator.RegisterColumnType(&drivers.DriverMySQL{}, (*contenttypes.ContentType)(nil), Type__string)
 	migrator.RegisterColumnType(&drivers.DriverMySQL{}, contenttypes.BaseContentType[attrs.Definer]{}, Type__string)
 	migrator.RegisterColumnType(&drivers.DriverMySQL{}, sql.NullString{}, Type__string)
@@ -51,6 +60,14 @@ func init() {
 	migrator.RegisterColumnKind(&drivers.DriverMariaDB{}, []reflect.Kind{reflect.Array, reflect.Slice, reflect.Map}, Type__string) // MySQL does not have a native array type, so we use string for JSON
 
 	// register types
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, drivers.Text(""), Type__string)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, drivers.String(""), Type__string)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, drivers.Int(0), Type__int)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, drivers.Bytes(nil), Type__blob)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, drivers.Bool(false), Type__bool)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, drivers.Float(0.0), Type__float)
+	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, drivers.Time{}, Type__datetime)
+
 	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, (*contenttypes.ContentType)(nil), Type__string)
 	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, contenttypes.BaseContentType[attrs.Definer]{}, Type__string)
 	migrator.RegisterColumnType(&drivers.DriverMariaDB{}, sql.NullString{}, Type__string)
@@ -68,12 +85,38 @@ func init() {
 
 func Type__string(c *migrator.Column) string {
 	var max int64 = c.MaxLength
+
+	if c.FieldType() == reflect.TypeOf(drivers.Text("")) {
+		// If the field is of type drivers.Text, we use TEXT type
+		return "TEXT"
+	}
+
+	if c.FieldType() == reflect.TypeOf(drivers.String("")) && (max == 0 || max <= 255) {
+		if max > 0 && max <= 255 {
+			return fmt.Sprintf("VARCHAR(%d)", max)
+		}
+		return "VARCHAR(255)"
+	}
+
 	if max == 0 {
 		return "TEXT"
 	}
 
 	var sb = new(strings.Builder)
 	sb.WriteString("VARCHAR(")
+	sb.WriteString(strconv.FormatInt(max, 10))
+	sb.WriteString(")")
+	return sb.String()
+}
+
+func Type__blob(c *migrator.Column) string {
+	var max int64 = c.MaxLength
+	if max == 0 {
+		return "BLOB"
+	}
+
+	var sb = new(strings.Builder)
+	sb.WriteString("VARBINARY(")
 	sb.WriteString(strconv.FormatInt(max, 10))
 	sb.WriteString(")")
 	return sb.String()

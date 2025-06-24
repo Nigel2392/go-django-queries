@@ -200,7 +200,7 @@ func (m *SQLiteSchemaEditor) AddIndex(table migrator.Table, index migrator.Index
 			w.WriteString(", ")
 		}
 		w.WriteString("`")
-		w.WriteString(col)
+		w.WriteString(col.Column)
 		w.WriteString("`")
 	}
 	w.WriteString(")")

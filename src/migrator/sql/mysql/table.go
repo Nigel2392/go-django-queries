@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -156,14 +157,29 @@ func (m *MySQLSchemaEditor) RenameTable(table migrator.Table, newName string) er
 }
 
 func (m *MySQLSchemaEditor) AddIndex(table migrator.Table, index migrator.Index, ifNotExists bool) error {
+
+	if ifNotExists {
+		// MySQL does not support IF NOT EXISTS for CREATE INDEX, so we need to check manually.
+		var exists bool
+		err := m.queryRow(context.Background(),
+			"SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?",
+			table.TableName(), index.Name(),
+		).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("failed to check if index exists: %w", err)
+		}
+		if exists {
+			// Index already exists, nothing to do
+			logger.Debugf("Index `%s` on table `%s` already exists, skipping creation.", index.Name(), table.TableName())
+			return nil
+		}
+	}
+
 	var w strings.Builder
 	if index.Unique {
 		w.WriteString("CREATE UNIQUE INDEX")
 	} else {
 		w.WriteString("CREATE INDEX")
-	}
-	if ifNotExists {
-		w.WriteString(" IF NOT EXISTS")
 	}
 	w.WriteString(" `")
 	w.WriteString(index.Name())
@@ -175,8 +191,21 @@ func (m *MySQLSchemaEditor) AddIndex(table migrator.Table, index migrator.Index,
 			w.WriteString(", ")
 		}
 		w.WriteString("`")
-		w.WriteString(col)
+		w.WriteString(col.Column)
 		w.WriteString("`")
+		var fieldType = col.FieldType()
+		switch {
+		case fieldType.Kind() == reflect.String:
+
+			if col.MaxLength > 0 {
+				w.WriteString("`(")
+				w.WriteString(fmt.Sprintf("%d", col.MaxLength))
+				w.WriteString(")`")
+			} else {
+				// MySQL does not support VARCHAR without length, so we assume a default length
+				w.WriteString("`(255)`")
+			}
+		}
 	}
 	w.WriteString(");")
 	_, err := m.Execute(context.Background(), w.String())

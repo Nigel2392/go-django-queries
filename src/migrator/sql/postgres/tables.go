@@ -154,8 +154,21 @@ func (m *PostgresSchemaEditor) AddIndex(table migrator.Table, index migrator.Ind
 			w.WriteString(", ")
 		}
 		w.WriteString(`"`)
-		w.WriteString(col)
+		w.WriteString(col.Column)
 		w.WriteString(`"`)
+		var fieldType = col.FieldType()
+		switch {
+		case fieldType.Kind() == reflect.String:
+
+			if col.MaxLength > 0 {
+				w.WriteString("(")
+				w.WriteString(fmt.Sprintf("%d", col.MaxLength))
+				w.WriteString(")")
+			} else {
+				// MySQL does not support VARCHAR without length, so we assume a default length
+				w.WriteString("(255)")
+			}
+		}
 	}
 	w.WriteString(");")
 

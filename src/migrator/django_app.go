@@ -2,6 +2,7 @@ package migrator
 
 import (
 	"database/sql"
+	"io/fs"
 
 	django "github.com/Nigel2392/go-django/src"
 	"github.com/Nigel2392/go-django/src/apps"
@@ -12,20 +13,19 @@ const (
 	DEFAULT_MIGRATION_DIR = "./migrations"
 )
 
-//
-//type MigrationAppConfig interface {
-//	django.AppConfig
-//	GetMigrationFS() fs.FS
-//}
-//
-//type MigratorAppConfig struct {
-//	django.AppConfig
-//	MigrationFS fs.FS
-//}
-//
-//func (m *MigratorAppConfig) GetMigrationFS() fs.FS {
-//	return m.MigrationFS
-//}
+type MigrationAppConfig interface {
+	django.AppConfig
+	GetMigrationFS() fs.FS
+}
+
+type MigratorAppConfig struct {
+	django.AppConfig
+	MigrationFS fs.FS
+}
+
+func (m *MigratorAppConfig) GetMigrationFS() fs.FS {
+	return m.MigrationFS
+}
 
 type migratorAppConfig struct {
 	*apps.DBRequiredAppConfig

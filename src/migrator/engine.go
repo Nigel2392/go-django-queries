@@ -137,10 +137,10 @@ type MigrationEngine struct {
 	// This is used to execute SQL commands for creating, modifying, and deleting tables and columns.
 	SchemaEditor SchemaEditor
 
-	//	// MigrationFilesystems is the list of migration filesystems used to load the migration files.
-	//	//
-	//	// It is a map of application names to a slice of fs.FileSystem interfaces.
-	// MigrationFilesystems map[string]fs.FS
+	// MigrationFilesystems is the list of migration filesystems used to load the migration files.
+	//
+	// It is a map of application names to a slice of fs.FileSystem interfaces.
+	MigrationFilesystems map[string]fs.FS
 
 	// Migrations is the list of migration files that have been applied to the database.
 	//
@@ -165,41 +165,41 @@ type MigrationEngine struct {
 
 func NewMigrationEngine(path string, schemaEditor SchemaEditor, apps ...string) *MigrationEngine {
 	var (
-		appMap = orderedmap.NewOrderedMap[string, django.AppConfig]()
-		// migrationDirectories = make(map[string]fs.FS)
+		appMap               = orderedmap.NewOrderedMap[string, django.AppConfig]()
+		migrationDirectories = make(map[string]fs.FS)
 	)
 
 	if len(apps) == 0 {
 		appMap = django.Global.Apps
-		// for head := appMap.Front(); head != nil; head = head.Next() {
-		// var app = head.Value
-		// if mgAppCnf, ok := app.(MigrationAppConfig); ok {
-		// var fs = mgAppCnf.GetMigrationFS()
-		// if fs != nil {
-		// migrationDirectories[head.Key] = fs
-		// }
-		// }
-		// }
+		for head := appMap.Front(); head != nil; head = head.Next() {
+			var app = head.Value
+			if mgAppCnf, ok := app.(MigrationAppConfig); ok {
+				var fs = mgAppCnf.GetMigrationFS()
+				if fs != nil {
+					migrationDirectories[head.Key] = fs
+				}
+			}
+		}
 	} else {
 		for _, app := range apps {
 			var appConfig = django.GetApp[django.AppConfig](app)
 
-			// if mgAppCnf, ok := appConfig.(MigrationAppConfig); ok {
-			// var fs = mgAppCnf.GetMigrationFS()
-			// if fs != nil {
-			// migrationDirectories[app] = fs
-			// }
-			// }
+			if mgAppCnf, ok := appConfig.(MigrationAppConfig); ok {
+				var fs = mgAppCnf.GetMigrationFS()
+				if fs != nil {
+					migrationDirectories[app] = fs
+				}
+			}
 
 			appMap.Set(app, appConfig)
 		}
 	}
 
 	return &MigrationEngine{
-		Path:         path,
-		SchemaEditor: schemaEditor,
-		// MigrationFilesystems: migrationDirectories,
-		apps: appMap,
+		Path:                 path,
+		SchemaEditor:         schemaEditor,
+		MigrationFilesystems: migrationDirectories,
+		apps:                 appMap,
 	}
 }
 
@@ -861,42 +861,42 @@ func (e *MigrationEngine) ReadMigrations() ([]*MigrationFile, error) {
 
 	var migrations = make([]*MigrationFile, 0)
 
-	//for appName, fSys := range e.MigrationFilesystems {
-	//	var app, ok = e.apps.Get(appName)
-	//	if !ok || app == nil {
-	//		return nil, fmt.Errorf("app %q not found in migration engines' apps list", appName)
-	//	}
-	//
-	//	var models = app.Models()
-	//	for _, model := range models {
-	//
-	//		var cType = contenttypes.NewContentType(model)
-	//		var modelMigrationPath = cType.Model()
-	//
-	//		modelMigrationPath = filepath.FromSlash(modelMigrationPath)
-	//		modelMigrationPath = filepath.ToSlash(modelMigrationPath)
-	//
-	//		var modelMigrationDir, err = fs.ReadDir(fSys, modelMigrationPath)
-	//		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-	//			return nil, errors.Wrapf(
-	//				err, "failed to read migration directory %q", modelMigrationPath,
-	//			)
-	//		} else if err != nil || len(modelMigrationDir) == 0 {
-	//			continue
-	//		}
-	//
-	//		migrationFiles, err := e.readMigrationDirFS(
-	//			fSys, modelMigrationPath, appName, cType.Model(),
-	//		)
-	//		if err != nil {
-	//			return nil, errors.Wrapf(
-	//				err, "failed to read app's migration directory %q", modelMigrationPath,
-	//			)
-	//		}
-	//
-	//		migrations = append(migrations, migrationFiles...)
-	//	}
-	//}
+	for appName, fSys := range e.MigrationFilesystems {
+		var app, ok = e.apps.Get(appName)
+		if !ok || app == nil {
+			return nil, fmt.Errorf("app %q not found in migration engines' apps list", appName)
+		}
+
+		var models = app.Models()
+		for _, model := range models {
+
+			var cType = contenttypes.NewContentType(model)
+			var modelMigrationPath = cType.Model()
+
+			modelMigrationPath = filepath.FromSlash(modelMigrationPath)
+			modelMigrationPath = filepath.ToSlash(modelMigrationPath)
+
+			var modelMigrationDir, err = fs.ReadDir(fSys, modelMigrationPath)
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return nil, errors.Wrapf(
+					err, "failed to read migration directory %q", modelMigrationPath,
+				)
+			} else if err != nil || len(modelMigrationDir) == 0 {
+				continue
+			}
+
+			migrationFiles, err := e.readMigrationDirFS(
+				fSys, modelMigrationPath, appName, cType.Model(),
+			)
+			if err != nil {
+				return nil, errors.Wrapf(
+					err, "failed to read app's migration directory %q", modelMigrationPath,
+				)
+			}
+
+			migrations = append(migrations, migrationFiles...)
+		}
+	}
 
 	var path = filepath.FromSlash(e.Path)
 	path = filepath.ToSlash(path)

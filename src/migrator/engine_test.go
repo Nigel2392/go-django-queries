@@ -175,16 +175,16 @@ func TestMigrator(t *testing.T) {
 			t.Fatalf("expected 2 migrations, got %d", len(engine.Migrations["blog"]))
 		}
 
-		if len(engine.Migrations["auth"]["Profile"]) != 2 {
-			t.Fatalf("expected 2 migrations for Profile, got %d", len(engine.Migrations["auth"]["Profile"]))
+		if len(engine.Migrations["auth"]["Profile"]) != 6 {
+			t.Fatalf("expected 6 migrations for Profile, got %d", len(engine.Migrations["auth"]["Profile"]))
 		}
 
 		if len(engine.Migrations["todo"]["Todo"]) != 2 {
 			t.Fatalf("expected 2 migration for Todo, got %d", len(engine.Migrations["todo"]["Todo"]))
 		}
 
-		if len(engine.Migrations["auth"]["User"]) != 2 {
-			t.Fatalf("expected 2 migration for User, got %d", len(engine.Migrations["auth"]["User"]))
+		if len(engine.Migrations["auth"]["User"]) != 4 {
+			t.Fatalf("expected 4 migration for User, got %d", len(engine.Migrations["auth"]["User"]))
 		}
 
 		if len(latestMigrationProfile.Dependencies) != 1 {
@@ -268,16 +268,16 @@ func TestMigrator(t *testing.T) {
 			t.Fatalf("expected 2 migrations for 'blog', got %d", len(engine.Migrations["blog"]))
 		}
 
-		if len(engine.Migrations["auth"]["Profile"]) != 3 {
-			t.Fatalf("expected 3 migrations for Profile, got %d", len(engine.Migrations["auth"]["Profile"]))
+		if len(engine.Migrations["auth"]["Profile"]) != 7 {
+			t.Fatalf("expected 7 migrations for Profile, got %d", len(engine.Migrations["auth"]["Profile"]))
 		}
 
 		if len(engine.Migrations["todo"]["Todo"]) != 3 {
 			t.Fatalf("expected 3 migration for Todo, got %d", len(engine.Migrations["todo"]["Todo"]))
 		}
 
-		if len(engine.Migrations["auth"]["User"]) != 3 {
-			t.Fatalf("expected 3 migration for User, got %d", len(engine.Migrations["auth"]["User"]))
+		if len(engine.Migrations["auth"]["User"]) != 5 {
+			t.Fatalf("expected 5 migration for User, got %d", len(engine.Migrations["auth"]["User"]))
 		}
 
 		if len(latestMigrationProfile.Dependencies) != 1 {
@@ -363,16 +363,16 @@ func TestMigrator(t *testing.T) {
 			t.Fatalf("expected 2 migrations for 'blog', got %d", len(engine.Migrations["blog"]))
 		}
 
-		if len(engine.Migrations["auth"]["Profile"]) != 4 {
-			t.Fatalf("expected 4 migrations for Profile, got %d", len(engine.Migrations["auth"]["Profile"]))
+		if len(engine.Migrations["auth"]["Profile"]) != 8 {
+			t.Fatalf("expected 8 migrations for Profile, got %d", len(engine.Migrations["auth"]["Profile"]))
 		}
 
 		if len(engine.Migrations["todo"]["Todo"]) != 4 {
 			t.Fatalf("expected 4 migration for Todo, got %d", len(engine.Migrations["todo"]["Todo"]))
 		}
 
-		if len(engine.Migrations["auth"]["User"]) != 3 {
-			t.Fatalf("expected 3 migration for User, got %d", len(engine.Migrations["auth"]["User"]))
+		if len(engine.Migrations["auth"]["User"]) != 5 {
+			t.Fatalf("expected 5 migration for User, got %d", len(engine.Migrations["auth"]["User"]))
 		}
 
 		if len(latestMigrationProfile.Dependencies) != 0 {

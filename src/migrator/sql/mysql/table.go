@@ -198,12 +198,12 @@ func (m *MySQLSchemaEditor) AddIndex(table migrator.Table, index migrator.Index,
 		case fieldType.Kind() == reflect.String:
 
 			if col.MaxLength > 0 {
-				w.WriteString("`(")
+				w.WriteString("(")
 				w.WriteString(fmt.Sprintf("%d", col.MaxLength))
-				w.WriteString(")`")
+				w.WriteString(")")
 			} else {
 				// MySQL does not support VARCHAR without length, so we assume a default length
-				w.WriteString("`(255)`")
+				w.WriteString("(255)")
 			}
 		}
 	}

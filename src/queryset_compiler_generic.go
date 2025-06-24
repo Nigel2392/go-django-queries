@@ -19,6 +19,18 @@ import (
 	"github.com/pkg/errors"
 )
 
+var (
+	_ QueryCompiler = (*genericQueryBuilder)(nil)
+	_ QueryCompiler = (*postgresQueryBuilder)(nil)
+	_ QueryCompiler = (*mariaDBQueryBuilder)(nil)
+	_ QueryCompiler = (*mariaDBQueryBuilder)(nil)
+
+	_ RebindCompiler = (*genericQueryBuilder)(nil)
+	_ RebindCompiler = (*postgresQueryBuilder)(nil)
+	_ RebindCompiler = (*mariaDBQueryBuilder)(nil)
+	_ RebindCompiler = (*mariaDBQueryBuilder)(nil)
+)
+
 func init() {
 	RegisterCompiler(&drivers.DriverSQLite{}, NewGenericQueryBuilder)
 	RegisterCompiler(&drivers.DriverPostgres{}, NewPostgresQueryBuilder)
@@ -45,10 +57,11 @@ func newExpressionInfo(g *genericQueryBuilder, qs *QuerySet[attrs.Definer], i *Q
 		Model: attrs.NewObject[attrs.Definer](
 			qs.Model(),
 		),
-		Quote:       g.QuoteString,
-		AliasGen:    qs.AliasGen,
-		FormatField: g.FormatColumn,
-		Placeholder: generic_PLACEHOLDER,
+		Quote:           g.QuoteString,
+		QuoteIdentifier: g.QuoteIdentifier,
+		AliasGen:        qs.AliasGen,
+		FormatField:     g.FormatColumn,
+		Placeholder:     generic_PLACEHOLDER,
 		Lookups: expr.ExpressionLookupInfo{
 			PrepForLikeQuery: g.PrepForLikeQuery,
 			FormatLookupCol:  g.FormatLookupCol,
@@ -104,6 +117,10 @@ func (g *genericQueryBuilder) This() QueryCompiler {
 	return g.self
 }
 
+func (g *genericQueryBuilder) Rebind(s string) string {
+	return g.queryInfo.DBX(s)
+}
+
 func (g *genericQueryBuilder) DatabaseName() string {
 	return g.queryInfo.DatabaseName
 }
@@ -140,6 +157,16 @@ func (g *genericQueryBuilder) QuoteString(s string) string {
 		sb.WriteString(s)
 		sb.WriteString("'")
 	}
+	return sb.String()
+}
+
+func (g *genericQueryBuilder) QuoteIdentifier(s string) string {
+	var sb strings.Builder
+	var front, back = g.Quote()
+	sb.Grow(len(s) + len(front) + len(back))
+	sb.WriteString(front)
+	sb.WriteString(s)
+	sb.WriteString(back)
 	return sb.String()
 }
 
@@ -297,6 +324,13 @@ func (g *genericQueryBuilder) LookupPatternOperatorsRHS() map[string]string {
 		}
 	}
 	panic(fmt.Errorf("unknown database driver: %s", internal.SqlxDriverName(g.queryInfo.DB)))
+}
+
+func (g *genericQueryBuilder) ExpressionInfo(
+	qs *GenericQuerySet,
+	internals *QuerySetInternals,
+) *expr.ExpressionInfo {
+	return newExpressionInfo(g, qs, internals, false)
 }
 
 func (g *genericQueryBuilder) FormatColumn(col *expr.TableColumn) (string, []any) {
@@ -463,9 +497,12 @@ func (g *genericQueryBuilder) BuildSelectQuery(
 	}
 
 	return &QueryObject[[][]interface{}]{
-		Stmt:   g.queryInfo.DBX(query.String()),
-		Object: inf.Model,
-		Params: args,
+		QueryInformation: QueryInformation{
+			Stmt:    g.queryInfo.DBX(query.String()),
+			Object:  inf.Model,
+			Params:  args,
+			Builder: g,
+		},
 		Execute: func(sql string, args ...any) ([][]interface{}, error) {
 
 			rows, err := g.DB().QueryContext(ctx, sql, args...)
@@ -529,9 +566,13 @@ func (g *genericQueryBuilder) BuildCountQuery(
 	args = append(args, g.writeLimitOffset(query, internals.Limit, internals.Offset)...)
 
 	return &QueryObject[int64]{
-		Stmt:   g.queryInfo.DBX(query.String()),
-		Object: inf.Model,
-		Params: args,
+		QueryInformation: QueryInformation{
+			Builder: g,
+			Stmt:    g.queryInfo.DBX(query.String()),
+			Object:  inf.Model,
+			Params:  args,
+		},
+
 		Execute: func(query string, args ...any) (int64, error) {
 			var count int64
 			var row = g.DB().QueryRowContext(ctx, query, args...)
@@ -563,9 +604,12 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 
 	if len(objects) == 0 {
 		return &QueryObject[[][]interface{}]{
-			Stmt:   "",
-			Object: model,
-			Params: nil,
+			QueryInformation: QueryInformation{
+				Builder: g,
+				Stmt:    "",
+				Object:  model,
+				Params:  nil,
+			},
 			Execute: func(query string, args ...any) ([][]interface{}, error) {
 				return nil, nil
 			},
@@ -662,9 +706,12 @@ func (g *genericQueryBuilder) BuildCreateQuery(
 	}
 
 	return &QueryObject[[][]interface{}]{
-		Stmt:   g.queryInfo.DBX(query.String()),
-		Object: model,
-		Params: values,
+		QueryInformation: QueryInformation{
+			Builder: g,
+			Stmt:    g.queryInfo.DBX(query.String()),
+			Object:  model,
+			Params:  values,
+		},
 		Execute: func(query string, args ...any) ([][]interface{}, error) {
 			var err error
 			switch support {
@@ -818,9 +865,12 @@ func (g *genericQueryBuilder) BuildUpdateQuery(
 	}
 
 	return &QueryObject[int64]{
-		Stmt:   g.queryInfo.DBX(query.String()),
-		Object: inf.Model,
-		Params: args,
+		QueryInformation: QueryInformation{
+			Builder: g,
+			Stmt:    g.queryInfo.DBX(query.String()),
+			Object:  inf.Model,
+			Params:  args,
+		},
 		Execute: func(sql string, args ...any) (int64, error) {
 			result, err := g.DB().ExecContext(ctx, sql, args...)
 			if err != nil {
@@ -860,9 +910,12 @@ func (g *genericQueryBuilder) BuildDeleteQuery(
 	)
 
 	return &QueryObject[int64]{
-		Stmt:   g.queryInfo.DBX(query.String()),
-		Object: inf.Model,
-		Params: args,
+		QueryInformation: QueryInformation{
+			Builder: g,
+			Stmt:    g.queryInfo.DBX(query.String()),
+			Object:  inf.Model,
+			Params:  args,
+		},
 		Execute: func(sql string, args ...any) (int64, error) {
 			result, err := g.DB().ExecContext(ctx, sql, args...)
 			if err != nil {
@@ -1065,9 +1118,12 @@ func (g *postgresQueryBuilder) BuildUpdateQuery(
 ) CompiledQuery[int64] {
 	if len(objects) == 0 {
 		return &QueryObject[int64]{
-			Stmt:    "",
-			Object:  attrs.NewObject[attrs.Definer](qs.Model()),
-			Params:  nil,
+			QueryInformation: QueryInformation{
+				Builder: g,
+				Stmt:    "",
+				Object:  attrs.NewObject[attrs.Definer](qs.Model()),
+				Params:  nil,
+			},
 			Execute: func(query string, args ...any) (int64, error) { return 0, nil },
 		}
 	}
@@ -1102,9 +1158,12 @@ func (g *postgresQueryBuilder) BuildUpdateQuery(
 		))
 	}
 	return &QueryObject[int64]{
-		Stmt:   strings.Join(stmts, "; "),
-		Params: args,
-		Object: qs.Model(),
+		QueryInformation: QueryInformation{
+			Builder: g,
+			Stmt:    strings.Join(stmts, "; "),
+			Params:  args,
+			Object:  qs.Model(),
+		},
 		Execute: func(query string, args ...any) (int64, error) {
 			var br = conner.Conn().SendBatch(ctx, batch)
 			defer br.Close()
@@ -1136,9 +1195,12 @@ func (g *mariaDBQueryBuilder) BuildUpdateQuery(
 ) CompiledQuery[int64] {
 	if len(objects) == 0 {
 		return &QueryObject[int64]{
-			Stmt:    "",
-			Object:  attrs.NewObject[attrs.Definer](qs.Model()),
-			Params:  nil,
+			QueryInformation: QueryInformation{
+				Builder: g,
+				Stmt:    "",
+				Object:  attrs.NewObject[attrs.Definer](qs.Model()),
+				Params:  nil,
+			},
 			Execute: func(query string, args ...any) (int64, error) { return 0, nil },
 		}
 	}
@@ -1148,9 +1210,12 @@ func (g *mariaDBQueryBuilder) BuildUpdateQuery(
 	)
 
 	return &QueryObject[int64]{
-		Stmt:   query.SQL(),
-		Params: query.Args(),
-		Object: qs.Model(),
+		QueryInformation: QueryInformation{
+			Builder: g,
+			Stmt:    query.SQL(),
+			Params:  query.Args(),
+			Object:  qs.Model(),
+		},
 		Execute: func(query string, args ...any) (int64, error) {
 			var res, err = getDriverResult(g.DB().ExecContext(ctx, query, args...))
 			if err != nil {
@@ -1212,9 +1277,12 @@ func (g *mysqlQueryBuilder) BuildCreateQuery(
 
 	if len(objects) == 0 {
 		return &QueryObject[[][]interface{}]{
-			Stmt:   "",
-			Object: attrs.NewObject[attrs.Definer](qs.Model()),
-			Params: nil,
+			QueryInformation: QueryInformation{
+				Builder: g,
+				Stmt:    "",
+				Object:  attrs.NewObject[attrs.Definer](qs.Model()),
+				Params:  nil,
+			},
 			Execute: func(query string, args ...any) ([][]interface{}, error) {
 				return nil, nil
 			},
@@ -1229,9 +1297,12 @@ func (g *mysqlQueryBuilder) BuildCreateQuery(
 
 		if len(object.Fields) != len(object.Values) {
 			return &QueryObject[[][]interface{}]{
-				Stmt:   "",
-				Object: attrs.NewObject[attrs.Definer](qs.Model()),
-				Params: nil,
+				QueryInformation: QueryInformation{
+					Builder: g,
+					Stmt:    "",
+					Object:  attrs.NewObject[attrs.Definer](qs.Model()),
+					Params:  nil,
+				},
 				Execute: func(query string, args ...any) ([][]interface{}, error) {
 					return nil, fmt.Errorf(
 						"cannot build create query, number of fields (%d) does not match number of values (%d): %w",
@@ -1275,9 +1346,12 @@ func (g *mysqlQueryBuilder) BuildCreateQuery(
 	}
 
 	return &QueryObject[[][]interface{}]{
-		Stmt:   g.queryInfo.DBX(strings.Join(stmt, "; ")),
-		Params: values,
-		Object: attrs.NewObject[attrs.Definer](qs.Model()),
+		QueryInformation: QueryInformation{
+			Builder: g,
+			Stmt:    g.queryInfo.DBX(strings.Join(stmt, "; ")),
+			Params:  values,
+			Object:  attrs.NewObject[attrs.Definer](qs.Model()),
+		},
 		Execute: func(query string, args ...any) ([][]interface{}, error) {
 			if internals.Model.Primary != nil {
 				return g.querySupportsLastInsertId(ctx, internals, objects, query, args)

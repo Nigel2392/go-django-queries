@@ -117,6 +117,14 @@ type ExpressionInfo struct {
 	// Quote is a function that quotes the given string for use in a SQL query.
 	Quote func(string) string
 
+	// QuoteIdentifier is a function that quotes the given identifier for use in a SQL query.
+	//
+	// It should be used to quote table names, column names, and other identifiers such as aliases.
+	//
+	// It should only be used for advanced use cases, such as when creating custom expressions
+	// or when there is no other way to format an identifier (see [ExpressionStatement.Resolve] for example).
+	QuoteIdentifier func(string) string
+
 	// Lookups provides information about how to format the lookups
 	// used in the query.
 	Lookups ExpressionLookupInfo

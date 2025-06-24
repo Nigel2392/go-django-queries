@@ -3,60 +3,7 @@ package expr
 import (
 	"fmt"
 	"reflect"
-	"regexp"
-	"strconv"
-	"strings"
 )
-
-var (
-	exprFieldRegex = regexp.MustCompile(`!\[([^\]]*)\]`)
-	exprValueRegex = regexp.MustCompile(`\?\[([^\]][0-9]*)\]`)
-)
-
-// The statement should contain placeholders for the fields and values, which will be replaced with the actual values.
-//
-// The placeholders for fields should be in the format ![FieldName], and the placeholders for values should be in the format ?[Index],
-// or the values should use the regular SQL placeholder directly (database driver dependent).
-//
-// Example usage:
-//
-//	 # sets the field name to the first field found in the statement, I.E. ![Field1]:
-//
-//		stmt, fields, values := ParseExprStatement("![Field1] = ![Age] + ?[1] + ![Height] + ?[2] * ?[1]", 3, 4)
-func ParseExprStatement(statement string, value []any) (newStatement string, fields []string, values []any) {
-	fields = make([]string, 0)
-	for _, m := range exprFieldRegex.FindAllStringSubmatch(statement, -1) {
-		if len(m) > 1 {
-			fields = append(fields, m[1]) // m[0] is full match, m[1] is capture group
-		}
-	}
-
-	var valuesIndices = exprValueRegex.FindAllStringSubmatch(statement, -1)
-	values = make([]any, len(valuesIndices))
-	for i, m := range valuesIndices {
-		var idx, err = strconv.Atoi(m[1])
-		if err != nil {
-			panic(fmt.Errorf("invalid index %q in statement %q: %w", m[1], statement, err))
-		}
-
-		idx -= 1 // convert to 0-based index
-		if idx < 0 || idx >= len(value) {
-			panic(fmt.Errorf("index %d out of range in statement %q, index is 1-based and must be between 1 and %d", idx+1, statement, len(value)))
-		}
-
-		values[i] = value[idx]
-	}
-
-	if len(valuesIndices) == 0 && len(value) > 0 {
-		values = make([]any, len(value))
-		copy(values, value)
-	}
-
-	statement = strings.Replace(statement, "%", "%%", -1)
-	statement = exprFieldRegex.ReplaceAllString(statement, "%s")
-	statement = exprValueRegex.ReplaceAllString(statement, "?")
-	return statement, fields, values
-}
 
 func expressionFromInterface[T Expression](exprValue interface{}, asValue bool) []T {
 	var exprs = make([]T, 0)

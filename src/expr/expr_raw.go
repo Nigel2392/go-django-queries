@@ -1,8 +1,6 @@
 package expr
 
 import (
-	"fmt"
-	"slices"
 	"strings"
 )
 
@@ -22,19 +20,14 @@ import (
 type RawExpr = RawNamedExpression
 
 func Raw(statement string, value ...any) Expression {
-	var str, fields, values = ParseExprStatement(statement, value)
+	var stmt = ParseExprStatement(statement, value)
 	return &RawExpr{
-		Statement: str,
-		Fields:    fields,
-		Params:    values,
+		Statement: stmt,
 	}
 }
 
 type RawNamedExpression struct {
-	Statement string
-	Params    []any
-	Fields    []string
-	fields    []*ResolvedField
+	Statement *ExpressionStatement // The statement to be executed, containing placeholders for fields and values.
 	Field     string
 	not       bool
 	used      bool
@@ -64,13 +57,11 @@ type RawNamedExpression struct {
 //		fmt.Println(expr.SQL()) // prints: "? + ? + table.height + ? * ?"
 //		fmt.Println(expr.Args()) // prints: [4, 5, 6, 7]
 func F(statement any, value ...any) NamedExpression {
-	var stmt string
+	var stmt *ExpressionStatement
 	var fieldName string
-	var fields []string
-	var values []any
 	switch v := statement.(type) {
 	case string:
-		stmt, fields, values = ParseExprStatement(v, value)
+		stmt = ParseExprStatement(v, value)
 	case NamedExpression:
 		return &chainExpr{
 			inner: append(
@@ -88,16 +79,14 @@ func F(statement any, value ...any) NamedExpression {
 
 	}
 
-	if len(fields) > 0 {
-		fieldName = fields[0]
+	if len(stmt.Fields) > 0 {
+		fieldName = stmt.Fields[0]
 	} else {
 		panic("no field found in statement")
 	}
 
 	return &RawNamedExpression{
 		Statement: stmt,
-		Params:    values,
-		Fields:    fields,
 		Field:     fieldName,
 	}
 }
@@ -107,29 +96,14 @@ func (e *RawNamedExpression) FieldName() string {
 }
 
 func (e *RawNamedExpression) SQL(sb *strings.Builder) []any {
-	if len(e.Fields) == 0 {
-		sb.WriteString(e.Statement)
-		return e.Params
-	}
-
-	var args = make([]any, 0, len(e.Params)+len(e.Fields))
-	var fields = make([]any, len(e.Fields))
-	for i, field := range e.fields {
-		fields[i] = field.SQLText
-		args = append(args, field.SQLArgs...)
-	}
-
-	args = append(args, e.Params...)
-	var str = fmt.Sprintf(e.Statement, fields...)
-	sb.WriteString(str)
+	var sql, args = e.Statement.SQL()
+	sb.WriteString(sql)
 	return args
 }
 
 func (e *RawNamedExpression) Clone() Expression {
 	return &RawNamedExpression{
-		Statement: e.Statement,
-		Fields:    slices.Clone(e.Fields),
-		Params:    slices.Clone(e.Params),
+		Statement: e.Statement.Clone(),
 		not:       e.not,
 		used:      e.used,
 	}
@@ -142,11 +116,7 @@ func (e *RawNamedExpression) Resolve(inf *ExpressionInfo) Expression {
 
 	var nE = e.Clone().(*RawNamedExpression)
 	nE.used = true
-
-	nE.fields = make([]*ResolvedField, len(nE.Fields))
-	for i, field := range nE.Fields {
-		nE.fields[i] = inf.ResolveExpressionField(field)
-	}
+	nE.Statement = nE.Statement.Resolve(inf)
 
 	return nE
 }

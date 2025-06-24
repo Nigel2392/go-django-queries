@@ -1364,9 +1364,11 @@ func TestQueryNestedRelated(t *testing.T) {
 			//},
 
 			&expr.RawExpr{
-				Statement: "%s = ?",
-				Fields:    []string{"User.ID"},
-				Params:    []any{user.ID},
+				Statement: &expr.ExpressionStatement{
+					Statement: "%s = ?",
+					Fields:    []string{"User.ID"},
+					Values:    []any{user.ID},
+				},
 			},
 			// queries.Q("User.Profile.Email__icontains", "example"),
 		).
@@ -1979,13 +1981,13 @@ func TestQuerySet_LatestQuery(t *testing.T) {
 
 		query.Aggregate(map[string]expr.Expression{
 			"Total": &expr.RawExpr{
-				Statement: "COUNT(*)",
+				Statement: &expr.ExpressionStatement{Statement: "COUNT(*)"},
 			},
 			"MinID": &expr.RawExpr{
-				Statement: "MIN(id)",
+				Statement: &expr.ExpressionStatement{Statement: "MIN(id)"},
 			},
 			"MaxID": &expr.RawExpr{
-				Statement: "MAX(id)",
+				Statement: &expr.ExpressionStatement{Statement: "MAX(id)"},
 			},
 		})
 
@@ -3027,6 +3029,81 @@ func TestWorkingRowsAffected(t *testing.T) {
 
 	for _, obj := range created {
 		t.Logf("Updated object: %+v", obj)
+	}
+}
+
+func TestQuerySetRows(t *testing.T) {
+	var tables = quest.Table(t, &TestRowsAffected{})
+	tables.Create()
+	defer tables.Drop()
+
+	var objects = []*TestRowsAffected{
+		{Name: "TestRows1"},
+		{Name: "TestRows2"},
+		{Name: "TestRows3"},
+	}
+
+	for _, obj := range objects {
+		if err := queries.CreateObject(obj); err != nil {
+			t.Fatalf("Failed to insert object: %v", err)
+		}
+	}
+
+	var qs = queries.GetQuerySet[attrs.Definer](&TestRowsAffected{})
+	var rows, err = qs.Rows("SELECT ![ID], ![Name] FROM #[SELF] WHERE LOWER(![Name]) LIKE LOWER(?[1])", "testrows%")
+	if err != nil {
+		t.Fatalf("Failed to get rows: %v (%s)", err, qs.LatestQuery().SQL())
+	}
+	defer rows.Close()
+
+	var count int
+	for rows.Next() {
+		var row TestRowsAffected
+		if err := rows.Scan(&row.ID, &row.Name); err != nil {
+			t.Fatalf("Failed to scan row: %v", err)
+		}
+		count++
+		t.Logf("Row %d: %+v", count, row)
+	}
+
+	if count != len(objects) {
+		t.Fatalf("Expected %d rows, got %d", len(objects), count)
+	}
+
+	_, err = queries.GetQuerySet[attrs.Definer](&TestRowsAffected{}).Delete()
+	if err != nil {
+		t.Fatalf("Failed to delete objects: %v", err)
+	}
+}
+
+func TestQuerySetRow(t *testing.T) {
+	var tables = quest.Table(t, &TestRowsAffected{})
+	tables.Create()
+	defer tables.Drop()
+
+	var obj = &TestRowsAffected{
+		Name: "TestQuerySetRow",
+	}
+
+	if err := queries.CreateObject(obj); err != nil {
+		t.Fatalf("Failed to insert object: %v", err)
+	}
+
+	var rows = queries.GetQuerySet[attrs.Definer](&TestRowsAffected{}).
+		Row("SELECT ![ID], ![Name] FROM #[SELF] WHERE ![Name] = ?", "TestQuerySetRow")
+	if err := rows.Err(); err != nil {
+		t.Fatalf("Failed to get rows: %v", err)
+	}
+
+	var row TestRowsAffected
+	if err := rows.Scan(&row.ID, &row.Name); err != nil {
+		t.Fatalf("Failed to scan row: %v", err)
+	}
+	t.Logf("Row %+v", row)
+
+	var _, err = queries.GetQuerySet[attrs.Definer](&TestRowsAffected{}).Delete()
+	if err != nil {
+		t.Fatalf("Failed to delete objects: %v", err)
 	}
 }
 

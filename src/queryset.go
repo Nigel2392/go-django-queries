@@ -56,12 +56,11 @@ var QUERYSET_CREATE_IMPLICIT_TRANSACTION = true
 // It contains the model's meta information, primary key field, all fields,
 // and the table name.
 type modelInfo struct {
-	Meta        attrs.ModelMeta
-	Primary     attrs.FieldDefinition
-	Object      attrs.Definer
-	Definitions attrs.StaticDefinitions
-	Fields      []attrs.FieldDefinition
-	TableName   string
+	Primary   attrs.FieldDefinition
+	Object    attrs.Definer
+	Fields    []attrs.FieldDefinition
+	TableName string
+	OrderBy   []string
 }
 
 // Internals contains the internal state of the QuerySet.
@@ -220,16 +219,23 @@ func Objects[T attrs.Definer](model T, database ...string) *QuerySet[T] {
 		panic(query_errors.ErrNoTableName)
 	}
 
+	var orderBy []string
+	if ord, ok := any(model).(OrderByDefiner); ok {
+		orderBy = ord.OrderBy()
+	} else if primary != nil {
+		orderBy = []string{primary.Name()}
+	}
+
 	var qs = &QuerySet[T]{
 		AliasGen: alias.NewGenerator(),
 		context:  context.Background(),
 		internals: &QuerySetInternals{
 			Model: modelInfo{
-				Meta:      meta,
 				Primary:   primary,
 				Object:    model,
 				Fields:    definitions.Fields(),
 				TableName: tableName,
+				OrderBy:   orderBy,
 			},
 			Annotations: orderedmap.NewOrderedMap[string, attrs.Field](),
 			Where:       make([]expr.ClauseExpression, 0),
@@ -1365,6 +1371,11 @@ func (qs *QuerySet[T]) OrderBy(fields ...string) *QuerySet[T] {
 // and generates the appropriate TableColumn and FieldAlias for each field.
 func (qs *QuerySet[T]) compileOrderBy(fields ...string) []OrderBy {
 	var orderBy = make([]OrderBy, 0, len(fields))
+
+	if len(fields) == 0 {
+		fields = qs.internals.Model.OrderBy
+	}
+
 	for _, field := range fields {
 		var ord = strings.TrimSpace(field)
 		var desc = false
@@ -2844,24 +2855,56 @@ func (qs *QuerySet[T]) Delete(objects ...T) (int64, error) {
 	return res, tx.Commit()
 }
 
-// Raw is used to execute a raw SQL query on the compilers' current database.
+func (qs *QuerySet[T]) tryParseExprStatement(sqlStr string, args ...interface{}) (string, []interface{}) {
+	var (
+		changedQs = ChangeObjectsType[T, attrs.Definer](qs)
+		info      = qs.compiler.ExpressionInfo(changedQs, qs.internals)
+		stmt      = expr.ParseExprStatement(sqlStr, args)
+		resolved  = stmt.Resolve(info)
+	)
+
+	sqlStr, args = resolved.SQL()
+
+	if rebinder, ok := qs.compiler.(RebindCompiler); ok {
+		sqlStr = rebinder.Rebind(sqlStr)
+	}
+
+	qs.latestQuery = &QueryInformation{
+		Stmt:    sqlStr,
+		Params:  args,
+		Builder: qs.compiler,
+	}
+
+	return sqlStr, args
+}
+
+// Rows is used to execute a raw SQL query on the compilers' current database.
 //
-// It returns a *sql.Rows object that can be used to iterate over the results.
+// It returns a [drivers.SQLRows] object that can be used to iterate over the results.
 // The same transaction and context as the rest of the QuerySet will be used.
-func (qs *QuerySet[T]) Raw(sqlStr string, args ...interface{}) (drivers.SQLRows, error) {
+//
+// It first tries to resolve and parse the SQL statement, see [expr.ParseExprStatement] for more details.
+func (qs *QuerySet[T]) Rows(sqlStr string, args ...interface{}) (drivers.SQLRows, error) {
+	sqlStr, args = qs.tryParseExprStatement(sqlStr, args...)
 	return qs.compiler.DB().QueryContext(qs.Context(), sqlStr, args...)
 }
 
 // Row is used to execute a raw SQL query on the compilers' current database
-// and returns a single row.
+// and returns a single row of type [drivers.SQLRow].
+//
+// It first tries to resolve and parse the SQL statement, see [expr.ParseExprStatement] for more details.
 func (qs *QuerySet[T]) Row(sqlStr string, args ...interface{}) drivers.SQLRow {
+	sqlStr, args = qs.tryParseExprStatement(sqlStr, args...)
 	return qs.compiler.DB().QueryRowContext(qs.Context(), sqlStr, args...)
 }
 
 // Exec executes the given SQL on the compilers' current database and returns the result.
 //
 // It uses the same context and transaction as the rest of the QuerySet.
+//
+// It first tries to resolve and parse the SQL statement, see [expr.ParseExprStatement] for more details.
 func (qs *QuerySet[T]) Exec(sqlStr string, args ...interface{}) (sql.Result, error) {
+	sqlStr, args = qs.tryParseExprStatement(sqlStr, args...)
 	return qs.compiler.DB().ExecContext(qs.Context(), sqlStr, args...)
 }
 

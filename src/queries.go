@@ -401,6 +401,13 @@ type QuerySetDatabaseDefiner interface {
 	QuerySetDatabase() string
 }
 
+// OrderByDefiner is an interface that can be implemented by models to indicate
+// that the model has a default ordering that should be used when executing queries.
+type OrderByDefiner interface {
+	attrs.Definer
+	OrderBy() []string
+}
+
 // DatabaseSpecificTransaction is an interface for transactions that are specific to a database.
 type DatabaseSpecificTransaction interface {
 	drivers.Transaction
@@ -459,6 +466,13 @@ type QueryCompiler interface {
 	//
 	// If a transaction was started, it will return the transaction instead of the database connection.
 	DB() drivers.DB
+
+	// ExpressionInfo returns a usable [expr.ExpressionInfo] for the compiler.
+	//
+	// This is used to parse raw queries inside of [QuerySet.Rows], [QuerySet.Row] and [QuerySet.Exec].
+	//
+	// Allowing for the use of GO field names in a raw SQL query.
+	ExpressionInfo(qs *QuerySet[attrs.Definer], internals *QuerySetInternals) *expr.ExpressionInfo
 
 	// Quote returns the quotes used by the database.
 	//
@@ -537,6 +551,19 @@ type QueryCompiler interface {
 		qs *QuerySet[attrs.Definer],
 		internals *QuerySetInternals,
 	) CompiledQuery[int64]
+}
+
+// RebindCompiler is an interface that can be implemented by compilers to indicate
+// that the compiler can rebind queries to a different database.
+//
+// In simple terms, it allows the compiler to change the placeholder syntax
+// for query parameters when the query is executed on a different database.
+//
+// If the compiler does not implement this interface, it will not be able to rebind queries,
+// rebind functionality will not be available when calling [QuerySet.Rows], [QuerySet.Row] and [QuerySet.Exec].
+type RebindCompiler interface {
+	QueryCompiler
+	Rebind(s string) string
 }
 
 var compilerRegistry = make(map[reflect.Type]func(defaultDB string) QueryCompiler)

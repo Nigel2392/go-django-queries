@@ -12,24 +12,32 @@ var (
 	LogQueries = true
 )
 
-type QueryObject[T1 any] struct {
-	Execute func(sql string, args ...any) (T1, error)
+type QueryInformation struct {
 	Object  attrs.Definer
 	Params  []any
 	Stmt    string
 	Builder QueryCompiler
 }
 
-func (q *QueryObject[T1]) SQL() string {
+func (q *QueryInformation) SQL() string {
 	return q.Stmt
 }
 
-func (q *QueryObject[T1]) Args() []any {
+func (q *QueryInformation) Args() []any {
 	return q.Params
 }
 
-func (q *QueryObject[T1]) Model() attrs.Definer {
+func (q *QueryInformation) Model() attrs.Definer {
 	return q.Object
+}
+
+func (q *QueryInformation) Compiler() QueryCompiler {
+	return q.Builder
+}
+
+type QueryObject[T1 any] struct {
+	QueryInformation
+	Execute func(sql string, args ...any) (T1, error)
 }
 
 func (q *QueryObject[T1]) Exec() (T1, error) {
@@ -42,8 +50,4 @@ func (q *QueryObject[T1]) Exec() (T1, error) {
 		logger.Debugf("Query (%T, %T): %s %v", q.Model(), *new(T1), q.Stmt, q.Params)
 	}
 	return result, err
-}
-
-func (q *QueryObject[T1]) Compiler() QueryCompiler {
-	return q.Builder
 }

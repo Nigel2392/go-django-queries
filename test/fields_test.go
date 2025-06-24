@@ -437,14 +437,8 @@ func Test_Annotated_Get(t *testing.T) {
 	qs := queries.Objects[attrs.Definer](&TestStruct{}).
 		Select("*").
 		Filter("Name", "test1").
-		Annotate("LowerName", &expr.RawExpr{
-			Statement: "LOWER(%s)",
-			Fields:    []string{"Name"},
-		}).
-		Annotate("UpperName", &expr.RawExpr{
-			Statement: "UPPER(%s)",
-			Fields:    []string{"Name"},
-		}).
+		Annotate("LowerName", expr.Raw("LOWER(![Name])")).
+		Annotate("UpperName", expr.Raw("UPPER(![Name])")).
 		Annotate("CustomAnnotation", expr.CONCAT(
 			expr.UPPER("Name"), expr.Value(" ", true), "Text",
 		))
@@ -616,8 +610,10 @@ func Test_Annotated_OrderBy(t *testing.T) {
 func Test_Annotated_ValuesList(t *testing.T) {
 	qs := queries.Objects[attrs.Definer](&TestStruct{}).
 		Annotate("Combined", &expr.RawExpr{
-			Statement: "%s || ' ' || %s",
-			Fields:    []string{"Name", "Text"},
+			Statement: &expr.ExpressionStatement{
+				Statement: "%s || ' ' || %s",
+				Fields:    []string{"Name", "Text"},
+			},
 		}).
 		Select("ID", "Name")
 	values, err := qs.ValuesList("ID", "Combined")
@@ -647,9 +643,7 @@ func Test_Aggregate(t *testing.T) {
 	result, err := queries.Objects[attrs.Definer](&TestStruct{}).
 		Filter("Name", "agg").
 		Aggregate(map[string]expr.Expression{
-			"Total": &expr.RawExpr{
-				Statement: "COUNT(*)",
-			},
+			"Total": expr.Raw("COUNT(*)"),
 		})
 	if err != nil {
 		t.Fatal(err)
@@ -674,9 +668,9 @@ func Test_MultiAggregate(t *testing.T) {
 	res, err := queries.Objects[attrs.Definer](&TestStruct{}).
 		Filter("Name", "multiagg").
 		Aggregate(map[string]expr.Expression{
-			"Total": &expr.RawExpr{Statement: "COUNT(*)"},
-			"MinID": &expr.RawExpr{Statement: "MIN(id)"},
-			"MaxID": &expr.RawExpr{Statement: "MAX(id)"},
+			"Total": &expr.RawExpr{Statement: &expr.ExpressionStatement{Statement: "COUNT(*)"}},
+			"MinID": &expr.RawExpr{Statement: &expr.ExpressionStatement{Statement: "MIN(id)"}},
+			"MaxID": &expr.RawExpr{Statement: &expr.ExpressionStatement{Statement: "MAX(id)"}},
 		})
 	if err != nil {
 		t.Fatal(err)
@@ -743,8 +737,10 @@ func Test_Annotate_With_Relation(t *testing.T) {
 		Select("Author.Name").
 		GroupBy("Author.Name").
 		Annotate("BookCount", &expr.RawExpr{
-			Statement: "COUNT(%s)",
-			Fields:    []string{"ID"},
+			Statement: &expr.ExpressionStatement{
+				Statement: "COUNT(%s)",
+				Fields:    []string{"ID"},
+			},
 		})
 
 	var rows, err = qs.All()
@@ -803,10 +799,7 @@ func Test_Annotate_Relation(t *testing.T) {
 	qs := queries.Objects[attrs.Definer](&Book{}).
 		Select("Title", "Author.*").
 		GroupBy("Title", "Author.ID").
-		Annotate("AuthorCount", &expr.RawExpr{
-			Statement: "COUNT(%s)",
-			Fields:    []string{"Author.Name"},
-		})
+		Annotate("AuthorCount", expr.Raw("COUNT(![Author.Name])"))
 
 	var rows, err = qs.All()
 	if err != nil {
@@ -858,11 +851,8 @@ func Test_Aggregate_With_Join(t *testing.T) {
 		GroupBy("Author.Name")
 
 	var res, err = qs.Aggregate(map[string]expr.Expression{
-		"Author": &expr.RawExpr{
-			Statement: "%s",
-			Fields:    []string{"Author.Name"},
-		},
-		"CountBooks": &expr.RawExpr{Statement: "COUNT(*)"},
+		"Author":     expr.Raw("![Author.Name]"),
+		"CountBooks": &expr.RawExpr{Statement: &expr.ExpressionStatement{Statement: "COUNT(*)"}},
 	})
 
 	if err != nil {
